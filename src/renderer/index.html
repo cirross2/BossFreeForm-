@@ -34,144 +34,137 @@
 
       <!-- Center Apple Freeform Object Creation Bar (Left-Hand Ergonomic Priority Order) -->
       <div class="freeform-toolbar">
-        <button class="tool-btn active" id="toolSelectBtn" data-tool="select" title="선택 및 이동 도구 (왼손 단축키: A)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn active" id="toolSelectBtn" data-tool="select">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 4l6.5 16 2.5-6.5L19.5 11 4 4z"></path>
           </svg>
-          <span>선택</span>
-          <kbd class="tool-kbd">A</kbd>
+          <span>선택 도구 (A)</span>
         </button>
 
-        <button class="tool-btn" id="toolPenBtn" data-tool="pen" title="스마트 펜 드로잉 — 그린 선/도형도 객체로 이동·편집 가능 (왼손 단축키: D)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn" id="toolPenBtn" data-tool="pen">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
             <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
             <path d="M2 2l7.586 7.586"></path>
           </svg>
-          <span>펜 그리기</span>
-          <kbd class="tool-kbd">D</kbd>
+          <span>펜 그리기 (D)</span>
         </button>
 
         <div class="toolbar-divider"></div>
 
-        <button class="tool-btn" id="addStickyBtn" title="포스트잇 자유 메모지 추가 (왼손 단축키: S)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn" id="addStickyBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"></path>
             <path d="M14 3v4a2 2 0 0 0 2 2h4"></path>
           </svg>
-          <span>포스트잇</span>
-          <kbd class="tool-kbd">S</kbd>
+          <span>포스트잇 (S)</span>
         </button>
 
-        <button class="tool-btn" id="addLabelBtn" title="텍스트 추가 — 배경·테두리 없는 타이틀/그래픽 아트 (왼손 단축키: T 또는 F)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn" id="addLabelBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="4 7 4 4 20 4 20 7"></polyline>
             <line x1="9" y1="20" x2="15" y2="20"></line>
             <line x1="12" y1="4" x2="12" y2="20"></line>
           </svg>
-          <span>텍스트</span>
-          <kbd class="tool-kbd">T</kbd>
+          <span>텍스트·타이틀 (T / F)</span>
         </button>
 
-        <button class="tool-btn" id="addTextBtn" title="3종 체크박스(네모/원형/슬라이드) 할 일 체크리스트 카드 추가 (왼손 단축키: C)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn" id="addTextBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="4" width="5" height="5" rx="1"></rect>
             <path d="m4.5 6.5 1.2 1.2 2-2"></path>
             <line x1="11" y1="6.5" x2="21" y2="6.5"></line>
             <rect x="3" y="14" width="5" height="5" rx="2.5"></rect>
             <line x1="11" y1="16.5" x2="21" y2="16.5"></line>
           </svg>
-          <span>체크리스트</span>
-          <kbd class="tool-kbd">C</kbd>
+          <span>체크리스트 (C)</span>
         </button>
 
-        <button class="tool-btn" id="addTableBtn" title="인터랙티브 표 / 시트 추가 (왼손 단축키: G)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn" id="addTableBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2"></rect>
             <line x1="3" y1="9" x2="21" y2="9"></line>
             <line x1="3" y1="15" x2="21" y2="15"></line>
             <line x1="9" y1="3" x2="9" y2="21"></line>
             <line x1="15" y1="3" x2="15" y2="21"></line>
           </svg>
-          <span>표 (시트)</span>
-          <kbd class="tool-kbd">G</kbd>
+          <span>표 / 시트 (G)</span>
         </button>
 
         <div class="toolbar-divider"></div>
 
-        <button class="tool-btn" id="captureScreenBtn" title="현재 화면 캡처하여 보드에 바로 넣기 (왼손 단축키: X)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn" id="captureScreenBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path>
             <circle cx="12" cy="13" r="3"></circle>
           </svg>
-          <span>화면캡처</span>
-          <kbd class="tool-kbd">X</kbd>
+          <span>화면캡처 (X)</span>
         </button>
 
-        <button class="tool-btn" id="addImageBtn" title="이미지 파일 추가 — 드래그 앤 드롭 또는 Ctrl+V 가능 (보조 단축키: Q)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn" id="addImageBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2.5"></rect>
             <circle cx="8.5" cy="8.5" r="1.5"></circle>
             <path d="m21 15-5-5L5 21"></path>
           </svg>
-          <span>이미지</span>
-          <kbd class="tool-kbd">Q</kbd>
+          <span>이미지 추가 (Q)</span>
         </button>
 
-        <button class="tool-btn" id="addLinkBtn" title="하이퍼링크 / 웹사이트 북마크 / 유튜브 추가 — 드래그 앤 드롭 또는 Ctrl+V 가능 (보조 단축키: W)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn" id="addLinkBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
           </svg>
-          <span>링크·유튜브</span>
-          <kbd class="tool-kbd">W</kbd>
+          <span>링크·유튜브 (W)</span>
         </button>
 
-        <button class="tool-btn" id="addFileBtn" title="문서·PDF·코드 등 파일 추가 — 드래그 앤 드롭 가능 (보조 단축키: E)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn" id="addFileBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
           </svg>
-          <span>파일</span>
-          <kbd class="tool-kbd">E</kbd>
+          <span>파일 첨부 (E)</span>
         </button>
       </div>
 
       <!-- Right Cloud Sync & Utility Controls -->
       <div class="titlebar-right">
-        <button class="tool-btn compact" id="undoBoardBtn" title="실행 취소 — 삭제/이동/편집 복구 (Ctrl+Z)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn compact" id="undoBoardBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 7v6h6"></path>
             <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
           </svg>
-          <span>실행취소</span>
+          <span>실행취소 (Ctrl+Z)</span>
         </button>
-        <button class="tool-btn compact" id="redoBoardBtn" title="다시 실행 (Ctrl+Y / Ctrl+Shift+Z)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn compact" id="redoBoardBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 7v6h-6"></path>
             <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
           </svg>
-          <span>다시실행</span>
+          <span>다시실행 (Ctrl+Y)</span>
         </button>
 
-        <button class="tool-btn compact" id="pasteClipboardBtn" title="스마트 붙여넣기: 이미지/표/링크·유튜브/텍스트 자동 인식 (Ctrl+V)">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn compact" id="pasteClipboardBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
             <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
           </svg>
-          <span>붙여넣기</span>
+          <span>붙여넣기 (Ctrl+V)</span>
         </button>
 
-        <button class="tool-btn compact" id="resetWindowPosBtn" title="창 크기 및 위치를 화면 중앙으로 초기화">
-          <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="tool-btn compact" id="resetWindowPosBtn">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="4" width="18" height="16" rx="2"></rect>
             <path d="M9 12h6"></path>
             <path d="M12 9v6"></path>
           </svg>
-          <span>창 초기화</span>
+          <span>창 크기·위치 초기화</span>
         </button>
 
-        <button class="sync-status-pill" id="openSyncModalBtn" title="Google Drive 동기화 설정 및 상태 확인">
+        <button class="sync-status-pill" id="openSyncModalBtn">
           <span class="sync-dot" id="syncStatusDot"></span>
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+          </svg>
           <span id="syncStatusLabel">Google Drive 연동</span>
         </button>
       </div>
