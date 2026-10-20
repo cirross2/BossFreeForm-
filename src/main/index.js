@@ -1,0 +1,922 @@
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  clipboard,
+  shell,
+  globalShortcut,
+  Tray,
+  Menu,
+  nativeImage,
+  screen,
+  session
+} = require('electron');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const http = require('http');
+const https = require('https');
+const { exec } = require('child_process');
+const driveSync = require('./driveSync');
+
+let mainWindow = null;
+let googleWebWindow = null;
+let tray = null;
+let boundsSaveTimer = null;
+
+const DEFAULT_HOTKEY = 'Ctrl+Shift+Space';
+const ICON_ICO_PATH = path.join(__dirname, '../../assets/icon.ico');
+const ICON_PNG_PATH = path.join(__dirname, '../../assets/icon.png');
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.boss.bossfreeform');
+}
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showMainWindow();
+  });
+}
+
+function normalizeAcceleratorForElectron(hotkeyStr) {
+  return String(hotkeyStr || DEFAULT_HOTKEY)
+    .trim()
+    .replace(/\bCtrl\b/gi, 'CommandOrControl')
+    .replace(/\bControl\b/gi, 'CommandOrControl')
+    .replace(/\bWin\b/gi, 'Super')
+    .replace(/\s+/g, '');
+}
+
+function formatHotkeyDisplay(hotkeyStr) {
+  return String(hotkeyStr || DEFAULT_HOTKEY)
+    .trim()
+    .replace(/\bCommandOrControl\b/gi, 'Ctrl')
+    .replace(/\bControl\b/gi, 'Ctrl')
+    .replace(/\s+/g, '');
+}
+
+function toggleMainWindowVisibility() {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()) {
+    saveCurrentWindowBounds();
+    mainWindow.hide();
+  } else {
+    showMainWindow();
+  }
+}
+
+function registerAppGlobalHotkey(requestedHotkey) {
+  const prevHotkey = formatHotkeyDisplay(driveSync.config.hotkey || DEFAULT_HOTKEY);
+  const displayHotkey = formatHotkeyDisplay(requestedHotkey || DEFAULT_HOTKEY);
+  const electronAccel = normalizeAcceleratorForElectron(displayHotkey);
+
+  try {
+    globalShortcut.unregisterAll();
+  } catch (_) {}
+
+  try {
+    const ok = globalShortcut.register(electronAccel, toggleMainWindowVisibility);
+    if (!ok) {
+      // Fallback to previous hotkey if registration failed
+      try {
+        globalShortcut.register(normalizeAcceleratorForElectron(prevHotkey), toggleMainWindowVisibility);
+      } catch (_) {}
+      return {
+        success: false,
+        hotkey: prevHotkey,
+        error: `'${displayHotkey}' 단축키가 다른 프로그램에서 이미 사용 중이거나 지원되지 않습니다.`
+      };
+    }
+
+    driveSync.saveConfig({ hotkey: displayHotkey });
+    updateTrayMenu();
+    return {
+      success: true,
+      hotkey: displayHotkey
+    };
+  } catch (err) {
+    try {
+      globalShortcut.register(normalizeAcceleratorForElectron(prevHotkey), toggleMainWindowVisibility);
+    } catch (_) {}
+    return {
+      success: false,
+      hotkey: prevHotkey,
+      error: `단축키 등록 오류: ${err.message}`
+    };
+  }
+}
+
+function getWindowIcon() {
+  if (fs.existsSync(ICON_ICO_PATH)) {
+    const img = nativeImage.createFromPath(ICON_ICO_PATH);
+    if (!img.isEmpty()) return img;
+  }
+  if (fs.existsSync(ICON_PNG_PATH)) {
+    const img = nativeImage.createFromPath(ICON_PNG_PATH);
+    if (!img.isEmpty()) return img;
+  }
+  return undefined;
+}
+
+function createTrayIcon() {
+  if (fs.existsSync(ICON_PNG_PATH)) {
+    const img = nativeImage.createFromPath(ICON_PNG_PATH);
+    if (!img.isEmpty()) {
+      return img.resize({ width: 24, height: 24, quality: 'best' });
+    }
+  }
+  if (fs.existsSync(ICON_ICO_PATH)) {
+    const img = nativeImage.createFromPath(ICON_ICO_PATH);
+    if (!img.isEmpty()) {
+      return img.resize({ width: 24, height: 24, quality: 'best' });
+    }
+  }
+  const size = 32;
+  const buf = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const dx = x - 16;
+      const dy = y - 16;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist <= 14) {
+        buf[idx] = 255;     // B
+        buf[idx + 1] = 132; // G
+        buf[idx + 2] = 10;  // R (#0a84ff)
+        buf[idx + 3] = 255;
+      } else {
+        buf[idx + 3] = 0;
+      }
+    }
+  }
+  return nativeImage.createFromBuffer(buf, { width: size, height: size });
+}
+
+function getDefaultWindowBounds() {
+  const primary = screen.getPrimaryDisplay().workArea;
+  const width = Math.min(1520, primary.width - 80);
+  const height = Math.min(940, primary.height - 80);
+  const x = Math.round(primary.x + (primary.width - width) / 2);
+  const y = Math.round(primary.y + (primary.height - height) / 2);
+  return { x, y, width, height, isMaximized: false };
+}
+
+function getValidatedWindowBounds(saved) {
+  const fallback = getDefaultWindowBounds();
+  if (!saved || typeof saved.width !== 'number' || typeof saved.height !== 'number') {
+    return fallback;
+  }
+  const width = Math.max(960, Math.round(saved.width));
+  const height = Math.max(620, Math.round(saved.height));
+  const x = typeof saved.x === 'number' ? Math.round(saved.x) : fallback.x;
+  const y = typeof saved.y === 'number' ? Math.round(saved.y) : fallback.y;
+
+  // Verify the saved position intersects at least one display workArea
+  const displays = screen.getAllDisplays();
+  const isVisible = displays.some((d) => {
+    const wa = d.workArea;
+    return (
+      x + width > wa.x + 60 &&
+      x < wa.x + wa.width - 60 &&
+      y + height > wa.y + 40 &&
+      y < wa.y + wa.height - 40
+    );
+  });
+
+  if (!isVisible) return fallback;
+  return { x, y, width, height, isMaximized: Boolean(saved.isMaximized) };
+}
+
+function saveCurrentWindowBounds() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
+  boundsSaveTimer = setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const isMax = mainWindow.isMaximized();
+    const prev = driveSync.config.windowBounds || getDefaultWindowBounds();
+    const bounds = isMax ? prev : mainWindow.getBounds();
+    driveSync.saveConfig({
+      windowBounds: {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        isMaximized: isMax
+      }
+    });
+  }, 250);
+}
+
+function resetMainWindowBounds() {
+  const def = getDefaultWindowBounds();
+  driveSync.saveConfig({ windowBounds: def });
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.setBounds({ x: def.x, y: def.y, width: def.width, height: def.height }, true);
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  return { success: true, bounds: def };
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow();
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (fs.existsSync(ICON_ICO_PATH) && typeof mainWindow.setIcon === 'function') {
+    try {
+      mainWindow.setIcon(ICON_ICO_PATH);
+    } catch (_) {}
+  }
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createMainWindow() {
+  const cfg = driveSync.config;
+  const initial = getValidatedWindowBounds(cfg.windowBounds);
+  const iconTarget = fs.existsSync(ICON_ICO_PATH) ? ICON_ICO_PATH : getWindowIcon();
+
+  mainWindow = new BrowserWindow({
+    x: initial.x,
+    y: initial.y,
+    width: initial.width,
+    height: initial.height,
+    minWidth: 960,
+    minHeight: 620,
+    frame: false,
+    backgroundColor: '#121214',
+    title: 'BossFreeForm — Infinite Canvas x Google Drive',
+    icon: iconTarget,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  if (iconTarget && typeof mainWindow.setIcon === 'function') {
+    try {
+      mainWindow.setIcon(iconTarget);
+    } catch (_) {}
+  }
+
+  // Prevent browser navigation when dragging & dropping links/files from Chrome/Explorer
+  mainWindow.webContents.on('will-navigate', (e) => {
+    e.preventDefault();
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+
+  mainWindow.once('ready-to-show', () => {
+    if (initial.isMaximized) {
+      mainWindow.maximize();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  mainWindow.on('moved', saveCurrentWindowBounds);
+  mainWindow.on('resized', saveCurrentWindowBounds);
+  mainWindow.on('maximize', saveCurrentWindowBounds);
+  mainWindow.on('unmaximize', saveCurrentWindowBounds);
+
+  mainWindow.on('close', (e) => {
+    if (!app.isQuitting) {
+      saveCurrentWindowBounds();
+      e.preventDefault();
+      mainWindow.hide();
+    }
+  });
+}
+
+function openGoogleWebDriveWindow() {
+  if (googleWebWindow && !googleWebWindow.isDestroyed()) {
+    googleWebWindow.show();
+    googleWebWindow.focus();
+    return;
+  }
+
+  googleWebWindow = new BrowserWindow({
+    width: 1120,
+    height: 780,
+    title: 'Google Drive 계정 로그인 및 클라우드 관리',
+    icon: getWindowIcon() || ICON_ICO_PATH,
+    autoHideMenuBar: true,
+    webPreferences: {
+      partition: 'persist:bossfreeform-google-session',
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  googleWebWindow.loadURL('https://drive.google.com');
+  googleWebWindow.on('closed', () => {
+    googleWebWindow = null;
+  });
+}
+
+function parseVideoInfoFromUrl(rawUrl) {
+  const url = (rawUrl || '').trim();
+  const ytMatch = url.match(
+    /(?:youtube\.com\/watch\?[^#\s]*v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/embed\/)([A-Za-z0-9_-]{11})/i
+  );
+  if (ytMatch) {
+    return {
+      isVideo: true,
+      videoType: 'youtube',
+      youtubeId: ytMatch[1],
+      embedUrl: `https://www.youtube.com/embed/${ytMatch[1]}`,
+      thumbnail: `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`
+    };
+  }
+  const vimeoMatch = url.match(/vimeo\.com\/(\d+)/i);
+  if (vimeoMatch) {
+    return {
+      isVideo: true,
+      videoType: 'vimeo',
+      vimeoId: vimeoMatch[1],
+      embedUrl: `https://player.vimeo.com/video/${vimeoMatch[1]}`
+    };
+  }
+  if (/\.(mp4|webm|mov|ogg)(\?.*)?$/i.test(url)) {
+    return {
+      isVideo: true,
+      videoType: 'direct',
+      videoUrl: url
+    };
+  }
+  return { isVideo: false };
+}
+
+// Fetch URL OpenGraph / Title Metadata & Detect YouTube/Video (Guaranteed non-blocking resolution)
+function fetchUrlMetadata(rawUrl, redirectDepth = 0) {
+  return new Promise((resolve) => {
+    let targetUrl = (rawUrl || '').trim();
+    if (!/^https?:\/\//i.test(targetUrl)) {
+      targetUrl = 'https://' + targetUrl;
+    }
+
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(targetUrl);
+    } catch (_) {
+      return resolve({
+        url: rawUrl,
+        title: rawUrl,
+        description: '',
+        domain: '',
+        favicon: ''
+      });
+    }
+
+    const domain = parsedUrl.hostname.replace(/^www\./, '');
+    const favicon = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+    const videoInfo = parseVideoInfoFromUrl(targetUrl);
+    const youtubeId = videoInfo.youtubeId || null;
+
+    let settled = false;
+    let html = '';
+    let req = null;
+
+    const decodeEntities = (str) =>
+      String(str || '')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .trim();
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hardTimer);
+      try {
+        if (req) req.destroy();
+      } catch (_) {}
+
+      const extractMeta = (prop) => {
+        const r1 = new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`, 'i');
+        const r2 = new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${prop}["']`, 'i');
+        const m = html.match(r1) || html.match(r2);
+        return m ? decodeEntities(m[1]) : '';
+      };
+      const titleTag = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      const title =
+        extractMeta('og:title') ||
+        extractMeta('twitter:title') ||
+        (titleTag ? decodeEntities(titleTag[1].replace(/\s+/g, ' ')) : '') ||
+        (youtubeId ? `YouTube 동영상 (${youtubeId})` : domain);
+      const description =
+        extractMeta('og:description') ||
+        extractMeta('description') ||
+        extractMeta('twitter:description') ||
+        targetUrl;
+      const thumbnail =
+        extractMeta('og:image') ||
+        videoInfo.thumbnail ||
+        '';
+
+      resolve({
+        url: targetUrl,
+        title: title.slice(0, 140),
+        description: description.slice(0, 240),
+        domain,
+        favicon,
+        ...videoInfo,
+        thumbnail
+      });
+    };
+
+    const hardTimer = setTimeout(() => {
+      finish();
+    }, 3000);
+
+    try {
+      const client = parsedUrl.protocol === 'https:' ? https : http;
+      req = client.get(
+        targetUrl,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml'
+          },
+          timeout: 2800
+        },
+        (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            const loc = res.headers.location;
+            res.destroy();
+            if (redirectDepth < 2) {
+              settled = true;
+              clearTimeout(hardTimer);
+              let nextUrl = loc;
+              try {
+                nextUrl = new URL(loc, targetUrl).toString();
+              } catch (_) {}
+              return fetchUrlMetadata(nextUrl, redirectDepth + 1).then(resolve);
+            }
+            return finish();
+          }
+
+          res.setEncoding('utf-8');
+          res.on('data', (chunk) => {
+            html += chunk;
+            if (html.length > 65000) {
+              finish();
+              try { res.destroy(); } catch (_) {}
+            }
+          });
+          res.on('end', finish);
+          res.on('close', finish);
+          res.on('error', finish);
+        }
+      );
+
+      req.on('error', finish);
+      req.on('timeout', finish);
+    } catch (_) {
+      finish();
+    }
+  });
+}
+
+// Parse HTML <table> or Markdown Table or TSV into 2D array if present (for smart clipboard paste)
+function tryParseTableFromHtml(html) {
+  if (!html || !/<table[\s>]/i.test(html)) return null;
+  const trMatches = html.match(/<tr[\s\S]*?<\/tr>/gi);
+  if (!trMatches || trMatches.length < 1) return null;
+  const rows = [];
+  for (const tr of trMatches) {
+    const cellMatches = tr.match(/<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi);
+    if (!cellMatches || !cellMatches.length) continue;
+    const row = cellMatches.map((cellHtml) =>
+      cellHtml
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .trim()
+    );
+    if (row.some((c) => c.length > 0)) rows.push(row);
+  }
+  return rows.length >= 1 && (rows.length >= 2 || rows[0].length >= 2) ? rows : null;
+}
+
+function tryParseTableFromText(text) {
+  if (!text || typeof text !== 'string') return null;
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length < 1) return null;
+
+  // 1. Check TSV (Excel / Google Sheets copy-paste)
+  if (lines.length >= 2 && lines[0].includes('\t') && lines[1].includes('\t')) {
+    return lines.map((l) => l.split('\t').map((c) => c.trim()));
+  }
+  if (lines.length === 1 && (lines[0].match(/\t/g) || []).length >= 2) {
+    return [lines[0].split('\t').map((c) => c.trim())];
+  }
+
+  // 2. Check Markdown Table
+  const mdTableLines = lines.filter((l) => l.trim().startsWith('|') && l.trim().endsWith('|'));
+  if (mdTableLines.length >= 2) {
+    const rows = [];
+    for (const line of mdTableLines) {
+      const cells = line
+        .trim()
+        .slice(1, -1)
+        .split('|')
+        .map((c) => c.trim());
+      if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
+      rows.push(cells);
+    }
+    if (rows.length >= 2) return rows;
+  }
+
+  return null;
+}
+
+// Setup IPC Handlers
+function setupIpc() {
+  ipcMain.on('window:minimize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+  });
+
+  ipcMain.on('window:maximize', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+  });
+
+  ipcMain.on('window:close', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      saveCurrentWindowBounds();
+      mainWindow.hide();
+    }
+  });
+
+  ipcMain.handle('window:reset-bounds', () => {
+    return resetMainWindowBounds();
+  });
+
+  ipcMain.handle('board:list', () => driveSync.listBoards());
+  ipcMain.handle('board:get', (_, boardId) => driveSync.getBoard(boardId));
+  ipcMain.handle('board:save', (_, board) => driveSync.saveBoard(board));
+  ipcMain.handle('board:create', (_, opts) => driveSync.createNewBoard(opts));
+  ipcMain.handle('board:delete', (_, boardId) => driveSync.deleteBoard(boardId));
+
+  ipcMain.handle('asset:save-path', (_, { filePath, name }) => {
+    return driveSync.saveAssetFromPath(filePath, name);
+  });
+
+  ipcMain.handle('asset:save-buffer', (_, { buffer, ext, name }) => {
+    const buf = Buffer.from(buffer);
+    const saved = driveSync.saveAssetFromBuffer(buf, ext || '.bin', name || 'dropped_file');
+    return {
+      ...saved,
+      size: buf.length
+    };
+  });
+
+  ipcMain.handle('dialog:pick-files', async (_, opts = {}) => {
+    const filters = opts.imagesOnly
+      ? [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'] }]
+      : [{ name: 'All Files', extensions: ['*'] }];
+    const res = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile', 'multiSelections'],
+      filters
+    });
+    if (res.canceled || !res.filePaths.length) return [];
+    return res.filePaths.map((fp) => driveSync.saveAssetFromPath(fp));
+  });
+
+  ipcMain.handle('clipboard:read-smart', () => {
+    const img = clipboard.readImage();
+    if (!img.isEmpty()) {
+      const pngBuf = img.toPNG();
+      const size = img.getSize();
+      const saved = driveSync.saveAssetFromBuffer(pngBuf, '.png', 'clipboard_img');
+      return {
+        kind: 'image',
+        asset: saved,
+        width: size.width,
+        height: size.height
+      };
+    }
+
+    const html = clipboard.readHTML() || '';
+    const htmlTable = tryParseTableFromHtml(html);
+    if (htmlTable) {
+      return {
+        kind: 'table',
+        tableData: htmlTable,
+        rawText: clipboard.readText() || ''
+      };
+    }
+
+    const text = (clipboard.readText() || '').trim();
+    if (!text) return { kind: 'empty' };
+
+    const tableData = tryParseTableFromText(text);
+    if (tableData) {
+      return {
+        kind: 'table',
+        tableData,
+        rawText: text
+      };
+    }
+
+    if (/^(https?:\/\/|www\.)\S+$/i.test(text)) {
+      const normalizedUrl = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+      const videoInfo = parseVideoInfoFromUrl(normalizedUrl);
+      return {
+        kind: 'url',
+        url: normalizedUrl,
+        ...videoInfo
+      };
+    }
+
+    return {
+      kind: 'text',
+      text
+    };
+  });
+
+  ipcMain.handle('clipboard:write-text', (_, text) => {
+    clipboard.writeText(text || '');
+    return true;
+  });
+
+  ipcMain.handle('clipboard:write-image', (_, { filePath, dataUrl } = {}) => {
+    try {
+      let nImg = null;
+      if (filePath && fs.existsSync(filePath)) {
+        nImg = nativeImage.createFromPath(filePath);
+      } else if (dataUrl && dataUrl.startsWith('data:image/')) {
+        nImg = nativeImage.createFromDataURL(dataUrl);
+      }
+      if (nImg && !nImg.isEmpty()) {
+        clipboard.writeImage(nImg);
+        return { ok: true };
+      }
+      return { ok: false, error: '이미지 데이터를 읽을 수 없습니다' };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('pdf:read-base64', (_, filePath) => {
+    try {
+      if (!filePath || !fs.existsSync(filePath)) {
+        return { ok: false, error: 'PDF 파일을 찾을 수 없습니다' };
+      }
+      const buf = fs.readFileSync(filePath);
+      return { ok: true, base64: buf.toString('base64'), size: buf.length };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('pdf:open-bosspdf', (_, filePath) => {
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { ok: false, error: 'PDF 파일을 찾을 수 없습니다' };
+    }
+    const candidatePaths = [
+      path.resolve(__dirname, '../../../BossPDF/dist/BossPDF/BossPDF.exe'),
+      'E:\\코딩\\BossPDF\\dist\\BossPDF\\BossPDF.exe',
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'BossPDF', 'BossPDF.exe'),
+      'C:\\Program Files\\BossPDF\\BossPDF.exe'
+    ];
+    const bossPdfExe = candidatePaths.find((p) => p && fs.existsSync(p));
+    if (bossPdfExe) {
+      exec(`"${bossPdfExe}" "${filePath}"`);
+      return { ok: true, usedBossPdf: true };
+    }
+    shell.openPath(filePath);
+    return { ok: true, usedBossPdf: false };
+  });
+
+  ipcMain.handle('screen:capture-asset', async () => {
+    const wasVisible = mainWindow && mainWindow.isVisible();
+    if (wasVisible) mainWindow.hide();
+    await new Promise((r) => setTimeout(r, 220));
+
+    const tempPath = path.join(os.tmpdir(), `bossfreeform_cap_${Date.now()}.png`);
+    const psScript = `Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height; $graphics = [System.Drawing.Graphics]::FromImage($bitmap); $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size); $bitmap.Save('${tempPath.replace(/\\/g, '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png); $graphics.Dispose(); $bitmap.Dispose();`;
+
+    const result = await new Promise((resolve) => {
+      exec(`powershell -NoProfile -Command "${psScript}"`, (err) => {
+        if (err || !fs.existsSync(tempPath)) {
+          resolve({ error: err ? err.message : '화면 캡처 실패' });
+        } else {
+          const asset = driveSync.saveAssetFromPath(tempPath, `화면캡처_${Date.now().toString().slice(-4)}.png`);
+          try { fs.unlinkSync(tempPath); } catch (_) {}
+          resolve({ asset });
+        }
+      });
+    });
+
+    if (wasVisible && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    return result;
+  });
+
+  ipcMain.handle('url:fetch-metadata', (_, url) => fetchUrlMetadata(url));
+  ipcMain.handle('shell:open-external', (_, url) => shell.openExternal(url));
+  ipcMain.handle('shell:open-path', (_, p) => shell.openPath(p));
+
+  ipcMain.handle('export:table-csv', async (_, { title, tableData }) => {
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: '표(Table)를 Excel CSV 파일로 내보내기',
+      defaultPath: `${(title || 'BossFreeForm_Table').replace(/[\\/:*?"<>|]/g, '_')}.csv`,
+      filters: [{ name: 'CSV Spreadsheet (*.csv)', extensions: ['csv'] }]
+    });
+    if (res.canceled || !res.filePath) return { canceled: true };
+    const csvLines = (tableData || []).map((row) =>
+      row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')
+    );
+    fs.writeFileSync(res.filePath, '\uFEFF' + csvLines.join('\r\n'), 'utf-8');
+    return { success: true, filePath: res.filePath };
+  });
+
+  ipcMain.handle('export:board-json', async (_, board) => {
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: '프리폼 보드 백업 파일(.json) 저장',
+      defaultPath: `${(board?.title || 'BossFreeForm_Board').replace(/[\\/:*?"<>|]/g, '_')}.freeform.json`,
+      filters: [{ name: 'BossFreeForm Board (*.json)', extensions: ['json'] }]
+    });
+    if (res.canceled || !res.filePath) return { canceled: true };
+    fs.writeFileSync(res.filePath, JSON.stringify(board, null, 2), 'utf-8');
+    return { success: true, filePath: res.filePath };
+  });
+
+  ipcMain.handle('import:board-json', async () => {
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: '프리폼 보드 파일(.json) 불러오기',
+      properties: ['openFile'],
+      filters: [{ name: 'BossFreeForm Board (*.json)', extensions: ['json'] }]
+    });
+    if (res.canceled || !res.filePaths.length) return { canceled: true };
+    const raw = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf-8'));
+    raw.id = `board_${Date.now()}`;
+    const saved = driveSync.saveBoard(raw);
+    return { success: true, board: saved };
+  });
+
+  // Google Drive Sync Handlers & Global Hotkey Config
+  ipcMain.handle('sync:get-status', () => driveSync.getSyncStatus());
+
+  ipcMain.handle('sync:pick-folder', async () => {
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: '구글 드라이브(내 드라이브) 또는 보드 동기화 폴더 선택',
+      properties: ['openDirectory', 'createDirectory']
+    });
+    if (res.canceled || !res.filePaths.length) return { canceled: true };
+    const chosen = res.filePaths[0];
+    const targetFolder = path.basename(chosen).toLowerCase().includes('freeform')
+      ? chosen
+      : path.join(chosen, 'BossFreeForm');
+    const status = driveSync.setSyncFolder(targetFolder, 'desktop-drive', true);
+    return { success: true, status };
+  });
+
+  ipcMain.handle('sync:use-detected-drive', () => {
+    const detected = driveSync.detectGoogleDriveDesktopPath();
+    if (!detected) {
+      return { success: false, error: 'PC에 설치된 Google Drive(내 드라이브) 경로를 자동으로 찾지 못했습니다. 폴더 직접 선택을 이용해 주세요.' };
+    }
+    const status = driveSync.setSyncFolder(detected, 'desktop-drive', true);
+    return { success: true, status };
+  });
+
+  ipcMain.handle('sync:open-folder', () => {
+    shell.openPath(driveSync.getActiveStorageRoot());
+    return true;
+  });
+
+  ipcMain.handle('sync:start-oauth', async (_, creds) => {
+    return await driveSync.startGoogleOAuthFlow({
+      ...creds,
+      openExternal: (url) => shell.openExternal(url)
+    });
+  });
+
+  ipcMain.handle('sync:cloud-now', async () => {
+    return await driveSync.syncToGoogleCloud();
+  });
+
+  ipcMain.handle('sync:disconnect-oauth', () => {
+    return driveSync.disconnectOAuth();
+  });
+
+  ipcMain.handle('sync:open-google-web', () => {
+    openGoogleWebDriveWindow();
+    return { success: true };
+  });
+
+  ipcMain.handle('config:get', () => driveSync.config);
+  ipcMain.handle('config:save', (_, partial) => driveSync.saveConfig(partial || {}));
+  ipcMain.handle('config:set-hotkey', (_, newHotkey) => {
+    return registerAppGlobalHotkey(newHotkey);
+  });
+}
+
+function updateTrayMenu() {
+  if (!tray) return;
+  const hk = formatHotkeyDisplay(driveSync.config.hotkey || DEFAULT_HOTKEY);
+  tray.setToolTip(`BossFreeForm — Infinite Canvas x Google Drive (${hk})`);
+  const menu = Menu.buildFromTemplate([
+    { label: `🎨 BossFreeForm 보드 열기 (${hk})`, click: () => showMainWindow() },
+    { label: '🔄 창 크기 및 위치 초기화 (화면 중앙)', click: () => resetMainWindowBounds() },
+    { type: 'separator' },
+    { label: '☁️ 구글 드라이브 동기화 폴더 열기', click: () => shell.openPath(driveSync.getActiveStorageRoot()) },
+    { label: '🌐 구글 드라이브 웹 로그인 창 열기', click: () => openGoogleWebDriveWindow() },
+    { type: 'separator' },
+    {
+      label: '종료',
+      click: () => {
+        saveCurrentWindowBounds();
+        app.isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
+  tray.setContextMenu(menu);
+}
+
+function setupTray() {
+  tray = new Tray(createTrayIcon());
+  updateTrayMenu();
+  tray.on('click', () => showMainWindow());
+}
+
+app.whenReady().then(() => {
+  // Fix YouTube embed "플레이어 구성 오류 (Error 153)" inside file:// Electron renderer by ensuring a valid HTTPS Referer/Origin
+  try {
+    session.defaultSession.webRequest.onBeforeSendHeaders(
+      {
+        urls: [
+          '*://*.youtube.com/*',
+          '*://*.youtube-nocookie.com/*',
+          '*://*.googlevideo.com/*',
+          '*://*.ytimg.com/*'
+        ]
+      },
+      (details, callback) => {
+        const requestHeaders = { ...details.requestHeaders };
+        const curRef = requestHeaders['Referer'] || requestHeaders['referer'] || '';
+        if (!curRef || curRef.startsWith('file:')) {
+          requestHeaders['Referer'] = 'https://www.youtube.com/';
+          delete requestHeaders['referer'];
+        }
+        const curOrigin = requestHeaders['Origin'] || requestHeaders['origin'] || '';
+        if (!curOrigin || curOrigin === 'null' || curOrigin.startsWith('file:')) {
+          requestHeaders['Origin'] = 'https://www.youtube.com';
+          delete requestHeaders['origin'];
+        }
+        callback({ requestHeaders });
+      }
+    );
+  } catch (err) {
+    console.warn('[YouTube Embed Header Fix] warning:', err.message);
+  }
+
+  setupIpc();
+  createMainWindow();
+  setupTray();
+
+  driveSync.startWatching((changedBoardId) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('board:external-update', changedBoardId);
+    }
+  });
+
+  registerAppGlobalHotkey(driveSync.config.hotkey || DEFAULT_HOTKEY);
+});
+
+app.on('before-quit', () => {
+  app.isQuitting = true;
+  try {
+    globalShortcut.unregisterAll();
+  } catch (_) {}
+});
+
+app.on('window-all-closed', () => {
+  // Keep alive in system tray
+});

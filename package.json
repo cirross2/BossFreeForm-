@@ -1,0 +1,31 @@
+{
+  "name": "boss-freeform",
+  "version": "1.0.0",
+  "description": "BossFreeForm — Standalone Apple Freeform styled Infinite Canvas Workspace for Windows with Google Drive & Google Account Sync",
+  "main": "src/main/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cirross2/BossFreeForm-.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "setup": "node setup.js",
+    "postinstall": "node setup.js"
+  },
+  "keywords": [
+    "boss-freeform",
+    "apple-freeform",
+    "infinite-canvas",
+    "google-drive",
+    "whiteboard"
+  ],
+  "author": "cirross2",
+  "license": "MIT",
+  "dependencies": {
+    "marked": "^15.0.7",
+    "pdfjs-dist": "^3.11.174"
+  },
+  "devDependencies": {
+    "electron": "^37.3.1"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+out/
+config.json
+oauth_tokens.json
+boards_local/
+*.log
+.DS_Store
+Thumbs.db

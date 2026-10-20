@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>BossFreeForm — Standalone Infinite Canvas x Google Drive</title>
+  <link rel="icon" type="image/x-icon" href="../../assets/icon.ico" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="theme-dark">
+  <div class="app-shell">
+    <!-- Top macOS Freeform Header & Object Toolbar -->
+    <header class="top-titlebar">
+      <div class="titlebar-left">
+        <div class="traffic-lights">
+          <button class="tl-btn close" id="winCloseBtn" title="창 숨기기"></button>
+          <button class="tl-btn min" id="winMinBtn" title="최소화"></button>
+          <button class="tl-btn max" id="winMaxBtn" title="최대화"></button>
+        </div>
+
+        <button class="icon-btn" id="toggleSidebarBtn" title="보드 목록 사이드바 토글">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+          </svg>
+        </button>
+
+        <div class="board-title-group">
+          <span class="board-emoji" id="activeBoardEmoji" title="BossFreeForm">
+            <img src="../../assets/icon.png" alt="BossFreeForm" class="board-brand-icon" draggable="false" />
+          </span>
+          <input type="text" id="activeBoardTitleInput" class="board-title-input" value="BossFreeForm 메인 보드" spellcheck="false" />
+        </div>
+      </div>
+
+      <!-- Center Apple Freeform Object Creation Bar (Left-Hand Ergonomic Priority Order) -->
+      <div class="freeform-toolbar">
+        <button class="tool-btn active" id="toolSelectBtn" data-tool="select" title="선택 및 이동 도구 (왼손 단축키: A)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4l6.5 16 2.5-6.5L19.5 11 4 4z"></path>
+          </svg>
+          <span>선택</span>
+          <kbd class="tool-kbd">A</kbd>
+        </button>
+
+        <button class="tool-btn" id="toolPenBtn" data-tool="pen" title="스마트 펜 드로잉 — 그린 선/도형도 객체로 이동·편집 가능 (왼손 단축키: D)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+            <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+            <path d="M2 2l7.586 7.586"></path>
+          </svg>
+          <span>펜 그리기</span>
+          <kbd class="tool-kbd">D</kbd>
+        </button>
+
+        <div class="toolbar-divider"></div>
+
+        <button class="tool-btn" id="addStickyBtn" title="포스트잇 자유 메모지 추가 (왼손 단축키: S)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"></path>
+            <path d="M14 3v4a2 2 0 0 0 2 2h4"></path>
+          </svg>
+          <span>포스트잇</span>
+          <kbd class="tool-kbd">S</kbd>
+        </button>
+
+        <button class="tool-btn" id="addLabelBtn" title="텍스트 추가 — 배경·테두리 없는 타이틀/그래픽 아트 (왼손 단축키: T 또는 F)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 7 4 4 20 4 20 7"></polyline>
+            <line x1="9" y1="20" x2="15" y2="20"></line>
+            <line x1="12" y1="4" x2="12" y2="20"></line>
+          </svg>
+          <span>텍스트</span>
+          <kbd class="tool-kbd">T</kbd>
+        </button>
+
+        <button class="tool-btn" id="addTextBtn" title="3종 체크박스(네모/원형/슬라이드) 할 일 체크리스트 카드 추가 (왼손 단축키: C)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="5" height="5" rx="1"></rect>
+            <path d="m4.5 6.5 1.2 1.2 2-2"></path>
+            <line x1="11" y1="6.5" x2="21" y2="6.5"></line>
+            <rect x="3" y="14" width="5" height="5" rx="2.5"></rect>
+            <line x1="11" y1="16.5" x2="21" y2="16.5"></line>
+          </svg>
+          <span>체크리스트</span>
+          <kbd class="tool-kbd">C</kbd>
+        </button>
+
+        <button class="tool-btn" id="addTableBtn" title="인터랙티브 표 / 시트 추가 (왼손 단축키: G)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+            <line x1="3" y1="9" x2="21" y2="9"></line>
+            <line x1="3" y1="15" x2="21" y2="15"></line>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+            <line x1="15" y1="3" x2="15" y2="21"></line>
+          </svg>
+          <span>표 (시트)</span>
+          <kbd class="tool-kbd">G</kbd>
+        </button>
+
+        <div class="toolbar-divider"></div>
+
+        <button class="tool-btn" id="captureScreenBtn" title="현재 화면 캡처하여 보드에 바로 넣기 (왼손 단축키: X)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path>
+            <circle cx="12" cy="13" r="3"></circle>
+          </svg>
+          <span>화면캡처</span>
+          <kbd class="tool-kbd">X</kbd>
+        </button>
+
+        <button class="tool-btn" id="addImageBtn" title="이미지 파일 추가 — 드래그 앤 드롭 또는 Ctrl+V 가능 (보조 단축키: Q)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2.5"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <path d="m21 15-5-5L5 21"></path>
+          </svg>
+          <span>이미지</span>
+          <kbd class="tool-kbd">Q</kbd>
+        </button>
+
+        <button class="tool-btn" id="addLinkBtn" title="하이퍼링크 / 웹사이트 북마크 / 유튜브 추가 — 드래그 앤 드롭 또는 Ctrl+V 가능 (보조 단축키: W)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+          <span>링크·유튜브</span>
+          <kbd class="tool-kbd">W</kbd>
+        </button>
+
+        <button class="tool-btn" id="addFileBtn" title="문서·PDF·코드 등 파일 추가 — 드래그 앤 드롭 가능 (보조 단축키: E)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+          </svg>
+          <span>파일</span>
+          <kbd class="tool-kbd">E</kbd>
+        </button>
+      </div>
+
+      <!-- Right Cloud Sync & Utility Controls -->
+      <div class="titlebar-right">
+        <button class="tool-btn compact" id="undoBoardBtn" title="실행 취소 — 삭제/이동/편집 복구 (Ctrl+Z)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7v6h6"></path>
+            <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+          </svg>
+          <span>실행취소</span>
+        </button>
+        <button class="tool-btn compact" id="redoBoardBtn" title="다시 실행 (Ctrl+Y / Ctrl+Shift+Z)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 7v6h-6"></path>
+            <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
+          </svg>
+          <span>다시실행</span>
+        </button>
+
+        <button class="tool-btn compact" id="pasteClipboardBtn" title="스마트 붙여넣기: 이미지/표/링크·유튜브/텍스트 자동 인식 (Ctrl+V)">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+          </svg>
+          <span>붙여넣기</span>
+        </button>
+
+        <button class="tool-btn compact" id="resetWindowPosBtn" title="창 크기 및 위치를 화면 중앙으로 초기화">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+            <path d="M9 12h6"></path>
+            <path d="M12 9v6"></path>
+          </svg>
+          <span>창 초기화</span>
+        </button>
+
+        <button class="sync-status-pill" id="openSyncModalBtn" title="Google Drive 동기화 설정 및 상태 확인">
+          <span class="sync-dot" id="syncStatusDot"></span>
+          <span id="syncStatusLabel">Google Drive 연동</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace Body -->
+    <div class="workspace-body">
+      <!-- Left Boards Sidebar -->
+      <aside class="boards-sidebar" id="boardsSidebar">
+        <div class="sidebar-top">
+          <button class="new-board-btn" id="createNewBoardBtn">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>새 프리폼 보드</span>
+          </button>
+          <div class="sidebar-search-wrap">
+            <input type="text" id="boardSearchInput" placeholder="보드 또는 객체 텍스트 검색..." spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="sidebar-section-label">내 프리폼 보드 목록</div>
+        <div class="board-list" id="boardListContainer"></div>
+
+        <div class="sidebar-footer">
+          <div class="drive-path-box" id="sidebarDriveBox" title="클릭하여 동기화 폴더 열기">
+            <div class="drive-path-title">
+              <span style="display:inline-flex;align-items:center;gap:5px;">
+                <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+                </svg>
+                저장 경로
+              </span>
+              <span class="drive-open-link">폴더 열기 ↗</span>
+            </div>
+            <div class="drive-path-text" id="sidebarDrivePathText">로딩 중...</div>
+          </div>
+          <div class="sidebar-footer-actions">
+            <button class="ghost-sm-btn" id="importBoardBtn" title="JSON 보드 파일 가져오기">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>보드 가져오기</span>
+            </button>
+            <button class="ghost-sm-btn" id="exportBoardBtn" title="현재 보드 JSON 백업 내보내기">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <span>백업 저장</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Infinite Freeform Canvas -->
+      <main class="canvas-viewport grid-dots" id="canvasViewport">
+        <!-- Floating Selected Object / Group / Connector Inspector Bar -->
+        <div class="object-inspector hidden" id="objectInspector">
+          <div class="color-swatches" id="inspectorColors" title="좌클릭: 색상 적용 · 우클릭: 원하는 색상으로 칸 커스텀 지정">
+            <button class="swatch yellow" data-slot="0" data-color="yellow" data-hex="#ffe066" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
+            <button class="swatch blue" data-slot="1" data-color="blue" data-hex="#0a84ff" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
+            <button class="swatch green" data-slot="2" data-color="green" data-hex="#30d158" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
+            <button class="swatch pink" data-slot="3" data-color="pink" data-hex="#ff85a2" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
+            <button class="swatch purple" data-slot="4" data-color="purple" data-hex="#bf5af2" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
+            <button class="swatch orange" data-slot="5" data-color="orange" data-hex="#ff9f0a" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
+            <button class="swatch dark" data-slot="6" data-color="dark" data-hex="#242428" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
+            <button class="swatch light" data-slot="7" data-color="light" data-hex="#ffffff" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
+          </div>
+
+          <!-- Connector-Only Controls (Shown when an arrow connector is selected) -->
+          <div class="insp-conn-only-group hidden" id="inspConnOnlyGroup">
+            <div class="inspector-divider"></div>
+            <button class="insp-btn" id="inspConnStyleBtn" title="실선 / 점선 화살표 스타일 전환">
+              <span id="inspConnStyleLabel">실선 화살표</span>
+            </button>
+          </div>
+
+          <!-- Stroke / Shape Object Controls (Shown when a pen-drawn shape/line/arrow is selected) -->
+          <div class="insp-stroke-only-group hidden" id="inspStrokeOnlyGroup">
+            <div class="inspector-divider"></div>
+            <select class="insp-select" id="inspStrokeWidthSelect" title="선 굵기 변경">
+              <option value="2">굵기 2px</option>
+              <option value="3.5" selected>굵기 3.5px</option>
+              <option value="5">굵기 5px</option>
+              <option value="8">굵기 8px</option>
+              <option value="12">굵기 12px</option>
+            </select>
+            <button class="insp-btn" id="inspStrokeDashBtn" title="실선 / 점선 전환">
+              <span id="inspStrokeDashLabel">실선</span>
+            </button>
+            <button class="insp-btn" id="inspStrokeArrowBtn" title="화살촉 표시 ON / OFF">
+              <span id="inspStrokeArrowLabel">화살촉 OFF</span>
+            </button>
+          </div>
+
+          <!-- Typography Controls (Font Family, Size, Bold, Italic, Underline for all text inputs) -->
+          <div class="insp-typo-group" id="inspTypoGroup">
+            <div class="inspector-divider"></div>
+            <select class="insp-select font-family-select" id="inspFontFamilySelect" title="폰트 변경 (시스템에 없는 폰트는 기본 폰트로 자동 표시)">
+              <option value="default">기본 폰트</option>
+              <option value="Malgun Gothic">맑은 고딕</option>
+              <option value="Pretendard">Pretendard</option>
+              <option value="NanumGothic">나눔고딕</option>
+              <option value="NanumSquare">나눔스퀘어</option>
+              <option value="NanumMyeongjo">나눔명조</option>
+              <option value="Batang">바탕 / 명조</option>
+              <option value="Gulim">굴림 / 돋움</option>
+              <option value="Gungsuh">궁서체</option>
+              <option value="Consolas">코딩 고정폭</option>
+            </select>
+            <select class="insp-select font-size-select" id="inspFontSizeSelect" title="글자 크기 변경">
+              <option value="12">12px</option>
+              <option value="13">13px</option>
+              <option value="14" selected>14px</option>
+              <option value="15">15px</option>
+              <option value="16">16px</option>
+              <option value="18">18px</option>
+              <option value="20">20px</option>
+              <option value="24">24px</option>
+              <option value="28">28px</option>
+              <option value="32">32px</option>
+              <option value="40">40px</option>
+              <option value="48">48px</option>
+              <option value="60">60px</option>
+              <option value="72">72px</option>
+            </select>
+            <select class="insp-select art-style-select hidden" id="inspArtStyleSelect" title="텍스트 그래픽 아트 스타일 (일반 / 게임타이틀 / 그래피티 / 네온 / 3D블록 / 골드엠블럼 / 스티커 / 스탬프)">
+              <option value="none">✨ 그래픽: 기본 텍스트</option>
+              <option value="game">⚔️ 게임 타이틀 (골드&크림슨)</option>
+              <option value="graffiti">🎨 스트릿 그래피티</option>
+              <option value="neon">⚡ 사이버 네온 사인</option>
+              <option value="retro3d">🕹️ 레트로 3D 아케이드</option>
+              <option value="sticker">☁️ 귀여운 팝 스티커</option>
+              <option value="gold">👑 로얄 골드 엠블럼</option>
+              <option value="stamp">🔖 프로젝트 배지 스탬프</option>
+            </select>
+            <button class="insp-btn insp-fmt-btn" id="inspBoldBtn" title="굵게 (Ctrl+B)"><b>B</b></button>
+            <button class="insp-btn insp-fmt-btn" id="inspItalicBtn" title="기울기체 (Ctrl+I)"><i>I</i></button>
+            <button class="insp-btn insp-fmt-btn" id="inspUnderlineBtn" title="밑줄 (Ctrl+U)"><u>U</u></button>
+            <div class="inspector-divider"></div>
+            <button class="insp-btn insp-fmt-btn insp-align-btn" id="inspAlignLeftBtn" data-align="left" title="좌측 정렬">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="14" y2="12"></line>
+                <line x1="3" y1="18" x2="18" y2="18"></line>
+              </svg>
+            </button>
+            <button class="insp-btn insp-fmt-btn insp-align-btn" id="inspAlignCenterBtn" data-align="center" title="중앙 정렬">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="6.5" y1="12" x2="17.5" y2="12"></line>
+                <line x1="4.5" y1="18" x2="19.5" y2="18"></line>
+              </svg>
+            </button>
+            <button class="insp-btn insp-fmt-btn insp-align-btn" id="inspAlignRightBtn" data-align="right" title="우측 정렬">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="10" y1="12" x2="21" y2="12"></line>
+                <line x1="6" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Object-Only Controls -->
+          <div class="insp-obj-only-group" id="inspObjOnlyGroup">
+            <div class="inspector-divider"></div>
+            <button class="insp-btn" id="inspRotLeftBtn" title="반시계 방향 15° 회전">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                <path d="M3 3v5h5"></path>
+              </svg>
+              <span>-15°</span>
+            </button>
+            <button class="insp-btn" id="inspRotResetBtn" title="회전 각도 0° 초기화">0°</button>
+            <button class="insp-btn" id="inspRotRightBtn" title="시계 방향 15° 회전">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                <path d="M21 3v5h-5"></path>
+              </svg>
+              <span>+15°</span>
+            </button>
+            <div class="inspector-divider"></div>
+            <button class="insp-btn" id="inspGroupBtn" title="선택된 객체들을 하나로 그룹화/해제 (Ctrl+G)">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="8" height="8" rx="1.5"></rect>
+                <rect x="13" y="13" width="8" height="8" rx="1.5"></rect>
+                <path d="M14 7h3a2 2 0 0 1 2 2v1"></path>
+                <path d="M10 17H7a2 2 0 0 1-2-2v-1"></path>
+              </svg>
+              <span id="inspGroupBtnLabel">그룹화</span>
+            </button>
+            <button class="insp-btn" id="inspBringFrontBtn" title="맨 앞으로 가져오기">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="17 11 12 6 7 11"></polyline>
+                <line x1="12" y1="6" x2="12" y2="18"></line>
+              </svg>
+              <span>앞으로</span>
+            </button>
+            <button class="insp-btn" id="inspDuplicateBtn" title="객체 복제 (Ctrl+D)">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span>복제</span>
+            </button>
+            <button class="insp-btn" id="inspCopyTextBtn" title="객체 및 텍스트 복사 (Ctrl+C)">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="8" y="2" width="8" height="4" rx="1"></rect>
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+              </svg>
+              <span>복사</span>
+            </button>
+            <button class="insp-btn" id="inspLockBtn" title="위치 잠금/해제">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+              <span id="inspLockBtnLabel">잠금</span>
+            </button>
+          </div>
+
+          <div class="inspector-divider"></div>
+          <button class="insp-btn danger" id="inspDeleteBtn" title="선택 항목 삭제 (Delete)">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span>삭제</span>
+          </button>
+        </div>
+
+        <!-- Hidden Color Picker Input for Right-Clicking Any Swatch -->
+        <input type="color" id="swatchColorPickerInput" class="swatch-color-picker-hidden" />
+
+        <!-- Smart Pen Toolbar (shown when pen tool is active) -->
+        <div class="pen-toolbar hidden" id="penToolbar">
+          <span style="display:inline-flex;align-items:center;gap:5px;">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+              <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+            </svg>
+            펜 색상:
+          </span>
+          <button class="pen-color active" data-pen-slot="0" data-stroke="#0a84ff" style="background:#0a84ff" title="좌클릭: 펜 색상 선택 / 우클릭: 이 칸 색상 변경"></button>
+          <button class="pen-color" data-pen-slot="1" data-stroke="#ffd60a" style="background:#ffd60a" title="좌클릭: 펜 색상 선택 / 우클릭: 이 칸 색상 변경"></button>
+          <button class="pen-color" data-pen-slot="2" data-stroke="#30d158" style="background:#30d158" title="좌클릭: 펜 색상 선택 / 우클릭: 이 칸 색상 변경"></button>
+          <button class="pen-color" data-pen-slot="3" data-stroke="#ff453a" style="background:#ff453a" title="좌클릭: 펜 색상 선택 / 우클릭: 이 칸 색상 변경"></button>
+          <button class="pen-color" data-pen-slot="4" data-stroke="#bf5af2" style="background:#bf5af2" title="좌클릭: 펜 색상 선택 / 우클릭: 이 칸 색상 변경"></button>
+          <button class="pen-color" data-pen-slot="5" data-stroke="#ffffff" style="background:#ffffff" title="좌클릭: 펜 색상 선택 / 우클릭: 이 칸 색상 변경"></button>
+          <div class="inspector-divider"></div>
+          <button class="insp-btn active-pill" id="toggleAutoShapeBtn" title="원, 타원, 삼각형, 사각형, 화살표를 자동으로 깔끔하게 보정합니다">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="8" cy="8" r="5"></circle>
+              <rect x="12" y="12" width="9" height="9" rx="1.5"></rect>
+            </svg>
+            <span id="toggleAutoShapeLabel">도형·화살표 자동완성 ON</span>
+          </button>
+          <button class="insp-btn" id="toggleArrowPenBtn" title="끝에 화살표 촉이 자동으로 달리는 화살표 펜 모드">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="7" y1="17" x2="17" y2="7"></line>
+              <polyline points="7 7 17 7 17 17"></polyline>
+            </svg>
+            <span id="toggleArrowPenLabel">화살표 모드 OFF</span>
+          </button>
+          <span class="pen-hint-label" title="단축키 안내">Ctrl/Shift: 직선 · Alt: 매끄러운 곡선</span>
+          <div class="inspector-divider"></div>
+          <button class="insp-btn" id="undoStrokeBtn" title="마지막 선 실행 취소 (Ctrl+Z)">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7v6h6"></path>
+              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+            </svg>
+            <span>실행취소</span>
+          </button>
+          <button class="insp-btn danger" id="clearStrokesBtn">전체 지우기</button>
+          <button class="insp-btn" id="exitPenModeBtn">선택 모드</button>
+        </div>
+
+        <!-- Shift + Drag Multi-Selection Marquee Box -->
+        <div id="selectionMarquee" class="selection-marquee hidden"></div>
+
+        <!-- Drop Zone Overlay Indicator -->
+        <div id="dropOverlay" class="drop-overlay hidden">
+          <div class="drop-overlay-box">
+            <div class="drop-overlay-icon">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#2997ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+            </div>
+            <div class="drop-overlay-title">여기에 놓아 프리폼 객체로 즉시 추가</div>
+            <div class="drop-overlay-sub">이미지 · 문서/파일 · 크롬 웹 링크 · 유튜브 영상 · 엑셀/시트 표</div>
+          </div>
+        </div>
+
+        <!-- Transformable Infinite World -->
+        <div class="canvas-world" id="canvasWorld">
+          <svg class="connector-layer" id="connectorLayer" width="12000" height="12000" viewBox="-6000 -6000 12000 12000">
+            <defs>
+              <marker id="arrowHeadBlue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                <path d="M0,1 L9,5 L0,9 Z" fill="#0a84ff"></path>
+              </marker>
+              <marker id="arrowHeadGreen" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                <path d="M0,1 L9,5 L0,9 Z" fill="#30d158"></path>
+              </marker>
+              <marker id="strokeArrow_#0a84ff" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <path d="M0,1 L8,4.5 L0,8 Z" fill="#0a84ff"></path>
+              </marker>
+              <marker id="strokeArrow_#ffd60a" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <path d="M0,1 L8,4.5 L0,8 Z" fill="#ffd60a"></path>
+              </marker>
+              <marker id="strokeArrow_#30d158" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <path d="M0,1 L8,4.5 L0,8 Z" fill="#30d158"></path>
+              </marker>
+              <marker id="strokeArrow_#ff453a" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <path d="M0,1 L8,4.5 L0,8 Z" fill="#ff453a"></path>
+              </marker>
+              <marker id="strokeArrow_#bf5af2" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <path d="M0,1 L8,4.5 L0,8 Z" fill="#bf5af2"></path>
+              </marker>
+              <marker id="strokeArrow_#ffffff" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <path d="M0,1 L8,4.5 L0,8 Z" fill="#ffffff"></path>
+              </marker>
+            </defs>
+            <g id="strokesGroup"></g>
+            <g id="connectorsGroup"></g>
+            <path id="tempConnectorPath" class="temp-connector hidden" d="" />
+          </svg>
+
+          <div class="object-layer" id="objectLayer"></div>
+        </div>
+
+        <!-- Bottom-Left Help Hint Pill -->
+        <div class="canvas-hint-pill">
+          <span><b>왼손 단축키(비선택 시)</b>: <b>A</b> 선택 · <b>D</b> 펜 · <b>S</b> 포스트잇 · <b>T/F</b> 텍스트 · <b>C</b> 체크 · <b>G</b> 표 · <b>X</b> 캡처 · <b>휠클릭+드래그</b> 이동</span>
+        </div>
+
+        <!-- Bottom-Right Zoom & View HUD -->
+        <div class="canvas-hud">
+          <button class="hud-btn" id="toggleGridBtn" title="배경 격자 스타일 변경 (도트 / 라인 / 없음)">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="6" cy="6" r="1.2" fill="currentColor"></circle>
+              <circle cx="12" cy="6" r="1.2" fill="currentColor"></circle>
+              <circle cx="18" cy="6" r="1.2" fill="currentColor"></circle>
+              <circle cx="6" cy="12" r="1.2" fill="currentColor"></circle>
+              <circle cx="12" cy="12" r="1.2" fill="currentColor"></circle>
+              <circle cx="18" cy="12" r="1.2" fill="currentColor"></circle>
+              <circle cx="6" cy="18" r="1.2" fill="currentColor"></circle>
+              <circle cx="12" cy="18" r="1.2" fill="currentColor"></circle>
+              <circle cx="18" cy="18" r="1.2" fill="currentColor"></circle>
+            </svg>
+            <span id="toggleGridLabel">도트</span>
+          </button>
+          <button class="hud-btn" id="toggleThemeBtn" title="다크 / 라이트 테마 전환">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+            </svg>
+            <span id="toggleThemeLabel">다크</span>
+          </button>
+          <div class="hud-divider"></div>
+          <button class="hud-btn" id="zoomOutBtn" title="축소">－</button>
+          <button class="hud-btn zoom-label" id="zoomResetBtn" title="100% 배율 초기화">100%</button>
+          <button class="hud-btn" id="zoomInBtn" title="확대">＋</button>
+          <button class="hud-btn" id="fitViewBtn" title="모든 객체가 한눈에 보이도록 맞춤">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+              <path d="M21 8V5a2 2 0 0 0-2-2h-3"></path>
+              <path d="M3 16v3a2 2 0 0 0 2 2h3"></path>
+              <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+            </svg>
+            <span>맞춤</span>
+          </button>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Custom Right-Click Context Menu -->
+  <div id="contextMenu" class="ff-context-menu hidden"></div>
+
+  <!-- Modal 1: Add Hyperlink / YouTube URL -->
+  <div class="modal-backdrop hidden" id="linkModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>하이퍼링크 · 웹 북마크 · 유튜브·동영상 추가</h3>
+        <button class="modal-close" id="closeLinkModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label class="field-label">웹사이트 주소(URL) 또는 유튜브/동영상 링크</label>
+        <input type="text" id="linkUrlInput" class="apple-input" placeholder="https://www.youtube.com/watch?v=... 또는 웹사이트 주소" />
+        <label class="field-label" style="margin-top:12px;">카드 제목 (비워두면 웹페이지 제목 자동 추출)</label>
+        <input type="text" id="linkTitleInput" class="apple-input" placeholder="자동으로 페이지 제목과 썸네일/플레이어를 가져옵니다" />
+      </div>
+      <div class="modal-footer">
+        <button class="apple-btn secondary" id="cancelLinkModalBtn">취소</button>
+        <button class="apple-btn primary" id="confirmLinkModalBtn">보드에 추가</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Google Drive Sync & Cloud Configuration & Global Hotkey -->
+  <div class="modal-backdrop hidden" id="syncModal">
+    <div class="modal-card wide">
+      <div class="modal-header">
+        <h3>Google Drive 연동 · 호출 단축키 · 창 설정</h3>
+        <button class="modal-close" id="closeSyncModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Global Toggle Hotkey Customizer Section -->
+        <div class="sync-section-card" style="margin-bottom: 14px;">
+          <div class="sync-section-top">
+            <div>
+              <span class="sync-badge blue">글로벌 단축키 · 사용자 지정</span>
+              <h4>어디서든 보드 호출 / 숨기기 단축키</h4>
+              <p>입력칸을 클릭한 뒤 원하는 키 조합(예: <code>Ctrl+Shift+Space</code>, <code>Alt+Space</code>, <code>Ctrl+Alt+F</code> 등)을 누르고 <b>단축키 적용</b>을 클릭하세요.</p>
+            </div>
+          </div>
+          <div class="sync-path-row">
+            <input
+              type="text"
+              id="hotkeyRecorderInput"
+              class="apple-input"
+              value="Ctrl+Shift+Space"
+              placeholder="클릭 후 사용할 단축키 조합을 누르세요..."
+              spellcheck="false"
+              style="font-weight: 600; color: #2997ff; text-align: center; max-width: 240px;"
+            />
+            <button class="apple-btn primary" id="saveHotkeyBtn">단축키 적용</button>
+            <button class="apple-btn secondary" id="resetHotkeyBtn">기본값 복원 (Ctrl+Shift+Space)</button>
+          </div>
+        </div>
+
+        <!-- Method A: Google Drive for Desktop / Local Folder Sync -->
+        <div class="sync-section-card">
+          <div class="sync-section-top">
+            <div>
+              <span class="sync-badge green">방식 1 · 가장 빠름 · 무설정</span>
+              <h4>데스크톱용 Google Drive 폴더 직접 연동</h4>
+              <p>PC에 설치된 구글 드라이브(`내 드라이브` / `My Drive`) 폴더 또는 지정한 클라우드 폴더에 보드와 원본 이미지를 실시간 저장합니다.</p>
+            </div>
+          </div>
+          <div class="sync-path-row">
+            <input type="text" id="syncFolderPathDisplay" class="apple-input" readonly />
+            <button class="apple-btn secondary" id="autoDetectDriveBtn">구글 드라이브 자동 감지</button>
+            <button class="apple-btn primary" id="pickSyncFolderBtn">폴더 직접 선택</button>
+            <button class="apple-btn secondary" id="openCurrentSyncFolderBtn">폴더 열기</button>
+          </div>
+        </div>
+
+        <!-- Method B: Google Account Login (Built-in Browser Session & OAuth2 Cloud API) -->
+        <div class="sync-section-card" style="margin-top: 14px;">
+          <div class="sync-section-top">
+            <div>
+              <span class="sync-badge blue">방식 2 · 클라우드 직접 연동</span>
+              <h4>구글 계정 로그인 & Google Drive 클라우드 API</h4>
+              <p>PC에 구글 드라이브가 설치되어 있지 않아도, 내장 구글 드라이브 창으로 로그인하거나 OAuth2 API로 클라우드(`BossFreeForm_Workspace`)와 직접 동기화합니다.</p>
+            </div>
+          </div>
+
+          <div class="oauth-quick-row">
+            <button class="apple-btn primary" id="openGoogleWebLoginBtn">구글 계정 간편 웹 로그인 (내장 Google Drive 열기)</button>
+            <span id="oauthStatusText" class="oauth-status-text">클라우드 API 상태 확인 중...</span>
+          </div>
+
+          <details class="oauth-advanced-details">
+            <summary>Google Cloud OAuth2 API 키 직접 연동 (선택사항 · 자동 백그라운드 API 동기화)</summary>
+            <div class="oauth-fields">
+              <div class="field-row">
+                <label class="field-label">Google OAuth Client ID</label>
+                <input type="text" id="oauthClientIdInput" class="apple-input" placeholder="xxxx.apps.googleusercontent.com" />
+              </div>
+              <div class="field-row">
+                <label class="field-label">Google OAuth Client Secret</label>
+                <input type="password" id="oauthClientSecretInput" class="apple-input" placeholder="GOCSPX-..." />
+              </div>
+              <div class="oauth-btn-row">
+                <button class="apple-btn primary" id="startOAuthLoginBtn">Google OAuth2 계정 연결 시작</button>
+                <button class="apple-btn secondary" id="syncCloudNowBtn">지금 클라우드 동기화</button>
+                <button class="apple-btn danger" id="disconnectOAuthBtn">연결 해제</button>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <!-- Window Position Reset Section -->
+        <div class="sync-section-card" style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h4 style="margin: 0 0 4px 0;">메인 창 위치 및 크기 초기화</h4>
+            <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">창 크기는 자동으로 기억됩니다. 모니터 변경 등으로 창이 벗어났을 때 기본 중앙 위치로 되돌립니다.</p>
+          </div>
+          <button class="apple-btn secondary" id="modalResetWindowBoundsBtn">창 위치 초기화</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="apple-btn primary" id="doneSyncModalBtn">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Lightbox Modal (Double click image to inspect full resolution) -->
+  <div class="modal-backdrop hidden" id="lightboxModal">
+    <img id="lightboxImage" class="lightbox-img" src="" alt="Preview" />
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast hidden" id="toastBox"></div>
+
+  <script src="../../node_modules/pdfjs-dist/build/pdf.min.js"></script>
+  <script src="canvas.js"></script>
+</body>
+</html>

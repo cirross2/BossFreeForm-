@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#171926"/>
+      <stop offset="50%" stop-color="#0f111a"/>
+      <stop offset="100%" stop-color="#07080d"/>
+    </linearGradient>
+    <radialGradient id="ambientGlow" cx="75%" cy="22%" r="70%">
+      <stop offset="0%" stop-color="#2997ff" stop-opacity="0.38"/>
+      <stop offset="55%" stop-color="#bf5af2" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="blueCard" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2997ff"/>
+      <stop offset="100%" stop-color="#0055d4"/>
+    </linearGradient>
+    <linearGradient id="stickyCard" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffe66d"/>
+      <stop offset="100%" stop-color="#ff9f0a"/>
+    </linearGradient>
+    <linearGradient id="curveGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ff2d55"/>
+      <stop offset="50%" stop-color="#bf5af2"/>
+      <stop offset="100%" stop-color="#00f5d4"/>
+    </linearGradient>
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <!-- Apple Squircle Base -->
+  <rect x="20" y="20" width="472" height="472" rx="112" fill="url(#bgGrad)" stroke="#ffffff" stroke-opacity="0.16" stroke-width="6"/>
+  <rect x="20" y="20" width="472" height="472" rx="112" fill="url(#ambientGlow)"/>
+
+  <!-- Subtle Infinite Canvas Dot Grid -->
+  <g fill="#ffffff" fill-opacity="0.12">
+    <circle cx="116" cy="116" r="4"/><circle cx="186" cy="116" r="4"/><circle cx="256" cy="116" r="4"/><circle cx="326" cy="116" r="4"/><circle cx="396" cy="116" r="4"/>
+    <circle cx="116" cy="186" r="4"/><circle cx="186" cy="186" r="4"/><circle cx="256" cy="186" r="4"/><circle cx="326" cy="186" r="4"/><circle cx="396" cy="186" r="4"/>
+    <circle cx="116" cy="256" r="4"/><circle cx="186" cy="256" r="4"/><circle cx="256" cy="256" r="4"/><circle cx="326" cy="256" r="4"/><circle cx="396" cy="256" r="4"/>
+    <circle cx="116" cy="326" r="4"/><circle cx="186" cy="326" r="4"/><circle cx="256" cy="326" r="4"/><circle cx="326" cy="326" r="4"/><circle cx="396" cy="326" r="4"/>
+    <circle cx="116" cy="396" r="4"/><circle cx="186" cy="396" r="4"/><circle cx="256" cy="396" r="4"/><circle cx="326" cy="396" r="4"/><circle cx="396" cy="396" r="4"/>
+  </g>
+
+  <!-- Back Blue Board Card (Tilted Right) -->
+  <g transform="translate(295 215) rotate(10) translate(-115 -95)" filter="url(#dropShadow)">
+    <rect x="0" y="0" width="230" height="190" rx="34" fill="url(#blueCard)" stroke="#80c4ff" stroke-opacity="0.55" stroke-width="4"/>
+    <rect x="28" y="34" width="110" height="14" rx="7" fill="#ffffff" fill-opacity="0.9"/>
+    <rect x="28" y="66" width="168" height="12" rx="6" fill="#ffffff" fill-opacity="0.55"/>
+    <rect x="28" y="92" width="140" height="12" rx="6" fill="#ffffff" fill-opacity="0.55"/>
+    <circle cx="42" cy="138" r="11" fill="#30d158"/>
+    <rect x="64" y="132" width="110" height="12" rx="6" fill="#ffffff" fill-opacity="0.8"/>
+  </g>
+
+  <!-- Front Golden Sticky Note Card (Tilted Left) -->
+  <g transform="translate(190 295) rotate(-9) translate(-110 -100)" filter="url(#dropShadow)">
+    <rect x="0" y="0" width="220" height="200" rx="34" fill="url(#stickyCard)" stroke="#fff4b8" stroke-opacity="0.7" stroke-width="4"/>
+    <!-- Cute Red Pin -->
+    <circle cx="110" cy="28" r="13" fill="#ff3b30"/>
+    <circle cx="106" cy="24" r="4.5" fill="#ffb3ad"/>
+    <!-- Sticky Note Lines -->
+    <rect x="34" y="64" width="152" height="15" rx="7.5" fill="#1d1d1f" fill-opacity="0.82"/>
+    <rect x="34" y="96" width="124" height="14" rx="7" fill="#1d1d1f" fill-opacity="0.62"/>
+    <rect x="34" y="126" width="138" height="14" rx="7" fill="#1d1d1f" fill-opacity="0.62"/>
+  </g>
+
+  <!-- Freeform Bezier Connector Curve & Arrow -->
+  <path d="M 118 386 C 145 215, 295 340, 386 126" fill="none" stroke="url(#curveGrad)" stroke-width="22" stroke-linecap="round" filter="url(#dropShadow)"/>
+  <!-- Arrowhead at Top-Right -->
+  <path d="M 342 134 L 394 114 L 404 168" fill="none" stroke="#00f5d4" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Glowing Anchor Node at Bottom-Left -->
+  <circle cx="118" cy="386" r="18" fill="#ff2d55" stroke="#ffffff" stroke-width="7"/>
+</svg>
