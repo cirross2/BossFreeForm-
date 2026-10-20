@@ -59,20 +59,26 @@ Apple **Freeform(프리폼)** 디자인 철학을 적용한 **Windows용 단독(
 
 ---
 
-## 🚀 설치 및 실행 방법
+## 🚀 빌드 및 실행 방법
 
-### 1. 의존성 설치 및 초기 환경 구성
+### 1. 단독 실행 파일(`.exe`) 기본 빌드 및 실행
+별도 설치 과정 없이 즉시 실행 가능한 단독 실행 파일 버전(`dist/BossFreeForm/BossFreeForm.exe`)을 생성합니다:
+```bash
+npm run build:exe
+```
+- **단독 EXE 직접 실행**: `dist\BossFreeForm\BossFreeForm.exe` 더블클릭
+- **런처 스크립트 실행**: `BossFreeForm_시작.vbs` 더블클릭 (`dist\BossFreeForm\BossFreeForm.exe`가 있으면 즉시 실행)
+- **단축키로 호출/숨기기**: 앱 실행 중 언제든 **`Ctrl + Shift + Space`** (또는 사용자가 설정 모달에서 지정한 단축키) 입력
+
+### 2. 배포용 인스톨러(`Setup.exe`) 생성 (필요 시 실행)
+다른 PC 배포용 단일 설치 파일(`dist/BossFreeForm_Setup_v1.0.0.exe`)이 필요할 때 실행합니다 (Inno Setup 6 기반 자동 컴파일 및 코드 서명):
+```bash
+npm run build:setup
+```
+
+### 3. 개발 환경에서 클론 및 초기 셋업
 ```bash
 git clone https://github.com/cirross2/BossFreeForm-.git
 cd BossFreeForm-
 npm install
 ```
-> `npm install` 시 `setup.js`가 실행되어 기본 보드 폴더 및 바탕화면 바로가기(`BossFreeForm 보드.lnk`)를 자동으로 준비합니다.
-
-### 2. 실행
-- **콘솔 창 없이 깔끔하게 실행**: 폴더 내 **`BossFreeForm_시작.vbs`** 더블클릭 (또는 바탕화면의 **`BossFreeForm 보드`** 아이콘 실행)
-- **터미널에서 실행**:
-  ```bash
-  npm start
-  ```
-- **단축키로 호출/숨기기**: 앱 실행 중 언제든 **`Ctrl + Shift + Space`** (또는 사용자가 지정한 단축키) 입력

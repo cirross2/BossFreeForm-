@@ -6,9 +6,44 @@ const http = require('http');
 const crypto = require('crypto');
 
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
-const CONFIG_PATH = path.join(PROJECT_ROOT, 'config.json');
-const OAUTH_TOKEN_PATH = path.join(PROJECT_ROOT, 'oauth_tokens.json');
-const DEFAULT_LOCAL_STORAGE = path.join(PROJECT_ROOT, 'boards_local');
+
+function resolveWritableDataRoot() {
+  const candidates = [];
+  if (process.env.PORTABLE_EXECUTABLE_DIR) {
+    candidates.push(process.env.PORTABLE_EXECUTABLE_DIR);
+  }
+  const execBase = path.basename(process.execPath || '').toLowerCase();
+  const isPackagedExe = execBase.startsWith('bossfreeform') || __dirname.toLowerCase().includes('resources');
+  if (isPackagedExe) {
+    const exeDir = path.dirname(process.execPath);
+    if (!/program files/i.test(exeDir)) {
+      candidates.push(exeDir);
+    }
+    candidates.push(path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'BossFreeForm'));
+  } else {
+    candidates.push(PROJECT_ROOT);
+  }
+
+  for (const dir of candidates) {
+    try {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const testFile = path.join(dir, `.write_test_${process.pid}`);
+      fs.writeFileSync(testFile, 'ok');
+      fs.unlinkSync(testFile);
+      return dir;
+    } catch (_) {}
+  }
+  const fallback = path.join(os.homedir(), '.bossfreeform');
+  try {
+    if (!fs.existsSync(fallback)) fs.mkdirSync(fallback, { recursive: true });
+  } catch (_) {}
+  return fallback;
+}
+
+const DATA_ROOT = resolveWritableDataRoot();
+const CONFIG_PATH = path.join(DATA_ROOT, 'config.json');
+const OAUTH_TOKEN_PATH = path.join(DATA_ROOT, 'oauth_tokens.json');
+const DEFAULT_LOCAL_STORAGE = path.join(DATA_ROOT, 'boards_local');
 
 class DriveSyncManager {
   constructor() {

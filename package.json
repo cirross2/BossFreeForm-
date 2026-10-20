@@ -9,6 +9,9 @@
   },
   "scripts": {
     "start": "electron .",
+    "build": "node scripts/build-exe.js",
+    "build:exe": "node scripts/build-exe.js",
+    "build:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-setup.ps1",
     "setup": "node setup.js",
     "postinstall": "node setup.js"
   },
