@@ -694,14 +694,29 @@ function applyObjectCustomColorStyles(el, obj) {
     // Box Background Fill (텍스트를 제외한 박스 배경 채우기)
     if (obj.labelBgEnabled) {
       const bgRgb = parseHexToRgb(obj.labelBgColor || '#1c1c22') || { r: 28, g: 28, b: 34 };
-      const bgOp = obj.labelBgOpacity !== undefined ? Number(obj.labelBgOpacity) : 0.85;
+      const bgOp = obj.opaque ? 1 : obj.labelBgOpacity !== undefined ? Number(obj.labelBgOpacity) : 0.85;
       el.style.setProperty('background', `rgba(${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}, ${bgOp})`, 'important');
       el.style.setProperty('border-radius', `${Math.max(0, Number(obj.labelBgRadius ?? 14))}px`);
       el.classList.add('has-label-bg');
     } else {
       el.style.removeProperty('background');
-      el.style.removeProperty('border-radius');
       el.classList.remove('has-label-bg');
+    }
+
+    // Box Border (텍스트·타이틀 박스 테두리)
+    if (obj.labelBoxBorderEnabled) {
+      const bw = Math.max(1, Number(obj.labelBoxBorderWidth) || 2);
+      const bs = obj.labelBoxBorderStyle || 'solid';
+      const bc = obj.labelBoxBorderColor || '#0a84ff';
+      el.style.setProperty('border', `${bw}px ${bs} ${bc}`, 'important');
+      el.style.setProperty('border-radius', `${Math.max(0, Number(obj.labelBgRadius ?? 14))}px`);
+      el.classList.add('has-label-box-border');
+    } else {
+      el.style.removeProperty('border');
+      el.classList.remove('has-label-box-border');
+    }
+    if (!obj.labelBgEnabled && !obj.labelBoxBorderEnabled) {
+      el.style.removeProperty('border-radius');
     }
 
     const editor = el.querySelector('.ff-label-editor');
@@ -1152,7 +1167,7 @@ function renderShapeObjectInto(wrapEl, obj) {
   const resolvedHex = getResolvedObjectColorHex(obj) || '#0a84ff';
   const fillEnabled = obj.fillEnabled !== false;
   const fillColor = obj.fillColor || resolvedHex;
-  const fillOpacity = obj.fillOpacity !== undefined ? Number(obj.fillOpacity) : 0.25;
+  const fillOpacity = obj.opaque ? 1 : obj.fillOpacity !== undefined ? Number(obj.fillOpacity) : 0.25;
   const borderStyle = obj.borderStyle || 'solid';
   const rawBorderWidth = Number(obj.borderWidth ?? 3.5);
   const borderWidth = borderStyle === 'none' ? 0 : Math.max(1, rawBorderWidth);
@@ -2010,6 +2025,11 @@ function syncSelectionUI() {
       const lockLabel = document.getElementById('inspLockBtnLabel');
       if (lockLabel) lockLabel.textContent = anyLocked ? '잠김' : '잠금';
 
+      const allOpaque = selected.every((o) => o.opaque);
+      document.getElementById('inspOpacityBtn')?.classList.toggle('active-pill', allOpaque);
+      const opLbl = document.getElementById('inspOpacityBtnLabel');
+      if (opLbl) opLbl.textContent = allOpaque ? '불투명 ON (클릭: 기본 투명도로)' : '불투명으로 전환';
+
       const groupLabel = document.getElementById('inspGroupBtnLabel');
       const allSameGroup =
         selected.length >= 1 &&
@@ -2142,6 +2162,26 @@ function syncLabelStyleInspectorUI(labelObj) {
   if (bgOpSel) {
     bgOpSel.value = String(labelObj.labelBgOpacity ?? 0.85);
     bgOpSel.classList.toggle('hidden', !bgOn);
+  }
+  const boxOn = Boolean(labelObj.labelBoxBorderEnabled);
+  document.getElementById('inspLabelBoxBorderToggleBtn')?.classList.toggle('active-pill', boxOn);
+  const boxLbl = document.getElementById('inspLabelBoxBorderToggleLabel');
+  if (boxLbl) boxLbl.textContent = boxOn ? '박스 테두리 ON' : '박스 테두리 OFF';
+  const boxColorInp = document.getElementById('inspLabelBoxBorderColorInput');
+  if (boxColorInp) {
+    const bc = labelObj.labelBoxBorderColor || '#0a84ff';
+    boxColorInp.value = /^#[0-9a-f]{6}$/i.test(bc) ? bc : '#0a84ff';
+    boxColorInp.classList.toggle('hidden', !boxOn);
+  }
+  const boxWSel = document.getElementById('inspLabelBoxBorderWidthSelect');
+  if (boxWSel) {
+    boxWSel.value = String(labelObj.labelBoxBorderWidth || 2);
+    boxWSel.classList.toggle('hidden', !boxOn);
+  }
+  const boxSSel = document.getElementById('inspLabelBoxBorderStyleSelect');
+  if (boxSSel) {
+    boxSSel.value = labelObj.labelBoxBorderStyle || 'solid';
+    boxSSel.classList.toggle('hidden', !boxOn);
   }
   void resolved;
   const strokeOn = Boolean(labelObj.labelStrokeEnabled);
@@ -2627,10 +2667,48 @@ function renderAllObjects() {
     try {
       const el = createObjectDOM(obj);
       objectLayer.appendChild(el);
+      if (obj.opaque) applyOpaqueModeToElement(el);
     } catch (err) {
       console.error('Failed to render object:', obj?.id, err);
     }
   });
+}
+
+// Converts every translucent rgba() in the card's computed background into a solid rgb() (alpha=1).
+// Fully transparent layers (alpha≈0) are left untouched so borderless objects never turn black.
+function toOpaqueColorString(str) {
+  return String(str || '').replace(
+    /rgba\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*([\d.]+)\s*\)/g,
+    (m, r, g, b, a) => (Number(a) < 0.02 ? m : `rgb(${r}, ${g}, ${b})`)
+  );
+}
+
+function applyOpaqueModeToElement(el) {
+  if (!el || !el.isConnected) return;
+  el.classList.add('is-opaque');
+  const cs = getComputedStyle(el);
+  const bgImg = cs.backgroundImage;
+  const bgColor = cs.backgroundColor;
+  if (bgImg && bgImg !== 'none' && /rgba\(/.test(bgImg)) {
+    el.style.setProperty('background-image', toOpaqueColorString(bgImg), 'important');
+  }
+  if (bgColor && /rgba\(/.test(bgColor)) {
+    el.style.setProperty('background-color', toOpaqueColorString(bgColor), 'important');
+  }
+}
+
+function toggleSelectedObjectsOpacity() {
+  const selected = getSelectedObjects();
+  if (!selected.length) return;
+  const next = !selected.every((o) => o.opaque);
+  pushUndoSnapshot(next ? '객체 불투명 전환' : '객체 기본 투명도 전환');
+  selected.forEach((o) => {
+    o.opaque = next;
+  });
+  renderAllObjects();
+  syncSelectionUI();
+  scheduleSaveBoard();
+  showToast(next ? '◼ 선택 객체를 불투명으로 전환했습니다' : '◻ 선택 객체를 기본 투명도로 되돌렸습니다');
 }
 
 function createObjectDOM(obj) {
@@ -4650,6 +4728,11 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
     'labelBgColor',
     'labelBgOpacity',
     'labelBgRadius',
+    'labelBoxBorderEnabled',
+    'labelBoxBorderColor',
+    'labelBoxBorderWidth',
+    'labelBoxBorderStyle',
+    'opaque',
     'labelFillColor',
     'labelStrokeEnabled',
     'labelStrokeColor',
@@ -5551,6 +5634,7 @@ window.addEventListener('contextmenu', (e) => {
       <button class="ctx-item" data-ctx="obj-front"><span class="ctx-item-left">${SVG_ICONS.up}<span>맨 앞으로 가져오기</span></span></button>
       <button class="ctx-item" data-ctx="obj-back"><span class="ctx-item-left">${SVG_ICONS.down}<span>맨 뒤로 보내기</span></span></button>
       <button class="ctx-item" data-ctx="obj-lock"><span class="ctx-item-left">${SVG_ICONS.lock}<span>${primary.locked ? '잠금 해제' : '객체 위치 잠금'}</span></span></button>
+      <button class="ctx-item" data-ctx="obj-opacity"><span class="ctx-item-left">${SVG_ICONS.bgLayer}<span>${selected.every((o) => o.opaque) ? '기본 투명도로 되돌리기' : '불투명으로 전환'}</span></span></button>
       <div class="ctx-divider"></div>
       <button class="ctx-item" data-ctx="board-undo"><span class="ctx-item-left">${SVG_ICONS.undo}<span>실행 취소</span></span><span class="ctx-kbd">Ctrl+Z</span></button>
       <button class="ctx-item" data-ctx="board-redo"><span class="ctx-item-left">${SVG_ICONS.redo}<span>다시 실행</span></span><span class="ctx-kbd">Ctrl+Y</span></button>
@@ -5666,6 +5750,8 @@ window.addEventListener('contextmenu', (e) => {
       getSelectedObjects().forEach((o) => (o.locked = nextLock));
       syncSelectionUI();
       scheduleSaveBoard();
+    } else if (act === 'obj-opacity') {
+      toggleSelectedObjectsOpacity();
     } else if (act === 'obj-delete') {
       deleteSelectedObjects();
     } else if (act === 'smart-paste') {
@@ -6404,6 +6490,132 @@ document.getElementById('inspLabelStrokeWidthSelect')?.addEventListener('change'
     o.labelStrokeWidth = sw;
   }, '텍스트 외곽선 굵기 변경');
 });
+
+// --- Text/Title Box Border Controls ---
+document.getElementById('inspLabelBoxBorderToggleBtn')?.addEventListener('click', () => {
+  const labels = getSelectedObjects().filter((o) => o.type === 'label');
+  if (!labels.length) return;
+  const next = !Boolean(labels[0].labelBoxBorderEnabled);
+  updateSelectedLabels((o) => {
+    o.labelBoxBorderEnabled = next;
+    if (next) {
+      if (!o.labelBoxBorderColor) o.labelBoxBorderColor = '#0a84ff';
+      if (!o.labelBoxBorderWidth) o.labelBoxBorderWidth = 2;
+      if (!o.labelBoxBorderStyle) o.labelBoxBorderStyle = 'solid';
+    }
+  }, next ? '텍스트 박스 테두리 ON' : '텍스트 박스 테두리 OFF');
+});
+
+document.getElementById('inspLabelBoxBorderColorInput')?.addEventListener('change', (e) => {
+  const hex = e.target.value;
+  updateSelectedLabels((o) => {
+    o.labelBoxBorderEnabled = true;
+    o.labelBoxBorderColor = hex;
+  }, '텍스트 박스 테두리 색상 변경');
+});
+
+document.getElementById('inspLabelBoxBorderWidthSelect')?.addEventListener('change', (e) => {
+  const bw = Number(e.target.value) || 2;
+  updateSelectedLabels((o) => {
+    o.labelBoxBorderEnabled = true;
+    o.labelBoxBorderWidth = bw;
+  }, '텍스트 박스 테두리 굵기 변경');
+});
+
+document.getElementById('inspLabelBoxBorderStyleSelect')?.addEventListener('change', (e) => {
+  const bs = e.target.value || 'solid';
+  updateSelectedLabels((o) => {
+    o.labelBoxBorderEnabled = true;
+    o.labelBoxBorderStyle = bs;
+  }, '텍스트 박스 테두리 모양 변경');
+});
+
+// --- Object Opacity Toggle (기본 투명도 <-> 불투명) ---
+document.getElementById('inspOpacityBtn')?.addEventListener('click', toggleSelectedObjectsOpacity);
+
+// ============================================================================
+// Unified Fast Black Floating Tooltip (replaces slow native `title` tooltips everywhere)
+// ============================================================================
+const SPAN_TOOLTIP_HOSTS =
+  '.top-titlebar .tool-btn, .sync-status-pill, .insp-obj-only-group .insp-btn, #inspDeleteBtn, #undoStrokeBtn, .ff-obj-icon-btn';
+const FLOATING_TIP_TARGETS = 'button, select, input, label, .swatch, .pen-color, .hud-btn, [role="button"], .board-item, .drive-path-box';
+const floatingTipEl = document.createElement('div');
+floatingTipEl.className = 'ff-floating-tip';
+document.body.appendChild(floatingTipEl);
+let floatingTipHost = null;
+
+function hideFloatingTip() {
+  floatingTipHost = null;
+  floatingTipEl.classList.remove('visible');
+}
+
+function positionFloatingTip(host) {
+  const r = host.getBoundingClientRect();
+  const tipW = floatingTipEl.offsetWidth;
+  const tipH = floatingTipEl.offsetHeight;
+  const gap = 8;
+  let left = r.left + r.width / 2 - tipW / 2;
+  left = Math.max(6, Math.min(window.innerWidth - tipW - 6, left));
+  let top = r.bottom + gap;
+  let above = false;
+  if (top + tipH > window.innerHeight - 6) {
+    top = r.top - tipH - gap;
+    above = true;
+  }
+  floatingTipEl.classList.toggle('is-above', above);
+  floatingTipEl.style.left = `${Math.round(left)}px`;
+  floatingTipEl.style.top = `${Math.round(Math.max(6, top))}px`;
+}
+
+document.addEventListener(
+  'mouseover',
+  (e) => {
+    const titled = e.target.closest?.('[title], [data-ff-tip]');
+    if (!titled) {
+      if (floatingTipHost && !floatingTipHost.contains(e.target)) hideFloatingTip();
+      return;
+    }
+    // Move native title into data attribute so the slow white OS tooltip never appears
+    if (titled.hasAttribute('title')) {
+      const t = titled.getAttribute('title');
+      if (t) titled.dataset.ffTip = t;
+      titled.removeAttribute('title');
+    }
+    // Buttons that already render their own black <span> tooltip keep it (no duplicate)
+    if (titled.matches(SPAN_TOOLTIP_HOSTS)) {
+      hideFloatingTip();
+      return;
+    }
+    if (!titled.matches(FLOATING_TIP_TARGETS) && !titled.closest('.object-inspector, .pen-toolbar, .canvas-hud, .grid-settings-popover, .modal-overlay, .modal-card')) {
+      if (floatingTipHost) hideFloatingTip();
+      return;
+    }
+    const tipText = titled.dataset.ffTip;
+    if (!tipText) return;
+    if (floatingTipHost === titled) return;
+    floatingTipHost = titled;
+    floatingTipEl.textContent = tipText;
+    floatingTipEl.classList.remove('visible');
+    positionFloatingTip(titled);
+    requestAnimationFrame(() => {
+      if (floatingTipHost === titled) floatingTipEl.classList.add('visible');
+    });
+  },
+  true
+);
+
+document.addEventListener(
+  'mouseout',
+  (e) => {
+    if (floatingTipHost && (!e.relatedTarget || !floatingTipHost.contains(e.relatedTarget))) {
+      hideFloatingTip();
+    }
+  },
+  true
+);
+['pointerdown', 'wheel', 'keydown', 'scroll'].forEach((evt) =>
+  window.addEventListener(evt, hideFloatingTip, { capture: true, passive: true })
+);
 
 // ============================================================================
 // Persistent Swatch Color Picker (Right-Click on Object & Pen Swatches)

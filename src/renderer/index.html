@@ -461,6 +461,28 @@
                 <option value="16">외곽선 16px</option>
                 <option value="22">외곽선 22px</option>
               </select>
+              <button class="insp-btn" id="inspLabelBoxBorderToggleBtn" title="텍스트·타이틀 박스 테두리 ON / OFF">
+                <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round">
+                  <rect x="3" y="5" width="18" height="14" rx="3"></rect>
+                </svg>
+                <span id="inspLabelBoxBorderToggleLabel">박스 테두리 OFF</span>
+              </button>
+              <input type="color" class="insp-color-chip hidden" id="inspLabelBoxBorderColorInput" value="#0a84ff" title="박스 테두리 색상" />
+              <select class="insp-select hidden" id="inspLabelBoxBorderWidthSelect" title="박스 테두리 굵기">
+                <option value="1">테두리 1px</option>
+                <option value="2" selected>테두리 2px</option>
+                <option value="3">테두리 3px</option>
+                <option value="4">테두리 4px</option>
+                <option value="6">테두리 6px</option>
+                <option value="8">테두리 8px</option>
+                <option value="12">테두리 12px</option>
+              </select>
+              <select class="insp-select hidden" id="inspLabelBoxBorderStyleSelect" title="박스 테두리 선 모양">
+                <option value="solid" selected>실선</option>
+                <option value="dashed">파선</option>
+                <option value="dotted">점선</option>
+                <option value="double">이중선</option>
+              </select>
             </div>
             <button class="insp-btn insp-fmt-btn" id="inspBoldBtn" title="굵게 (Ctrl+B)"><b>B</b></button>
             <button class="insp-btn insp-fmt-btn" id="inspItalicBtn" title="기울기체 (Ctrl+I)"><i>I</i></button>
@@ -559,6 +581,13 @@
                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
               </svg>
               <span id="inspLockBtnLabel">잠금</span>
+            </button>
+            <button class="insp-btn" id="inspOpacityBtn">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"></path>
+              </svg>
+              <span id="inspOpacityBtnLabel">불투명으로 전환</span>
             </button>
           </div>
 
