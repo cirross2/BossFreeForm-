@@ -2568,6 +2568,373 @@ body.theme-light .ff-object.type-label:hover {
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
 }
 
+/* ============================================================================
+   1. Random Color Swatch Button
+   ============================================================================ */
+.swatch.random-swatch {
+  background: conic-gradient(from 0deg, #ff3b30, #ff9500, #ffcc00, #34c759, #00c7be, #007aff, #5856d6, #af52de, #ff2d55, #ff3b30) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border: 1.5px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+.swatch.random-swatch:hover {
+  transform: scale(1.2) rotate(18deg);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.65);
+}
+.swatch.random-swatch:active {
+  transform: scale(0.95) rotate(-15deg);
+}
+.swatch.random-swatch svg {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.75));
+  pointer-events: none;
+}
+
+/* ============================================================================
+   2. Ctrl-Hold Instant Object Move Mode Cursor
+   ============================================================================ */
+body.ctrl-move-mode .ff-object,
+body.ctrl-move-mode .ff-object * {
+  cursor: move !important;
+}
+
+/* ============================================================================
+   3. Checklist Auto-Wrap vs Single-Line Mode
+   ============================================================================ */
+.ff-chk-Insert-btn.active {
+  background: rgba(41, 151, 255, 0.24);
+  border-color: rgba(41, 151, 255, 0.65);
+  color: #2997ff;
+}
+.ff-object.color-yellow .ff-chk-Insert-btn.active,
+.ff-object.color-pink .ff-chk-Insert-btn.active,
+.ff-object.color-orange .ff-chk-Insert-btn.active,
+.ff-object.color-light .ff-chk-Insert-btn.active {
+  background: rgba(0, 113, 227, 0.18);
+  border-color: rgba(0, 113, 227, 0.55);
+  color: #005bb5;
+}
+
+.ff-check-row {
+  align-items: flex-start;
+}
+.ff-check-row .ff-chk-widget {
+  margin-top: 2px;
+}
+.ff-check-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font-family: var(--font-sans);
+  font-size: 13.3px;
+  line-height: 1.45;
+  min-width: 40px;
+  user-select: text;
+  cursor: text;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.ff-check-input.nowrap-mode {
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.ff-check-input.nowrap-mode::-webkit-scrollbar {
+  height: 3px;
+}
+.ff-check-input:empty::before {
+  content: attr(data-placeholder);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ============================================================================
+   4. Sleek SVG-Icon + Hover Tooltip Header Action Buttons (Vectorize, Aspect, Border)
+   ============================================================================ */
+.ff-obj-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 23px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 135, 0.28);
+  background: rgba(128, 128, 135, 0.14);
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.82;
+  transition: all 0.14s ease;
+  flex-shrink: 0;
+}
+.ff-obj-icon-btn:hover {
+  opacity: 1;
+  background: rgba(128, 128, 135, 0.28);
+}
+.ff-obj-icon-btn.is-active {
+  opacity: 1;
+  background: var(--apple-blue) !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.42);
+}
+
+.ff-obj-icon-btn > span {
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: rgba(20, 20, 24, 0.96);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #f5f5f7;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s ease;
+  z-index: 9999;
+}
+.ff-obj-icon-btn:hover > span {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Universal Vectorized Mode for ANY Object (Sticky, Checklist, Table, Link, File, Label) */
+.ff-object.is-vectorized .ff-obj-body {
+  padding: 0 !important;
+  overflow: visible !important;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  width: 100%;
+  height: 100%;
+  cursor: move;
+}
+.ff-object.is-vectorized:not(.type-label):not(.type-image):not(.type-stroke) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+.ff-object.is-vectorized:not(.type-label):not(.type-image):not(.type-stroke) > .ff-obj-header {
+  position: absolute;
+  top: -36px;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: rgba(22, 22, 26, 0.94);
+  backdrop-filter: blur(14px);
+  color: #f5f5f7;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  padding: 5px 10px;
+}
+.ff-object.is-vectorized:not(.type-label):not(.type-image):not(.type-stroke):hover > .ff-obj-header,
+.ff-object.is-vectorized:not(.type-label):not(.type-image):not(.type-stroke).selected > .ff-obj-header {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.ff-object.is-vectorized .ff-note-toolbar,
+.ff-object.is-vectorized .ff-table-toolbar {
+  display: none !important;
+}
+.ff-universal-vector-wrap {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  cursor: move;
+}
+.ff-universal-vector-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ============================================================================
+   5. Image No-Whitespace Fill & Custom Border Controls
+   ============================================================================ */
+.insp-image-only-group,
+.insp-img-border-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.insp-image-only-group.hidden,
+.insp-img-border-sub.hidden {
+  display: none !important;
+}
+
+.ff-object.type-image .ff-image-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill !important;
+  border-radius: 10px;
+  display: block;
+  box-sizing: border-box;
+  filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.42));
+}
+
+/* ============================================================================
+   6. Grid & Snap Settings Popover (Bottom-Right HUD)
+   ============================================================================ */
+.grid-settings-popover {
+  position: absolute;
+  right: 16px;
+  bottom: 54px;
+  width: 296px;
+  background: rgba(26, 26, 30, 0.96);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55);
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  color: var(--text-primary);
+}
+body.theme-light .grid-settings-popover {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(0, 0, 0, 0.14);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18);
+}
+.grid-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.grid-popover-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+.grid-popover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.grid-popover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.grid-popover-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.grid-style-pills,
+.grid-unit-pills {
+  display: flex;
+  gap: 4px;
+}
+.grid-style-pill,
+.grid-unit-pill {
+  flex: 1;
+  padding: 4px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(128, 128, 135, 0.12);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.13s ease;
+}
+.grid-style-pill.active,
+.grid-unit-pill.active {
+  background: var(--apple-blue);
+  border-color: transparent;
+  color: #ffffff;
+}
+.grid-spacing-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.grid-spacing-control input[type="range"] {
+  flex: 1;
+  accent-color: var(--apple-blue);
+  cursor: pointer;
+}
+.grid-spacing-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(128, 128, 135, 0.14);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+.grid-spacing-input-wrap input[type="number"] {
+  width: 48px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: right;
+}
+#gridSpacingUnitSuffix {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.grid-snap-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 3px 2px;
+}
+.grid-snap-toggle-row input[type="checkbox"] {
+  accent-color: var(--apple-blue);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+.hud-btn.snap-active {
+  background: rgba(41, 151, 255, 0.22);
+  color: #2997ff;
+}
+
+
 
 
 

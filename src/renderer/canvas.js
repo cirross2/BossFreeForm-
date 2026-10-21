@@ -120,6 +120,97 @@ let isPanning = false;
 let panStartX = 0;
 let panStartY = 0;
 let spacePressed = false;
+let viewportAnimFrame = null;
+let lastCanvasMousePos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+
+// Grid & Dot Snap / Spacing Configuration
+const PX_PER_CM = 37.7952755906;
+const PX_PER_M = 3779.52755906;
+let gridConfig = {
+  mode: 'grid-dots', // 'grid-dots' | 'grid-lines' | 'grid-none'
+  unit: 'px', // 'px' | 'cm' | 'm'
+  spacingValue: 24,
+  snapObjects: false,
+  snapDrawing: false
+};
+
+function getGridSpacingWorldPx() {
+  const val = Number(gridConfig.spacingValue);
+  if (gridConfig.unit === 'cm') {
+    const cm = Number.isFinite(val) && val > 0 ? val : 1;
+    return Math.max(6, Math.min(2000, Math.round(cm * PX_PER_CM)));
+  }
+  if (gridConfig.unit === 'm') {
+    const m = Number.isFinite(val) && val > 0 ? val : 0.05;
+    return Math.max(10, Math.min(5000, Math.round(m * PX_PER_M)));
+  }
+  const px = Number.isFinite(val) && val > 0 ? val : 24;
+  return Math.max(6, Math.min(1000, Math.round(px)));
+}
+
+function snapWorldVal(val, enabled = false) {
+  if (!enabled) return Math.round(val);
+  const step = getGridSpacingWorldPx();
+  if (!step || step < 2) return Math.round(val);
+  return Math.round(val / step) * step;
+}
+
+function cancelViewportAnimation() {
+  if (viewportAnimFrame) {
+    cancelAnimationFrame(viewportAnimFrame);
+    viewportAnimFrame = null;
+  }
+}
+
+function animateViewportTo(targetPanX, targetPanY, targetZoom, durationMs = 420) {
+  cancelViewportAnimation();
+  const startPanX = panX;
+  const startPanY = panY;
+  const startZoom = zoom;
+  const clampedTargetZoom = Math.min(3.5, Math.max(0.1, targetZoom));
+  const startTime = performance.now();
+
+  const step = (now) => {
+    const elapsed = now - startTime;
+    const t = Math.min(1, elapsed / Math.max(1, durationMs));
+    // Cubic ease-out for natural, fluid deceleration
+    const ease = 1 - Math.pow(1 - t, 3);
+    zoom = startZoom + (clampedTargetZoom - startZoom) * ease;
+    panX = startPanX + (targetPanX - startPanX) * ease;
+    panY = startPanY + (targetPanY - startPanY) * ease;
+    applyViewportTransform();
+
+    if (t < 1) {
+      viewportAnimFrame = requestAnimationFrame(step);
+    } else {
+      viewportAnimFrame = null;
+      zoom = clampedTargetZoom;
+      panX = Math.round(targetPanX);
+      panY = Math.round(targetPanY);
+      applyViewportTransform();
+      scheduleSaveBoard();
+    }
+  };
+  viewportAnimFrame = requestAnimationFrame(step);
+}
+
+function zoomAtScreenPoint(targetZoom, clientX = null, clientY = null) {
+  cancelViewportAnimation();
+  if (!canvasViewport) return;
+  const rect = canvasViewport.getBoundingClientRect();
+  const sx = clientX !== null ? clientX : lastCanvasMousePos.x || rect.left + rect.width / 2;
+  const sy = clientY !== null ? clientY : lastCanvasMousePos.y || rect.top + rect.height / 2;
+  const mouseX = Math.max(0, Math.min(rect.width, sx - rect.left));
+  const mouseY = Math.max(0, Math.min(rect.height, sy - rect.top));
+  const worldX = (mouseX - panX) / zoom;
+  const worldY = (mouseY - panY) / zoom;
+
+  zoom = Math.min(3.5, Math.max(0.1, targetZoom));
+  panX = mouseX - worldX * zoom;
+  panY = mouseY - worldY * zoom;
+  applyViewportTransform();
+  scheduleSaveBoard();
+}
 
 // Interaction States
 let draggingObjState = null;
@@ -174,7 +265,8 @@ function applyViewportTransform() {
   if (!canvasWorld) return;
   canvasWorld.style.transform = `translate3d(${Math.round(panX)}px, ${Math.round(panY)}px, 0) scale(${zoom.toFixed(3)})`;
   if (canvasViewport) {
-    const gridSize = Math.max(4, Math.round(24 * zoom));
+    const baseWorldStep = getGridSpacingWorldPx();
+    const gridSize = Math.max(4, Math.min(1200, Math.round(baseWorldStep * zoom)));
     canvasViewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
     canvasViewport.style.backgroundPosition = `${Math.round(panX)}px ${Math.round(panY)}px`;
   }
@@ -291,6 +383,11 @@ const SVG_ICONS = {
   trash: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`,
   lock: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>`,
   up: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 11 12 6 7 11"></polyline><line x1="12" y1="6" x2="12" y2="18"></line></svg>`,
+  down: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 13 12 18 17 13"></polyline><line x1="12" y1="18" x2="12" y2="6"></line></svg>`,
+  wrapText: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><path d="M3 12h15a3 3 0 1 1 0 6h-4"></path><polyline points="16 16 14 18 16 20"></polyline><line x1="3" y1="18" x2="10" y2="18"></line></svg>`,
+  aspectRatio: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 9h3v3"></path><path d="M17 15h-3v-3"></path></svg>`,
+  borderFrame: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3" stroke-dasharray="4 2"></rect></svg>`,
+  sparkle: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3Z"></path></svg>`,
   sticky: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"></path><path d="M14 3v4a2 2 0 0 0 2 2h4"></path></svg>`,
   table: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>`,
   fit: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>`,
@@ -494,9 +591,14 @@ function applyObjectTypography(el, obj) {
     }
   });
 
-  if (obj.type === 'label' && obj.vectorized) {
-    const wrapEl = el.querySelector('.ff-label-wrap');
-    if (wrapEl) renderVectorizedLabelIntoWrap(wrapEl, obj);
+  if (obj.vectorized) {
+    if (obj.type === 'label') {
+      const wrapEl = el.querySelector('.ff-label-wrap');
+      if (wrapEl) renderVectorizedLabelIntoWrap(wrapEl, obj);
+    } else {
+      const uWrap = el.querySelector('.ff-universal-vector-wrap');
+      if (uWrap) renderUniversalVectorizedObjectInto(uWrap, obj);
+    }
   }
 }
 
@@ -521,7 +623,25 @@ function parseHexToRgb(hexStr) {
 
 function applyObjectCustomColorStyles(el, obj) {
   if (!el || !obj) return;
-  if (obj.type === 'image') return;
+  if (obj.type === 'image') {
+    const imgEl = el.querySelector('.ff-image-wrap img');
+    if (obj.borderEnabled) {
+      const bWidth = Number(obj.borderWidth) || 4;
+      const bStyle = obj.borderStyle || 'solid';
+      const bColor = obj.borderColor || obj.customColor || getResolvedObjectColorHex(obj) || '#0a84ff';
+      el.classList.add('has-custom-border');
+      if (imgEl) {
+        imgEl.style.border = `${bWidth}px ${bStyle} ${bColor}`;
+        imgEl.style.boxSizing = 'border-box';
+      }
+    } else {
+      el.classList.remove('has-custom-border');
+      if (imgEl) {
+        imgEl.style.border = 'none';
+      }
+    }
+    return;
+  }
 
   if (obj.type === 'stroke') {
     const resolvedHex = getResolvedObjectColorHex(obj);
@@ -565,6 +685,14 @@ function applyObjectCustomColorStyles(el, obj) {
     }
   } else if (!customHex && /^#[0-9a-f]{3,6}$/i.test(obj.color || '')) {
     customHex = obj.color;
+  }
+
+  if (obj.vectorized) {
+    el.style.background = 'transparent';
+    el.style.borderColor = 'transparent';
+    const uWrap = el.querySelector('.ff-universal-vector-wrap');
+    if (uWrap) renderUniversalVectorizedObjectInto(uWrap, obj);
+    return;
   }
 
   if (!customHex) {
@@ -904,36 +1032,326 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
   wrapEl.appendChild(svg);
 }
 
-function toggleLabelVectorized(obj) {
-  if (!obj || obj.type !== 'label') return;
+function isVectorizableObject(obj) {
+  if (!obj) return false;
+  return ['label', 'sticky', 'text', 'table', 'link', 'file'].includes(obj.type);
+}
+
+function getCardVectorThemePalette(obj) {
+  let hex = obj.customColor || null;
+  if (!hex && obj.color && SWATCH_SLOT_BY_NAME[obj.color] !== undefined) {
+    const slot = SWATCH_SLOT_BY_NAME[obj.color];
+    hex = customObjectSwatches[slot] || DEFAULT_OBJECT_SWATCHES[slot];
+  }
+  const presetPalettes = {
+    yellow: { bg1: '#ffe66d', bg2: '#f7d147', text: '#1d1d1f', sub: 'rgba(29,29,31,0.68)', border: 'rgba(0,0,0,0.16)' },
+    blue: { bg1: '#1c355e', bg2: '#132542', text: '#f5f5f7', sub: 'rgba(245,245,247,0.7)', border: 'rgba(10,132,255,0.48)' },
+    green: { bg1: '#193d29', bg2: '#112a1c', text: '#f5f5f7', sub: 'rgba(245,245,247,0.7)', border: 'rgba(48,209,88,0.48)' },
+    pink: { bg1: '#4a1f33', bg2: '#331523', text: '#f5f5f7', sub: 'rgba(245,245,247,0.7)', border: 'rgba(255,133,162,0.48)' },
+    purple: { bg1: '#371f4a', bg2: '#251433', text: '#f5f5f7', sub: 'rgba(245,245,247,0.7)', border: 'rgba(191,90,242,0.48)' },
+    orange: { bg1: '#4a2c11', bg2: '#331e0b', text: '#f5f5f7', sub: 'rgba(245,245,247,0.7)', border: 'rgba(255,159,10,0.48)' },
+    dark: { bg1: '#232328', bg2: '#1a1a1f', text: '#f5f5f7', sub: 'rgba(245,245,247,0.68)', border: 'rgba(255,255,255,0.16)' },
+    light: { bg1: '#ffffff', bg2: '#f2f2f7', text: '#1d1d1f', sub: 'rgba(29,29,31,0.65)', border: 'rgba(0,0,0,0.16)' }
+  };
+
+  if (obj.customColor) {
+    const rgb = parseHexToRgb(obj.customColor);
+    if (rgb) {
+      const lum = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
+      const isLight = lum > 0.6;
+      const r2 = Math.max(0, rgb.r - 22);
+      const g2 = Math.max(0, rgb.g - 22);
+      const b2 = Math.max(0, rgb.b - 22);
+      return {
+        bg1: `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`,
+        bg2: `rgb(${r2}, ${g2}, ${b2})`,
+        text: isLight ? '#1d1d1f' : '#f5f5f7',
+        sub: isLight ? 'rgba(29,29,31,0.68)' : 'rgba(245,245,247,0.72)',
+        border: isLight ? 'rgba(0,0,0,0.2)' : `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.65)`
+      };
+    }
+  }
+  return presetPalettes[obj.color] || presetPalettes.dark;
+}
+
+function renderUniversalVectorizedObjectInto(wrapEl, obj) {
+  if (!wrapEl || !obj) return;
+  if (obj.type === 'label') {
+    renderVectorizedLabelIntoWrap(wrapEl, obj);
+    return;
+  }
+
+  const ts = getObjectTextStyle(obj);
+  const fontCss = FONT_FAMILY_STACKS[ts.fontFamily] || FONT_FAMILY_STACKS.default;
+  const fontWeight = ts.bold ? '800' : '500';
+  const fontStyle = ts.italic ? 'italic' : 'normal';
+  const pal = getCardVectorThemePalette(obj);
+  const safeId = String(obj.id || 'vec').replace(/[^a-zA-Z0-9_-]/g, '');
+
+  const padX = 28;
+  const headerH = 54;
+  let vbW = 520;
+  let vbH = 320;
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'ff-universal-vector-svg');
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  const contentGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+  const addText = (str, x, y, size, opts = {}) => {
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.textContent = str;
+    t.setAttribute('x', String(x));
+    t.setAttribute('y', String(y));
+    t.setAttribute('font-family', fontCss);
+    t.setAttribute('font-size', String(size));
+    t.setAttribute('font-weight', opts.weight || fontWeight);
+    t.setAttribute('font-style', opts.style || fontStyle);
+    t.setAttribute('fill', opts.fill || pal.text);
+    if (opts.anchor) t.setAttribute('text-anchor', opts.anchor);
+    if (opts.decoration || ts.underline) {
+      t.setAttribute('text-decoration', opts.decoration || 'underline');
+    }
+    if (opts.opacity) t.setAttribute('opacity', String(opts.opacity));
+    contentGroup.appendChild(t);
+    return t;
+  };
+
+  const baseFs = 24;
+  const lineH = 34;
+  const fontSpec = `${fontStyle} ${fontWeight} ${baseFs}px ${fontCss}`;
+
+  if (obj.type === 'sticky') {
+    const rawLines = String(obj.content || '').split('\n');
+    const lines = rawLines.length > 0 && rawLines.some((l) => l.trim()) ? rawLines : [obj.title || '포스트잇 메모'];
+    const maxLineW = Math.max(
+      260,
+      ...lines.map((l) => measureVectorTextWidth(l || ' ', fontSpec) * 1.08),
+      measureVectorTextWidth(obj.title || '📌 포스트잇 메모', `700 22px ${fontCss}`) * 1.15
+    );
+    vbW = Math.round(Math.max(380, maxLineW + padX * 2 + 24));
+    vbH = Math.round(Math.max(220, headerH + lines.length * lineH + 42));
+
+    lines.forEach((ln, idx) => {
+      const al = (Array.isArray(obj.lineAligns) && obj.lineAligns[idx]) || 'left';
+      const anchor = al === 'center' ? 'middle' : al === 'right' ? 'end' : 'start';
+      const xPos = al === 'center' ? Math.round(vbW / 2) : al === 'right' ? vbW - padX : padX;
+      const yPos = headerH + 34 + idx * lineH;
+      addText(ln, xPos, yPos, baseFs, { anchor });
+    });
+  } else if (obj.type === 'text') {
+    const parsed = parseNoteLines(obj.content || '');
+    const checks = parsed.filter((it) => it.isCheck);
+    const memos = parsed.filter((it) => !it.isCheck && (it.text || '').trim().length > 0);
+    const allTexts = [
+      ...checks.map((c) => c.text || '할 일 항목'),
+      ...memos.map((m) => m.text || '')
+    ];
+    const maxLineW = Math.max(
+      300,
+      ...allTexts.map((l) => measureVectorTextWidth(l, fontSpec) * 1.08 + 44),
+      measureVectorTextWidth(obj.title || '체크리스트', `700 22px ${fontCss}`) * 1.15
+    );
+    const totalRows = Math.max(1, checks.length + memos.length);
+    vbW = Math.round(Math.max(420, maxLineW + padX * 2 + 24));
+    vbH = Math.round(Math.max(220, headerH + totalRows * (lineH + 4) + 44));
+
+    let curY = headerH + 34;
+    checks.forEach((chk) => {
+      const boxY = curY - 20;
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', String(padX));
+      rect.setAttribute('y', String(boxY));
+      rect.setAttribute('width', chk.style === 'toggle' ? '34' : '22');
+      rect.setAttribute('height', '22');
+      rect.setAttribute('rx', chk.style === 'circle' || chk.style === 'toggle' ? '11' : '6');
+      rect.setAttribute('fill', chk.checked ? '#0a84ff' : 'rgba(255,255,255,0.12)');
+      rect.setAttribute('stroke', chk.checked ? '#0a84ff' : pal.sub);
+      rect.setAttribute('stroke-width', '2');
+      contentGroup.appendChild(rect);
+
+      if (chk.checked) {
+        addText('✓', padX + (chk.style === 'toggle' ? 17 : 11), curY - 3, 16, {
+          anchor: 'middle',
+          fill: '#ffffff',
+          weight: '800',
+          decoration: 'none'
+        });
+      }
+      const textX = padX + (chk.style === 'toggle' ? 46 : 34);
+      addText(chk.text || '', textX, curY, baseFs, {
+        fill: pal.text,
+        opacity: chk.checked ? 0.6 : 1,
+        decoration: chk.checked ? 'line-through' : ts.underline ? 'underline' : undefined
+      });
+      curY += lineH + 4;
+    });
+
+    memos.forEach((m, idx) => {
+      const al = (Array.isArray(obj.memoLineAligns) && obj.memoLineAligns[idx]) || 'left';
+      const anchor = al === 'center' ? 'middle' : al === 'right' ? 'end' : 'start';
+      const xPos = al === 'center' ? Math.round(vbW / 2) : al === 'right' ? vbW - padX : padX;
+      addText(m.text || '', xPos, curY, baseFs - 1, { anchor, fill: pal.sub });
+      curY += lineH;
+    });
+  } else if (obj.type === 'table') {
+    const rows = Array.isArray(obj.tableData) && obj.tableData.length ? obj.tableData : [['', ''], ['', '']];
+    const numRows = rows.length;
+    const numCols = Math.max(1, rows[0]?.length || 1);
+    const colWidths = new Array(numCols).fill(110);
+    rows.forEach((r) => {
+      r.forEach((cell, cIdx) => {
+        const clean = String(cell ?? '').replace(/^\[(square|circle|toggle):(0|1)\]\s?/, '☑ ');
+        const w = measureVectorTextWidth(clean || ' ', `600 20px ${fontCss}`) + 36;
+        if (w > colWidths[cIdx]) colWidths[cIdx] = Math.min(340, Math.round(w));
+      });
+    });
+    const tableW = colWidths.reduce((a, b) => a + b, 0);
+    const rowH = 44;
+    const tableH = numRows * rowH;
+    vbW = Math.max(420, tableW + padX * 2);
+    vbH = Math.max(220, headerH + tableH + 36);
+
+    const scaleCol = (vbW - padX * 2) / Math.max(1, tableW);
+    let accX = padX;
+    for (let rIdx = 0; rIdx < numRows; rIdx++) {
+      accX = padX;
+      const cellY = headerH + 14 + rIdx * rowH;
+      for (let cIdx = 0; cIdx < numCols; cIdx++) {
+        const cw = Math.round(colWidths[cIdx] * scaleCol);
+        const cellRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        cellRect.setAttribute('x', String(accX));
+        cellRect.setAttribute('y', String(cellY));
+        cellRect.setAttribute('width', String(cw));
+        cellRect.setAttribute('height', String(rowH));
+        cellRect.setAttribute('fill', rIdx === 0 ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.02)');
+        cellRect.setAttribute('stroke', pal.border);
+        cellRect.setAttribute('stroke-width', '1.5');
+        contentGroup.appendChild(cellRect);
+
+        const rawStr = String(rows[rIdx]?.[cIdx] ?? '')
+          .replace(/^\[(square|circle|toggle):1\]\s?/, '☑ ')
+          .replace(/^\[(square|circle|toggle):0\]\s?/, '☐ ');
+        const cellKey = `${rIdx}_${cIdx}`;
+        const cAlign = obj.cellAligns?.[cellKey] || 'left';
+        const anchor = cAlign === 'center' ? 'middle' : cAlign === 'right' ? 'end' : 'start';
+        const tx = cAlign === 'center' ? accX + Math.round(cw / 2) : cAlign === 'right' ? accX + cw - 12 : accX + 12;
+        addText(rawStr, tx, cellY + 29, 20, { anchor, weight: rIdx === 0 ? '700' : fontWeight });
+        accX += cw;
+      }
+    }
+  } else {
+    // 'link' or 'file'
+    vbW = 480;
+    vbH = 190;
+    const mainLine = obj.type === 'link' ? (obj.domain || obj.url || '웹 링크') : (obj.fileName || obj.title || '첨부 파일');
+    const subLine = obj.type === 'link' ? (obj.description || obj.url || '') : (obj.fileSize ? `${Math.max(1, Math.round(obj.fileSize / 1024))} KB` : '문서 객체');
+    addText(mainLine, padX, headerH + 46, 24, { weight: '700' });
+    addText(String(subLine).slice(0, 55), padX, headerH + 86, 18, { fill: pal.sub });
+  }
+
+  svg.setAttribute('viewBox', `0 0 ${vbW} ${vbH}`);
+  obj.vectorAspect = Number((vbW / Math.max(1, vbH)).toFixed(4));
+
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  defs.innerHTML = `
+    <linearGradient id="uvec_bg_${safeId}" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${pal.bg1}"/>
+      <stop offset="100%" stop-color="${pal.bg2}"/>
+    </linearGradient>
+  `;
+  svg.appendChild(defs);
+
+  const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bgRect.setAttribute('x', '2');
+  bgRect.setAttribute('y', '2');
+  bgRect.setAttribute('width', String(vbW - 4));
+  bgRect.setAttribute('height', String(vbH - 4));
+  bgRect.setAttribute('rx', '20');
+  bgRect.setAttribute('fill', `url(#uvec_bg_${safeId})`);
+  bgRect.setAttribute('stroke', pal.border);
+  bgRect.setAttribute('stroke-width', '3');
+  svg.appendChild(bgRect);
+
+  // Header separator & title
+  const hdrLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  hdrLine.setAttribute('x1', '18');
+  hdrLine.setAttribute('y1', String(headerH));
+  hdrLine.setAttribute('x2', String(vbW - 18));
+  hdrLine.setAttribute('y2', String(headerH));
+  hdrLine.setAttribute('stroke', pal.border);
+  hdrLine.setAttribute('stroke-width', '1.5');
+  svg.appendChild(hdrLine);
+
+  const titleAlign = ['left', 'center', 'right'].includes(obj.titleAlign) ? obj.titleAlign : 'left';
+  const tAnchor = titleAlign === 'center' ? 'middle' : titleAlign === 'right' ? 'end' : 'start';
+  const titleX = titleAlign === 'center' ? Math.round(vbW / 2) : titleAlign === 'right' ? vbW - padX : padX;
+  const titleText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  titleText.textContent = obj.title || (obj.type === 'sticky' ? '📌 포스트잇 메모' : obj.type === 'text' ? '체크리스트 & 노트' : obj.type === 'table' ? '데이터 표' : '객체');
+  titleText.setAttribute('x', String(titleX));
+  titleText.setAttribute('y', '36');
+  titleText.setAttribute('font-family', fontCss);
+  titleText.setAttribute('font-size', '21');
+  titleText.setAttribute('font-weight', '800');
+  titleText.setAttribute('fill', pal.text);
+  titleText.setAttribute('text-anchor', tAnchor);
+  svg.appendChild(titleText);
+
+  svg.appendChild(contentGroup);
+  wrapEl.innerHTML = '';
+  wrapEl.appendChild(svg);
+}
+
+function toggleObjectVectorized(obj) {
+  if (!isVectorizableObject(obj)) return;
   draggingObjState = null;
   resizingObjState = null;
 
-  // Sync any in-progress text from the live editor before switching
   const domEl = objectLayer?.querySelector(`.ff-object[data-id="${obj.id}"]`);
-  const liveEditor = domEl?.querySelector('.ff-label-editor');
-  if (liveEditor) {
-    const lineDivs = Array.from(liveEditor.querySelectorAll('.ff-text-line'));
-    if (lineDivs.length > 0) {
-      obj.content = lineDivs.map((ln) => ln.textContent || '').join('\n');
-      obj.lineAligns = lineDivs.map((ln) => ln.dataset.align || 'left');
-    } else if (liveEditor.textContent) {
-      obj.content = liveEditor.textContent;
+  if (obj.type === 'label') {
+    const liveEditor = domEl?.querySelector('.ff-label-editor');
+    if (liveEditor) {
+      const lineDivs = Array.from(liveEditor.querySelectorAll('.ff-text-line'));
+      if (lineDivs.length > 0) {
+        obj.content = lineDivs.map((ln) => ln.textContent || '').join('\n');
+        obj.lineAligns = lineDivs.map((ln) => ln.dataset.align || 'left');
+      } else if (liveEditor.textContent) {
+        obj.content = liveEditor.textContent;
+      }
+    }
+  } else if (obj.type === 'sticky') {
+    const stickyEd = domEl?.querySelector('.ff-sticky-textarea');
+    if (stickyEd) {
+      const lineDivs = Array.from(stickyEd.querySelectorAll('.ff-text-line'));
+      if (lineDivs.length > 0) {
+        obj.content = lineDivs.map((ln) => ln.textContent || '').join('\n');
+        obj.lineAligns = lineDivs.map((ln) => ln.dataset.align || 'left');
+      }
     }
   }
 
-  pushUndoSnapshot(obj.vectorized ? '벡터 이미지 해제 (텍스트 편집 전환)' : '텍스트 벡터 이미지화');
+  pushUndoSnapshot(obj.vectorized ? '벡터 이미지 해제 (편집 모드 전환)' : '객체 벡터 이미지화');
   obj.vectorized = !Boolean(obj.vectorized);
 
   if (obj.vectorized) {
-    if (!(obj.content || '').trim()) {
-      obj.content = (obj.title && obj.title !== '텍스트') ? obj.title : '프로젝트 타이틀';
+    if (obj.type === 'label') {
+      if (!(obj.content || '').trim()) {
+        obj.content = obj.title && obj.title !== '텍스트' ? obj.title : '프로젝트 타이틀';
+      }
+      const m = computeVectorLabelMetrics(obj);
+      obj.vectorAspect = m.aspect;
+      const baseW = Math.max(200, Math.round(obj.width || 380));
+      obj.width = baseW;
+      obj.height = Math.max(48, Math.round(baseW / Math.max(0.2, m.aspect)));
+    } else {
+      const tempWrap = document.createElement('div');
+      renderUniversalVectorizedObjectInto(tempWrap, obj);
+      const aspect = obj.vectorAspect || (obj.width || 340) / Math.max(1, obj.height || 220);
+      const baseW = Math.max(180, Math.round(obj.width || 340));
+      obj.width = baseW;
+      obj.height = Math.max(90, Math.round(baseW / Math.max(0.2, aspect)));
     }
-    const m = computeVectorLabelMetrics(obj);
-    obj.vectorAspect = m.aspect;
-    const baseW = Math.max(200, Math.round(obj.width || 380));
-    obj.width = baseW;
-    obj.height = Math.max(48, Math.round(baseW / Math.max(0.2, m.aspect)));
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
       document.activeElement.blur();
     }
@@ -946,12 +1364,16 @@ function toggleLabelVectorized(obj) {
   scheduleSaveBoard();
 
   if (obj.vectorized) {
-    showToast('✨ 벡터 이미지로 변환되었습니다! 우측 하단 모서리를 드래그해 원하는 크기로 크게 늘려보세요 (더블클릭 시 텍스트 편집)');
+    showToast('✨ 벡터 이미지로 변환되었습니다! 우측 하단 모서리를 드래그해 빈 여백 없이 자유롭게 확대/축소해 보세요 (더블클릭 시 편집 모드)');
   } else {
-    const nextEd = objectLayer?.querySelector(`.ff-object[data-id="${obj.id}"] .ff-label-editor`);
+    const nextEd = objectLayer?.querySelector(`.ff-object[data-id="${obj.id}"] .ff-label-editor, .ff-object[data-id="${obj.id}"] .ff-sticky-textarea, .ff-object[data-id="${obj.id}"] .ff-check-input`);
     nextEd?.focus();
-    showToast('📝 일반 텍스트 편집 모드로 전환되었습니다');
+    showToast('📝 일반 편집 모드로 전환되었습니다');
   }
+}
+
+function toggleLabelVectorized(obj) {
+  return toggleObjectVectorized(obj);
 }
 
 function getOrCreateArrowMarkerUrl(colorStr = '#0a84ff', prefix = 'dynArrow') {
@@ -1262,18 +1684,20 @@ function syncSelectionUI() {
     const typoGroupEl = document.getElementById('inspTypoGroup');
     const connGroupEl = document.getElementById('inspConnOnlyGroup');
     const strokeGroupEl = document.getElementById('inspStrokeOnlyGroup');
+    const imgGroupEl = document.getElementById('inspImageOnlyGroup');
 
     if (selectedConn && selected.length === 0) {
       objGroupEl?.classList.add('hidden');
       typoGroupEl?.classList.add('hidden');
       strokeGroupEl?.classList.add('hidden');
+      imgGroupEl?.classList.add('hidden');
       connGroupEl?.classList.remove('hidden');
 
       const styleLbl = document.getElementById('inspConnStyleLabel');
       if (styleLbl) {
         styleLbl.textContent = selectedConn.style === 'dashed' ? '점선 화살표' : '실선 화살표';
       }
-      document.querySelectorAll('#inspectorColors .swatch').forEach((sw) => {
+      document.querySelectorAll('#inspectorColors .swatch:not(.random-swatch)').forEach((sw) => {
         sw.classList.toggle(
           'active-swatch',
           (sw.dataset.hex || '').toLowerCase() === (selectedConn.color || '#0a84ff').toLowerCase()
@@ -1282,12 +1706,37 @@ function syncSelectionUI() {
     } else if (selected.length > 0) {
       const primary = selected[selected.length - 1];
       const allStrokes = selected.every((o) => o.type === 'stroke');
+      const allImages = selected.every((o) => o.type === 'image');
       const hasStrokes = selected.some((o) => o.type === 'stroke');
+      const hasImages = selected.some((o) => o.type === 'image');
 
       objGroupEl?.classList.remove('hidden');
-      typoGroupEl?.classList.toggle('hidden', allStrokes);
+      typoGroupEl?.classList.toggle('hidden', allStrokes || allImages);
       strokeGroupEl?.classList.toggle('hidden', !hasStrokes);
+      imgGroupEl?.classList.toggle('hidden', !hasImages);
       connGroupEl?.classList.add('hidden');
+
+      if (hasImages) {
+        const imgObj = selected.find((o) => o.type === 'image') || primary;
+        const keepAsp = imgObj.keepAspect !== false;
+        const aspBtn = document.getElementById('inspImgAspectBtn');
+        const aspLbl = document.getElementById('inspImgAspectLabel');
+        if (aspBtn) aspBtn.classList.toggle('active-pill', keepAsp);
+        if (aspLbl) aspLbl.textContent = keepAsp ? '비율유지 ON' : '비율유지 OFF';
+
+        const bEnabled = Boolean(imgObj.borderEnabled);
+        const bBtn = document.getElementById('inspImgBorderToggleBtn');
+        const bLbl = document.getElementById('inspImgBorderToggleLabel');
+        const bSub = document.getElementById('inspImgBorderSubControls');
+        const bWidthSel = document.getElementById('inspImgBorderWidthSelect');
+        const bStyleSel = document.getElementById('inspImgBorderStyleSelect');
+
+        if (bBtn) bBtn.classList.toggle('active-pill', bEnabled);
+        if (bLbl) bLbl.textContent = bEnabled ? '테두리 ON' : '테두리 OFF';
+        if (bSub) bSub.classList.toggle('hidden', !bEnabled);
+        if (bWidthSel) bWidthSel.value = String(imgObj.borderWidth || 4);
+        if (bStyleSel) bStyleSel.value = imgObj.borderStyle || 'solid';
+      }
 
       if (hasStrokes) {
         const strokeObj = selected.find((o) => o.type === 'stroke') || primary;
@@ -1322,6 +1771,7 @@ function syncSelectionUI() {
       const vecBtn = document.getElementById('inspVectorizeBtn');
       const vecLbl = document.getElementById('inspVectorizeBtnLabel');
       const hasLabel = selected.some((o) => o.type === 'label');
+      const hasVectorizable = selected.some((o) => isVectorizableObject(o));
       if (famSel) famSel.value = ts.fontFamily;
       if (sizeSel) sizeSel.value = String(ts.fontSize);
       if (artSel) {
@@ -1331,10 +1781,10 @@ function syncSelectionUI() {
         }
       }
       if (vecBtn) {
-        vecBtn.classList.toggle('hidden', !hasLabel);
+        vecBtn.classList.toggle('hidden', !hasVectorizable);
         const isVec = Boolean(primary.vectorized);
         vecBtn.classList.toggle('active-pill', isVec);
-        if (vecLbl) vecLbl.textContent = isVec ? '텍스트 편집' : '벡터 이미지화';
+        if (vecLbl) vecLbl.textContent = isVec ? '편집 모드 전환' : '벡터 이미지화';
       }
       document.getElementById('inspBoldBtn')?.classList.toggle('active-pill', ts.bold);
       document.getElementById('inspItalicBtn')?.classList.toggle('active-pill', ts.italic);
@@ -1358,9 +1808,11 @@ function syncSelectionUI() {
       }
       syncAlignButtonsUI(currentDisplayAlign);
 
-      document.querySelectorAll('#inspectorColors .swatch').forEach((sw) => {
+      document.querySelectorAll('#inspectorColors .swatch:not(.random-swatch)').forEach((sw) => {
         const isMatch =
-          primary.customColor
+          primary.type === 'image' && primary.borderEnabled && primary.borderColor
+            ? (sw.dataset.hex || '').toLowerCase() === primary.borderColor.toLowerCase()
+            : primary.customColor
             ? (sw.dataset.hex || '').toLowerCase() === primary.customColor.toLowerCase()
             : sw.dataset.color === primary.color;
         sw.classList.toggle('active-swatch', isMatch);
@@ -1826,8 +2278,9 @@ function createObjectDOM(obj) {
   const el = document.createElement('div');
   const isSelected = selectedObjectIds.has(obj.id);
   const isPdf = isPdfObject(obj);
-  const artClass = obj.type === 'label' ? `art-${obj.artStyle || 'none'} ${obj.vectorized ? 'is-vectorized' : ''}` : '';
-  el.className = `ff-object type-${obj.type || 'sticky'} ${isPdf ? 'is-pdf' : ''} ${artClass} color-${obj.color || 'dark'} ${isSelected ? 'selected' : ''}`;
+  const artClass = obj.type === 'label' ? `art-${obj.artStyle || 'none'}` : '';
+  const vecClass = obj.vectorized ? 'is-vectorized' : '';
+  el.className = `ff-object type-${obj.type || 'sticky'} ${isPdf ? 'is-pdf' : ''} ${artClass} ${vecClass} color-${obj.color || 'dark'} ${isSelected ? 'selected' : ''}`;
   el.dataset.id = obj.id;
   el.style.left = `${Math.round(obj.x || 0)}px`;
   el.style.top = `${Math.round(obj.y || 0)}px`;
@@ -1918,25 +2371,24 @@ function createObjectDOM(obj) {
     headerActions.appendChild(grpBadge);
   }
 
-  // Vectorize Button & Graphic Art Style Cycle Button for 'label' (텍스트·타이틀) objects
-  if (obj.type === 'label') {
+  // Universal Vectorize Icon Button (SVG + hover tooltip) for all vectorizable objects
+  if (isVectorizableObject(obj)) {
     const vectorizeBtn = document.createElement('button');
-    vectorizeBtn.className = `ff-pdf-mode-toggle ff-vectorize-btn ${obj.vectorized ? 'is-active' : ''}`;
-    vectorizeBtn.innerHTML = `${SVG_ICONS.vectorize}<span>${obj.vectorized ? '텍스트 편집' : '벡터 이미지화'}</span>`;
-    vectorizeBtn.title = obj.vectorized
-      ? '벡터 이미지 모드 활성 중 (우측 하단 모서리를 드래그해 크기 자유 조절 · 클릭 또는 더블클릭 시 텍스트 편집 전환)'
-      : '텍스트를 벡터 이미지로 변환 (폰트 사이즈 한계 없이 객체 크기를 늘려 초대형 타이틀·구역 구분 가능)';
+    vectorizeBtn.className = `ff-obj-icon-btn ff-vectorize-btn ${obj.vectorized ? 'is-active' : ''}`;
+    vectorizeBtn.innerHTML = `${SVG_ICONS.vectorize}<span>${obj.vectorized ? '편집 모드 전환' : '벡터 이미지화'}</span>`;
     vectorizeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      toggleLabelVectorized(obj);
+      toggleObjectVectorized(obj);
     });
     headerActions.appendChild(vectorizeBtn);
+  }
 
+  // Graphic Art Style Cycle Button for 'label' (텍스트·타이틀) objects
+  if (obj.type === 'label') {
     const curArt = ART_STYLE_LIST.find((a) => a.id === (obj.artStyle || 'none')) || ART_STYLE_LIST[0];
     const artCycleBtn = document.createElement('button');
-    artCycleBtn.className = 'ff-pdf-mode-toggle ff-art-cycle-btn';
-    artCycleBtn.innerHTML = `<span>✨ ${curArt.label}</span>`;
-    artCycleBtn.title = '클릭하여 그래픽 텍스트 디자인 스타일 전환 (상단 도구바에서도 선택 가능)';
+    artCycleBtn.className = `ff-obj-icon-btn ff-art-cycle-btn ${(obj.artStyle || 'none') !== 'none' ? 'is-active' : ''}`;
+    artCycleBtn.innerHTML = `${SVG_ICONS.sparkle}<span>스타일: ${curArt.label}</span>`;
     artCycleBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       pushUndoSnapshot('텍스트 그래픽 스타일 변경');
@@ -1949,6 +2401,45 @@ function createObjectDOM(obj) {
       showToast(`✨ 텍스트 그래픽 스타일: ${nextArt.label}`);
     });
     headerActions.appendChild(artCycleBtn);
+  }
+
+  // Image Aspect Ratio Lock & Border Toggle Buttons in Header
+  if (obj.type === 'image') {
+    const keepAsp = obj.keepAspect !== false;
+    const aspectBtn = document.createElement('button');
+    aspectBtn.className = `ff-obj-icon-btn ${keepAsp ? 'is-active' : ''}`;
+    aspectBtn.innerHTML = `${SVG_ICONS.aspectRatio}<span>${keepAsp ? '비율유지 ON' : '비율유지 OFF (자유비율)'}</span>`;
+    aspectBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pushUndoSnapshot('이미지 비율유지 토글');
+      obj.keepAspect = obj.keepAspect === false ? true : false;
+      if (obj.keepAspect && obj.imageAspect) {
+        obj.height = Math.max(48, Math.round(obj.width / obj.imageAspect));
+      }
+      renderAllObjects();
+      renderAllConnectors();
+      syncSelectionUI();
+      scheduleSaveBoard();
+      showToast(obj.keepAspect ? '📐 이미지 비율유지 ON (원본 비율대로 여백 없이 크기 조절)' : '↔️ 이미지 비율유지 OFF (자유 비율로 여백 없이 크기 조절)');
+    });
+    headerActions.appendChild(aspectBtn);
+
+    const borderBtn = document.createElement('button');
+    borderBtn.className = `ff-obj-icon-btn ${obj.borderEnabled ? 'is-active' : ''}`;
+    borderBtn.innerHTML = `${SVG_ICONS.borderFrame}<span>${obj.borderEnabled ? '테두리 ON' : '테두리 OFF'}</span>`;
+    borderBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pushUndoSnapshot('이미지 테두리 토글');
+      obj.borderEnabled = !Boolean(obj.borderEnabled);
+      if (obj.borderEnabled && !obj.borderColor) {
+        obj.borderColor = obj.customColor || '#0a84ff';
+      }
+      renderAllObjects();
+      syncSelectionUI();
+      scheduleSaveBoard();
+      showToast(obj.borderEnabled ? '🖼️ 이미지 컬러 테두리 ON' : '이미지 테두리 OFF');
+    });
+    headerActions.appendChild(borderBtn);
   }
 
   // PDF View Mode Toggle Button right next to Title ("내용보기" <-> "아이콘보기")
@@ -1988,7 +2479,17 @@ function createObjectDOM(obj) {
   const body = document.createElement('div');
   body.className = 'ff-obj-body';
 
-  if (obj.type === 'sticky') {
+  if (obj.vectorized && obj.type !== 'label') {
+    const uWrap = document.createElement('div');
+    uWrap.className = 'ff-universal-vector-wrap';
+    renderUniversalVectorizedObjectInto(uWrap, obj);
+    uWrap.title = '드래그: 이동 · 우측 하단 모서리 드래그: 크기 자유 확대/축소 (Shift+드래그: 비율 자유 변형) · 더블클릭: 편집 모드 전환';
+    uWrap.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      toggleObjectVectorized(obj);
+    });
+    body.appendChild(uWrap);
+  } else if (obj.type === 'sticky') {
     // ========================================================================
     // 1. STICKY NOTE (포스트잇): Per-Line Alignment + Seamless Multiline Memo Pad
     // ========================================================================
@@ -2019,7 +2520,7 @@ function createObjectDOM(obj) {
       labelWrap.title = '드래그: 이동 · 우측 하단 모서리 드래그: 크기 자유 확대/축소 (Shift+드래그: 비율 자유 변형) · 더블클릭: 텍스트 편집 전환';
       labelWrap.addEventListener('dblclick', (e) => {
         e.stopPropagation();
-        toggleLabelVectorized(obj);
+        toggleObjectVectorized(obj);
       });
     } else {
       const editor = document.createElement('div');
@@ -2089,8 +2590,9 @@ function createObjectDOM(obj) {
     body.appendChild(svgWrap);
   } else if (obj.type === 'text') {
     // ========================================================================
-    // 2. CHECKLIST & STRUCTURED NOTE CARD (체크리스트): Clean Single Empty Start!
+    // 2. CHECKLIST & STRUCTURED NOTE CARD (체크리스트): Auto-Wrap + Font Size Persistence
     // ========================================================================
+    const isAutoWrap = obj.checkAutoWrap !== false;
     const noteBar = document.createElement('div');
     noteBar.className = 'ff-note-toolbar';
     noteBar.innerHTML = `
@@ -2098,6 +2600,7 @@ function createObjectDOM(obj) {
       <button class="ff-chk-Insert-btn" data-chk="circle" title="원형 체크박스 항목 추가 (빈 줄에선 모양 변경)">${SVG_ICONS.chkCircle}<span>원형체크</span></button>
       <button class="ff-chk-Insert-btn" data-chk="toggle" title="슬라이드 토글 항목 추가 (빈 줄에선 모양 변경)">${SVG_ICONS.chkToggle}<span>슬라이드</span></button>
       <button class="ff-chk-Insert-btn" data-chk="memo" title="하단 자유 메모 입력란으로 포커스 이동">${SVG_ICONS.plus}<span>자유메모</span></button>
+      <button class="ff-chk-Insert-btn ${isAutoWrap ? 'is-active' : ''}" data-chk="autowrap" title="체크리스트 자동줄바꿈 ON/OFF (긴 문장을 다음 항목으로 분리하지 않고 줄바꿈 표시)">${SVG_ICONS.wrapText}<span>자동줄바꿈</span></button>
     `;
     el.appendChild(noteBar);
 
@@ -2129,13 +2632,29 @@ function createObjectDOM(obj) {
     let lastFocusedCheckRow = null;
     let currentMemoText = initialMemoLines.join('\n');
 
+    const getCheckRowText = (inputEl) => {
+      if (!inputEl) return '';
+      if (typeof inputEl.value === 'string') return inputEl.value;
+      return String(inputEl.textContent || '').replace(/\r?\n/g, ' ');
+    };
+
+    const setCheckRowText = (inputEl, val = '') => {
+      if (!inputEl) return;
+      const clean = String(val ?? '').replace(/\r?\n/g, ' ');
+      if (typeof inputEl.value === 'string') {
+        inputEl.value = clean;
+      } else {
+        inputEl.textContent = clean;
+      }
+    };
+
     const syncChecklistAndMemoToObj = () => {
       const serializedLines = [];
       checklistContainer.querySelectorAll('.ff-check-row').forEach((r) => {
         const st = r.dataset.style || 'square';
         const ck = r.dataset.checked === '1' ? '1' : '0';
         const al = r.dataset.align && r.dataset.align !== 'left' ? `:${r.dataset.align}` : '';
-        const val = r.querySelector('.ff-check-input')?.value || '';
+        const val = getCheckRowText(r.querySelector('.ff-check-input'));
         serializedLines.push(`[${st}:${ck}${al}] ${val}`);
       });
       if (currentMemoText) {
@@ -2173,6 +2692,7 @@ function createObjectDOM(obj) {
         row.dataset.checked = nextChecked ? '1' : '0';
         row.classList.toggle('checked', nextChecked);
         widget.classList.toggle('checked', nextChecked);
+        applyObjectTypography(el, obj);
         syncChecklistAndMemoToObj();
       });
 
@@ -2185,13 +2705,27 @@ function createObjectDOM(obj) {
         applyRowStyle(row, nextStyle);
       });
 
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'ff-check-input';
-      input.value = text || '';
+      const input = document.createElement('div');
+      input.contentEditable = 'true';
+      input.className = `ff-check-input ${obj.checkAutoWrap === false ? 'nowrap-mode' : ''}`;
+      setCheckRowText(input, text || '');
       input.style.textAlign = normAlign;
-      input.placeholder = '할 일 입력 (Enter: 줄 추가, 우클릭/상단버튼: 모양 변경)...';
+      input.dataset.placeholder = '할 일 입력 (Enter: 항목 추가, 자동줄바꿈 지원)...';
       input.spellcheck = false;
+
+      // Immediately apply current object typography so newly created rows always inherit font size & family!
+      const curTs = getObjectTextStyle(obj);
+      input.style.fontFamily = FONT_FAMILY_STACKS[curTs.fontFamily] || FONT_FAMILY_STACKS.default;
+      input.style.fontSize = `${curTs.fontSize}px`;
+      input.style.fontWeight = curTs.bold ? '800' : '400';
+      input.style.fontStyle = curTs.italic ? 'italic' : 'normal';
+      input.style.textDecoration = checked
+        ? curTs.underline
+          ? 'underline line-through'
+          : 'line-through'
+        : curTs.underline
+        ? 'underline'
+        : 'none';
 
       const registerCheckRowAlignTarget = () => {
         lastFocusedCheckRow = row;
@@ -2209,6 +2743,16 @@ function createObjectDOM(obj) {
       input.addEventListener('mouseup', registerCheckRowAlignTarget);
       input.addEventListener('keyup', registerCheckRowAlignTarget);
 
+      input.addEventListener('paste', (e) => {
+        const pasted = e.clipboardData?.getData('text/plain');
+        if (typeof pasted !== 'string') return;
+        e.preventDefault();
+        e.stopPropagation();
+        const singleLine = pasted.replace(/\r?\n/g, ' ');
+        document.execCommand('insertText', false, singleLine);
+        syncChecklistAndMemoToObj();
+      });
+
       input.addEventListener('input', () => {
         syncChecklistAndMemoToObj();
       });
@@ -2220,17 +2764,25 @@ function createObjectDOM(obj) {
           e.key === 'Enter' ||
           e.code === 'Space' ||
           e.key === 'ArrowUp' ||
-          e.key === 'ArrowDown'
+          e.key === 'ArrowDown' ||
+          e.key === 'ArrowLeft' ||
+          e.key === 'ArrowRight'
         ) {
           e.stopPropagation();
         }
+        if (e.isComposing || e.keyCode === 229) return;
 
         if (e.key === 'Enter') {
           e.preventDefault();
-          const pos = input.selectionStart ?? input.value.length;
-          const beforeText = input.value.slice(0, pos);
-          const afterText = input.value.slice(pos);
-          input.value = beforeText;
+          const sel = window.getSelection();
+          if (sel && !sel.isCollapsed) {
+            sel.deleteFromDocument();
+          }
+          const fullStr = getCheckRowText(input);
+          const pos = getCaretOffsetInLine(input);
+          const beforeText = fullStr.slice(0, pos);
+          const afterText = fullStr.slice(pos);
+          setCheckRowText(input, beforeText);
 
           const newRow = createCheckRowDOM({
             style: row.dataset.style || 'square',
@@ -2239,36 +2791,43 @@ function createObjectDOM(obj) {
             text: afterText
           });
           row.after(newRow);
+          applyObjectTypography(el, obj);
           syncChecklistAndMemoToObj();
           const newInput = newRow.querySelector('.ff-check-input');
           if (newInput) {
             newInput.focus();
-            newInput.setSelectionRange(0, 0);
+            setCaretOffsetInLine(newInput, 0);
           }
-        } else if (e.key === 'Backspace' && input.selectionStart === 0 && input.selectionEnd === 0) {
-          const allRows = Array.from(checklistContainer.querySelectorAll('.ff-check-row'));
-          const idx = allRows.indexOf(row);
-          if (idx > 0) {
-            e.preventDefault();
-            const prevRow = allRows[idx - 1];
-            const prevInput = prevRow.querySelector('.ff-check-input');
-            const prevLen = prevInput.value.length;
-            prevInput.value += input.value;
-            row.remove();
-            syncChecklistAndMemoToObj();
-            prevInput.focus();
-            prevInput.setSelectionRange(prevLen, prevLen);
-          } else if (input.value === '') {
-            e.preventDefault();
-            if (allRows.length > 1) {
-              const nextInput = allRows[1].querySelector('.ff-check-input');
+        } else if (e.key === 'Backspace') {
+          const sel = window.getSelection();
+          const caretPos = getCaretOffsetInLine(input);
+          if (sel && sel.isCollapsed && caretPos === 0) {
+            const allRows = Array.from(checklistContainer.querySelectorAll('.ff-check-row'));
+            const idx = allRows.indexOf(row);
+            const curVal = getCheckRowText(input);
+            if (idx > 0) {
+              e.preventDefault();
+              const prevRow = allRows[idx - 1];
+              const prevInput = prevRow.querySelector('.ff-check-input');
+              const prevVal = getCheckRowText(prevInput);
+              const prevLen = prevVal.length;
+              setCheckRowText(prevInput, prevVal + curVal);
               row.remove();
               syncChecklistAndMemoToObj();
-              nextInput?.focus();
-            } else {
-              row.remove();
-              syncChecklistAndMemoToObj();
-              memoArea.focus();
+              prevInput.focus();
+              setCaretOffsetInLine(prevInput, prevLen);
+            } else if (curVal === '') {
+              e.preventDefault();
+              if (allRows.length > 1) {
+                const nextInput = allRows[1].querySelector('.ff-check-input');
+                row.remove();
+                syncChecklistAndMemoToObj();
+                nextInput?.focus();
+              } else {
+                row.remove();
+                syncChecklistAndMemoToObj();
+                memoArea.focus();
+              }
             }
           }
         } else if (e.key === 'ArrowUp') {
@@ -2329,6 +2888,17 @@ function createObjectDOM(obj) {
       if (!btn) return;
       e.stopPropagation();
       const kind = btn.dataset.chk;
+      if (kind === 'autowrap') {
+        obj.checkAutoWrap = obj.checkAutoWrap === false ? true : false;
+        const wrapOn = obj.checkAutoWrap !== false;
+        btn.classList.toggle('is-active', wrapOn);
+        checklistContainer.querySelectorAll('.ff-check-input').forEach((inp) => {
+          inp.classList.toggle('nowrap-mode', !wrapOn);
+        });
+        scheduleSaveBoard();
+        showToast(wrapOn ? '↩️ 체크리스트 자동줄바꿈 ON (항목 분리 없이 줄바꿈 표시)' : '➡️ 체크리스트 자동줄바꿈 OFF (한 줄 표시)');
+        return;
+      }
       if (kind === 'memo') {
         memoArea.focus();
       } else {
@@ -2339,7 +2909,7 @@ function createObjectDOM(obj) {
           allRows[allRows.length - 1] ||
           null;
         const candidateInput = candidateRow?.querySelector('.ff-check-input');
-        if (candidateRow && candidateInput && candidateInput.value.trim() === '') {
+        if (candidateRow && candidateInput && getCheckRowText(candidateInput).trim() === '') {
           applyRowStyle(candidateRow, kind);
           candidateInput.focus();
           return;
@@ -2347,6 +2917,7 @@ function createObjectDOM(obj) {
         pushUndoSnapshot('체크박스 항목 추가');
         const newRow = createCheckRowDOM({ style: kind, checked: false, text: '' });
         checklistContainer.appendChild(newRow);
+        applyObjectTypography(el, obj);
         syncChecklistAndMemoToObj();
         newRow.querySelector('.ff-check-input')?.focus();
       }
@@ -2531,6 +3102,19 @@ function createObjectDOM(obj) {
     const img = document.createElement('img');
     const imgSrc = obj.resolvedFileUrl || obj.imageUrl || '';
     img.src = imgSrc;
+    img.draggable = false;
+    img.addEventListener('load', () => {
+      const natW = img.naturalWidth || 1;
+      const natH = img.naturalHeight || 1;
+      const ratio = Number((natW / Math.max(1, natH)).toFixed(4));
+      obj.imageAspect = ratio;
+      if (obj.keepAspect !== false && !obj._aspectFitted) {
+        obj._aspectFitted = true;
+        obj.height = Math.max(48, Math.round((obj.width || 360) / Math.max(0.1, ratio)));
+        el.style.height = `${obj.height}px`;
+        renderAllConnectors();
+      }
+    });
     imgWrap.appendChild(img);
     imgWrap.addEventListener('dblclick', (e) => {
       e.stopPropagation();
@@ -2855,30 +3439,9 @@ function createObjectDOM(obj) {
     el.appendChild(connectHandle);
   });
 
-  // Object Selection & Multi-Object Dragging
-  el.addEventListener('pointerdown', (e) => {
-    if (activeTool === 'pen' || e.button !== 0) return;
-    e.stopPropagation();
-    selectedConnectorId = null;
-    if (e.shiftKey) {
-      selectObject(obj.id, { additive: true });
-    } else if (!selectedObjectIds.has(obj.id)) {
-      selectObject(obj.id, { additive: false });
-    }
-    renderAllConnectors();
-  });
-
-  el.addEventListener('focusin', () => {
-    if (!selectedObjectIds.has(obj.id)) {
-      selectedConnectorId = null;
-      selectObject(obj.id, { additive: false });
-      renderAllConnectors();
-    }
-  });
-
-  const startDrag = (e) => {
+  const startDrag = (e, forceMove = false) => {
     if (e.button !== 0 || activeTool === 'pen' || obj.locked) return;
-    if (e.target.closest('button, input, textarea, [contenteditable="true"], .ff-chk-widget')) return;
+    if (!forceMove && e.target.closest('button, input, textarea, [contenteditable="true"], .ff-chk-widget')) return;
     e.stopPropagation();
 
     selectedConnectorId = null;
@@ -2905,16 +3468,56 @@ function createObjectDOM(obj) {
       snapshotBefore: createBoardSnapshot('객체 이동')
     };
     document.body.classList.add('is-dragging-object');
+    renderAllConnectors();
   };
 
-  header.addEventListener('pointerdown', startDrag);
+  // Ctrl-Hold Instant Move Mode: Holding Ctrl + Left-Click anywhere on an object (even over text inputs) immediately drags the object!
+  el.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (e.ctrlKey && e.button === 0 && activeTool === 'select' && !obj.locked) {
+        if (e.target.closest('.ff-resize-handle, .ff-rotate-handle, .ff-connect-handle')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+          document.activeElement.blur();
+        }
+        startDrag(e, true);
+      }
+    },
+    true
+  );
+
+  // Object Selection & Multi-Object Dragging
+  el.addEventListener('pointerdown', (e) => {
+    if (activeTool === 'pen' || e.button !== 0) return;
+    e.stopPropagation();
+    selectedConnectorId = null;
+    if (e.shiftKey) {
+      selectObject(obj.id, { additive: true });
+    } else if (!selectedObjectIds.has(obj.id)) {
+      selectObject(obj.id, { additive: false });
+    }
+    renderAllConnectors();
+  });
+
+  el.addEventListener('focusin', () => {
+    if (!selectedObjectIds.has(obj.id)) {
+      selectedConnectorId = null;
+      selectObject(obj.id, { additive: false });
+      renderAllConnectors();
+    }
+  });
+
+  header.addEventListener('pointerdown', (e) => startDrag(e, false));
   if (
+    obj.vectorized ||
     obj.type === 'image' ||
     obj.type === 'label' ||
     obj.type === 'stroke' ||
     (obj.type === 'file' && !(isPdf && (obj.pdfViewMode || 'viewer') === 'viewer'))
   ) {
-    body.addEventListener('pointerdown', startDrag);
+    body.addEventListener('pointerdown', (e) => startDrag(e, false));
   }
 
   // Resize Object
@@ -3561,6 +4164,28 @@ function getNextZIndex() {
   return Math.max(...currentBoard.objects.map((o) => o.zIndex || 1)) + 1;
 }
 
+function sendSelectedObjectsToBack() {
+  const selected = getSelectedObjects();
+  if (!selected.length || !currentBoard) return;
+  pushUndoSnapshot('맨 뒤로 보내기');
+  const selIds = new Set(selected.map((o) => o.id));
+  const ordered = [...currentBoard.objects].sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1));
+  let z = 1;
+  ordered
+    .filter((o) => selIds.has(o.id))
+    .forEach((o) => {
+      o.zIndex = z++;
+    });
+  ordered
+    .filter((o) => !selIds.has(o.id))
+    .forEach((o) => {
+      o.zIndex = z++;
+    });
+  renderAllObjects();
+  scheduleSaveBoard();
+  showToast('선택 객체를 맨 뒤로 보냈습니다');
+}
+
 function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
   if (!currentBoard) return null;
   if (recordUndo) {
@@ -3570,11 +4195,13 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
   const w = partial.width || 340;
   const h = partial.height || 220;
   const jitter = Math.round((Math.random() - 0.5) * 32);
+  const rawX = partial.x ?? center.x - Math.round(w / 2) + jitter;
+  const rawY = partial.y ?? center.y - Math.round(h / 2) + jitter;
   const newObj = {
     id: `obj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     type: partial.type || 'sticky',
-    x: partial.x ?? center.x - Math.round(w / 2) + jitter,
-    y: partial.y ?? center.y - Math.round(h / 2) + jitter,
+    x: snapWorldVal(rawX, gridConfig.snapObjects),
+    y: snapWorldVal(rawY, gridConfig.snapObjects),
     width: w,
     height: h,
     rotation: partial.rotation || 0,
@@ -3586,6 +4213,13 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
     lineAligns: Array.isArray(partial.lineAligns) ? [...partial.lineAligns] : undefined,
     memoLineAligns: Array.isArray(partial.memoLineAligns) ? [...partial.memoLineAligns] : undefined,
     cellAligns: partial.cellAligns ? { ...partial.cellAligns } : undefined,
+    checkAutoWrap: partial.checkAutoWrap !== undefined ? Boolean(partial.checkAutoWrap) : undefined,
+    keepAspect: partial.keepAspect !== undefined ? Boolean(partial.keepAspect) : undefined,
+    imageAspect: partial.imageAspect || undefined,
+    borderEnabled: Boolean(partial.borderEnabled) || undefined,
+    borderColor: partial.borderColor || undefined,
+    borderWidth: partial.borderWidth || undefined,
+    borderStyle: partial.borderStyle || undefined,
     artStyle: partial.artStyle || undefined,
     vectorized: Boolean(partial.vectorized) || undefined,
     vectorAspect: partial.vectorAspect || undefined,
@@ -3831,10 +4465,12 @@ canvasViewport.addEventListener(
       e.preventDefault();
       e.stopPropagation();
       const pt = screenToWorld(e.clientX, e.clientY);
+      const sx = snapWorldVal(pt.x, gridConfig.snapDrawing);
+      const sy = snapWorldVal(pt.y, gridConfig.snapDrawing);
       drawingStroke = {
         color: currentPenColor,
         width: 3.5,
-        points: [[Math.round(pt.x), Math.round(pt.y)]]
+        points: [[sx, sy]]
       };
       renderAllStrokes();
       return;
@@ -3844,6 +4480,7 @@ canvasViewport.addEventListener(
 
     // 4. Empty Canvas Left-Click Drag -> Pan (Hand cursor -> Grabbing Hand cursor)
     if (e.button === 0) {
+      cancelViewportAnimation();
       if (selectedConnectorId) {
         selectedConnectorId = null;
         renderAllConnectors();
@@ -3859,6 +4496,9 @@ canvasViewport.addEventListener(
 );
 
 window.addEventListener('pointermove', (e) => {
+  lastCanvasMousePos = { x: e.clientX, y: e.clientY };
+  document.body.classList.toggle('ctrl-move-mode', Boolean(e.ctrlKey && activeTool === 'select'));
+
   if (draggingConnectorEndpoint) {
     const cur = screenToWorld(e.clientX, e.clientY);
     const conn = draggingConnectorEndpoint.conn;
@@ -3891,22 +4531,27 @@ window.addEventListener('pointermove', (e) => {
 
     // Live Straight Line Preview while holding Ctrl or Shift
     if (e.ctrlKey || e.shiftKey) {
-      let tx = Math.round(pt.x);
-      let ty = Math.round(pt.y);
+      let tx = snapWorldVal(pt.x, gridConfig.snapDrawing);
+      let ty = snapWorldVal(pt.y, gridConfig.snapDrawing);
       if (e.shiftKey) {
         // 15-degree angle snap
         const angle = Math.atan2(ty - startPt[1], tx - startPt[0]);
         const snapped = Math.round(angle / (Math.PI / 12)) * (Math.PI / 12);
         const dist = Math.hypot(tx - startPt[0], ty - startPt[1]);
-        tx = Math.round(startPt[0] + Math.cos(snapped) * dist);
-        ty = Math.round(startPt[1] + Math.sin(snapped) * dist);
+        tx = snapWorldVal(startPt[0] + Math.cos(snapped) * dist, gridConfig.snapDrawing);
+        ty = snapWorldVal(startPt[1] + Math.sin(snapped) * dist, gridConfig.snapDrawing);
       }
       drawingStroke.points = [startPt, [tx, ty]];
       drawingStroke.svgPath = `M ${startPt[0]} ${startPt[1]} L ${tx} ${ty}`;
       drawingStroke.hasArrow = arrowPenMode;
     } else {
       delete drawingStroke.svgPath;
-      drawingStroke.points.push([Math.round(pt.x), Math.round(pt.y)]);
+      const sx = snapWorldVal(pt.x, gridConfig.snapDrawing);
+      const sy = snapWorldVal(pt.y, gridConfig.snapDrawing);
+      const prevPt = drawingStroke.points[drawingStroke.points.length - 1];
+      if (!prevPt || prevPt[0] !== sx || prevPt[1] !== sy) {
+        drawingStroke.points.push([sx, sy]);
+      }
     }
     renderAllStrokes();
     return;
@@ -3952,8 +4597,8 @@ window.addEventListener('pointermove', (e) => {
     const dx = cur.x - draggingObjState.startWorldX;
     const dy = cur.y - draggingObjState.startWorldY;
     draggingObjState.items.forEach((item) => {
-      item.obj.x = Math.round(item.origX + dx);
-      item.obj.y = Math.round(item.origY + dy);
+      item.obj.x = snapWorldVal(item.origX + dx, gridConfig.snapObjects);
+      item.obj.y = snapWorldVal(item.origY + dy, gridConfig.snapObjects);
       if (item.el) {
         item.el.style.left = `${item.obj.x}px`;
         item.el.style.top = `${item.obj.y}px`;
@@ -3967,34 +4612,55 @@ window.addEventListener('pointermove', (e) => {
     const cur = screenToWorld(e.clientX, e.clientY);
     const dw = cur.x - resizingObjState.startWorldX;
     const dh = cur.y - resizingObjState.startWorldY;
-    if (resizingObjState.obj.type === 'label' && resizingObjState.obj.vectorized) {
+    const rObj = resizingObjState.obj;
+
+    if (rObj.vectorized) {
       const minW = 60;
       const minH = 28;
       if (e.shiftKey) {
-        // Shift + Drag: Free non-proportional stretch (wide banner or tall title)
-        resizingObjState.obj.width = Math.max(minW, Math.round(resizingObjState.origW + dw));
-        resizingObjState.obj.height = Math.max(minH, Math.round(resizingObjState.origH + dh));
+        // Shift + Drag: Free non-proportional stretch (with zero whitespace)
+        rObj.width = Math.max(minW, snapWorldVal(resizingObjState.origW + dw, gridConfig.snapObjects));
+        rObj.height = Math.max(minH, snapWorldVal(resizingObjState.origH + dh, gridConfig.snapObjects));
       } else {
-        // Default Drag: Proportional vector scaling in one smooth drag!
+        // Default Drag: Proportional vector scaling with zero whitespace
         const aspect =
-          resizingObjState.obj.vectorAspect ||
+          rObj.vectorAspect ||
           resizingObjState.origW / Math.max(1, resizingObjState.origH);
         const scaleX = (resizingObjState.origW + dw) / Math.max(1, resizingObjState.origW);
         const scaleY = (resizingObjState.origH + dh) / Math.max(1, resizingObjState.origH);
         const scale = Math.abs(dw) >= Math.abs(dh) ? scaleX : scaleY;
-        const nextW = Math.max(minW, Math.round(resizingObjState.origW * scale));
+        const nextW = Math.max(minW, snapWorldVal(resizingObjState.origW * scale, gridConfig.snapObjects));
         const nextH = Math.max(minH, Math.round(nextW / Math.max(0.15, aspect)));
-        resizingObjState.obj.width = nextW;
-        resizingObjState.obj.height = nextH;
+        rObj.width = nextW;
+        rObj.height = nextH;
+      }
+    } else if (rObj.type === 'image') {
+      const minW = 60;
+      const minH = 40;
+      const lockAspect = rObj.keepAspect !== false ? !e.shiftKey : e.shiftKey;
+      if (lockAspect) {
+        const aspect =
+          rObj.imageAspect ||
+          resizingObjState.origW / Math.max(1, resizingObjState.origH);
+        const scaleX = (resizingObjState.origW + dw) / Math.max(1, resizingObjState.origW);
+        const scaleY = (resizingObjState.origH + dh) / Math.max(1, resizingObjState.origH);
+        const scale = Math.abs(dw) >= Math.abs(dh) ? scaleX : scaleY;
+        const nextW = Math.max(minW, snapWorldVal(resizingObjState.origW * scale, gridConfig.snapObjects));
+        const nextH = Math.max(minH, Math.round(nextW / Math.max(0.1, aspect)));
+        rObj.width = nextW;
+        rObj.height = nextH;
+      } else {
+        rObj.width = Math.max(minW, snapWorldVal(resizingObjState.origW + dw, gridConfig.snapObjects));
+        rObj.height = Math.max(minH, snapWorldVal(resizingObjState.origH + dh, gridConfig.snapObjects));
       }
     } else {
-      const minW = resizingObjState.obj.type === 'stroke' ? 36 : 180;
-      const minH = resizingObjState.obj.type === 'stroke' ? 36 : 120;
-      resizingObjState.obj.width = Math.max(minW, Math.round(resizingObjState.origW + dw));
-      resizingObjState.obj.height = Math.max(minH, Math.round(resizingObjState.origH + dh));
+      const minW = rObj.type === 'stroke' ? 36 : 180;
+      const minH = rObj.type === 'stroke' ? 36 : 120;
+      rObj.width = Math.max(minW, snapWorldVal(resizingObjState.origW + dw, gridConfig.snapObjects));
+      rObj.height = Math.max(minH, snapWorldVal(resizingObjState.origH + dh, gridConfig.snapObjects));
     }
-    resizingObjState.el.style.width = `${resizingObjState.obj.width}px`;
-    resizingObjState.el.style.height = `${resizingObjState.obj.height}px`;
+    resizingObjState.el.style.width = `${rObj.width}px`;
+    resizingObjState.el.style.height = `${rObj.height}px`;
     renderAllConnectors();
     return;
   }
@@ -4135,26 +4801,25 @@ window.addEventListener('pointerup', (e) => {
   }
 });
 
-// Smooth Zoom on Mouse Wheel
+// Smooth Zoom on Mouse Wheel (Always anchored to Mouse Cursor Position!)
 canvasViewport.addEventListener(
   'wheel',
   (e) => {
-    if (e.target.closest('.ff-obj-body, .ff-table-wrap, .ff-pdf-pages-container')) {
-      if (!e.ctrlKey) return;
+    lastCanvasMousePos = { x: e.clientX, y: e.clientY };
+    if (!e.ctrlKey && !e.metaKey) {
+      const scrollEl = e.target.closest('.ff-pdf-pages-container, .ff-table-wrap, .ff-obj-body');
+      if (scrollEl && scrollEl.scrollHeight > scrollEl.clientHeight + 2) {
+        const canScrollUp = e.deltaY < 0 && scrollEl.scrollTop > 0;
+        const canScrollDown =
+          e.deltaY > 0 && scrollEl.scrollTop + scrollEl.clientHeight < scrollEl.scrollHeight - 1;
+        if (canScrollUp || canScrollDown) {
+          return;
+        }
+      }
     }
     e.preventDefault();
-    const rect = canvasViewport.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const worldX = (mouseX - panX) / zoom;
-    const worldY = (mouseY - panY) / zoom;
-
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    zoom = Math.min(3.5, Math.max(0.1, zoom * factor));
-    panX = mouseX - worldX * zoom;
-    panY = mouseY - worldY * zoom;
-    applyViewportTransform();
-    scheduleSaveBoard();
+    zoomAtScreenPoint(zoom * factor, e.clientX, e.clientY);
   },
   { passive: false }
 );
@@ -4388,10 +5053,15 @@ window.addEventListener('contextmenu', (e) => {
       `;
     }
 
-    if (primary.type === 'label') {
+    if (isVectorizableObject(primary)) {
       html += `
         <div class="ctx-divider"></div>
-        <button class="ctx-item" data-ctx="label-toggle-vector"><span class="ctx-item-left">${SVG_ICONS.vectorize}<span>${primary.vectorized ? '일반 텍스트 편집 모드로 전환' : '텍스트 벡터 이미지화 (자유 크기 확대)'}</span></span></button>
+        <button class="ctx-item" data-ctx="obj-toggle-vector"><span class="ctx-item-left">${SVG_ICONS.vectorize}<span>${primary.vectorized ? '일반 편집 모드로 전환' : '객체 벡터 이미지화 (여백 없이 자유 확대)'}</span></span></button>
+      `;
+    }
+
+    if (primary.type === 'label') {
+      html += `
         <div class="ctx-submenu-row" style="flex-wrap:wrap;gap:4px;">
           <button class="ctx-mini-btn" data-ctx="art-none" title="기본 깔끔한 텍스트">기본</button>
           <button class="ctx-mini-btn" data-ctx="art-game" title="게임 타이틀 (골드&크림슨)">⚔️게임</button>
@@ -4418,6 +5088,7 @@ window.addEventListener('contextmenu', (e) => {
       <div class="ctx-divider"></div>
       <button class="ctx-item" data-ctx="obj-group"><span class="ctx-item-left">${SVG_ICONS.group}<span>${allSameGroup ? '그룹 해제' : `선택 객체 그룹화 (${selected.length}개)`}</span></span><span class="ctx-kbd">Ctrl+G</span></button>
       <button class="ctx-item" data-ctx="obj-front"><span class="ctx-item-left">${SVG_ICONS.up}<span>맨 앞으로 가져오기</span></span></button>
+      <button class="ctx-item" data-ctx="obj-back"><span class="ctx-item-left">${SVG_ICONS.down}<span>맨 뒤로 보내기</span></span></button>
       <button class="ctx-item" data-ctx="obj-lock"><span class="ctx-item-left">${SVG_ICONS.lock}<span>${primary.locked ? '잠금 해제' : '객체 위치 잠금'}</span></span></button>
       <div class="ctx-divider"></div>
       <button class="ctx-item" data-ctx="board-undo"><span class="ctx-item-left">${SVG_ICONS.undo}<span>실행 취소</span></span><span class="ctx-kbd">Ctrl+Z</span></button>
@@ -4485,9 +5156,9 @@ window.addEventListener('contextmenu', (e) => {
         await window.freeformAPI.openPath(primary.resolvedFilePath);
         showToast('기본 PDF 프로그램으로 문서를 열었습니다');
       }
-    } else if (act === 'label-toggle-vector') {
-      if (primary && primary.type === 'label') {
-        toggleLabelVectorized(primary);
+    } else if (act === 'obj-toggle-vector' || act === 'label-toggle-vector') {
+      if (primary && isVectorizableObject(primary)) {
+        toggleObjectVectorized(primary);
       }
     } else if (act.startsWith('art-')) {
       const styleId = act.replace('art-', '');
@@ -4527,6 +5198,8 @@ window.addEventListener('contextmenu', (e) => {
       getSelectedObjects().forEach((o) => (o.zIndex = getNextZIndex()));
       renderAllObjects();
       scheduleSaveBoard();
+    } else if (act === 'obj-back') {
+      sendSelectedObjectsToBack();
     } else if (act === 'obj-lock') {
       const nextLock = !primary.locked;
       getSelectedObjects().forEach((o) => (o.locked = nextLock));
@@ -4875,8 +5548,24 @@ document.getElementById('clearStrokesBtn')?.addEventListener('click', () => {
 const swatchColorPickerInput = document.getElementById('swatchColorPickerInput');
 let activeColorPickerTarget = null; // { kind: 'object' | 'pen', slot: number, btn: HTMLElement }
 
+function generateVibrantRandomHex() {
+  const h = Math.floor(Math.random() * 360);
+  const s = 72 + Math.floor(Math.random() * 22); // 72% - 94%
+  const l = 50 + Math.floor(Math.random() * 14); // 50% - 64%
+  const sNorm = s / 100;
+  const lNorm = l / 100;
+  const k = (n) => (n + h / 30) % 12;
+  const a = sNorm * Math.min(lNorm, 1 - lNorm);
+  const f = (n) => lNorm - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const toHex = (x) =>
+    Math.round(255 * x)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+}
+
 function applyCustomSwatchesToDOM() {
-  document.querySelectorAll('#inspectorColors .swatch').forEach((sw, idx) => {
+  document.querySelectorAll('#inspectorColors .swatch:not(.random-swatch)').forEach((sw, idx) => {
     const slot = Number(sw.dataset.slot ?? idx);
     const hex = customObjectSwatches[slot] || DEFAULT_OBJECT_SWATCHES[slot] || '#0a84ff';
     sw.dataset.hex = hex;
@@ -4947,6 +5636,12 @@ function applyPickedColorToTarget(hex, recordUndo = false) {
       selectedObjs.forEach((o) => {
         o.color = presetName;
         o.customColor = hex.toLowerCase() !== defaultHex ? hex : null;
+        if (o.type === 'image') {
+          o.borderEnabled = true;
+          o.borderColor = hex;
+          if (!o.borderWidth) o.borderWidth = 4;
+          if (!o.borderStyle) o.borderStyle = 'solid';
+        }
       });
       renderAllObjects();
       syncSelectionUI();
@@ -4987,7 +5682,7 @@ document.querySelectorAll('.pen-color').forEach((btn, idx) => {
 });
 
 // Inspector Actions (Supports Both Objects AND Connector Arrows!)
-document.querySelectorAll('#inspectorColors .swatch').forEach((sw, idx) => {
+document.querySelectorAll('#inspectorColors .swatch:not(.random-swatch)').forEach((sw, idx) => {
   const slot = Number(sw.dataset.slot ?? idx);
   sw.addEventListener('click', () => {
     const selectedConn = getSelectedConnector();
@@ -5011,6 +5706,12 @@ document.querySelectorAll('#inspectorColors .swatch').forEach((sw, idx) => {
     selected.forEach((o) => {
       o.color = presetName;
       o.customColor = isCustomized ? slotHex : null;
+      if (o.type === 'image') {
+        o.borderEnabled = true;
+        o.borderColor = slotHex;
+        if (!o.borderWidth) o.borderWidth = 4;
+        if (!o.borderStyle) o.borderStyle = 'solid';
+      }
     });
     renderAllObjects();
     syncSelectionUI();
@@ -5022,6 +5723,107 @@ document.querySelectorAll('#inspectorColors .swatch').forEach((sw, idx) => {
     e.stopPropagation();
     openSwatchColorPicker('object', slot, sw, e.clientX, e.clientY);
   });
+});
+
+// Random Color Swatch Button (Assigns a unique random hex to currently selected objects without mutating other objects!)
+document.getElementById('inspRandomColorBtn')?.addEventListener('click', () => {
+  const randomHex = generateVibrantRandomHex();
+  const selectedConn = getSelectedConnector();
+  if (selectedConn) {
+    pushUndoSnapshot('화살표 랜덤 색상 적용');
+    selectedConn.color = randomHex;
+    renderAllConnectors();
+    syncSelectionUI();
+    scheduleSaveBoard();
+    showToast(`🎲 랜덤 컬러 적용: ${randomHex.toUpperCase()}`);
+    return;
+  }
+
+  const selected = getSelectedObjects();
+  if (!selected.length) return;
+  pushUndoSnapshot('객체 고유 랜덤 색상 적용');
+  selected.forEach((o) => {
+    o.customColor = randomHex;
+    if (o.type === 'image') {
+      o.borderEnabled = true;
+      o.borderColor = randomHex;
+      if (!o.borderWidth) o.borderWidth = 4;
+      if (!o.borderStyle) o.borderStyle = 'solid';
+    }
+  });
+  renderAllObjects();
+  syncSelectionUI();
+  scheduleSaveBoard();
+  showToast(`🎲 고유 랜덤 컬러 적용: ${randomHex.toUpperCase()}`);
+});
+
+// Image Aspect Ratio Lock & Colored Border Controls
+document.getElementById('inspImgAspectBtn')?.addEventListener('click', () => {
+  const selected = getSelectedObjects().filter((o) => o.type === 'image');
+  if (!selected.length) return;
+  pushUndoSnapshot('이미지 비율유지 전환');
+  const nextKeep = !(selected[0].keepAspect !== false);
+  selected.forEach((o) => {
+    o.keepAspect = nextKeep;
+    if (nextKeep && o.imageAspect && o.imageAspect > 0) {
+      o.height = Math.max(80, Math.round(o.width / o.imageAspect));
+    }
+  });
+  renderAllObjects();
+  renderAllConnectors();
+  syncSelectionUI();
+  scheduleSaveBoard();
+  showToast(nextKeep ? '🔒 이미지 비율유지 ON (여백 없이 비율 고정)' : '🔓 이미지 자유비율 크기조절 모드 (여백 없음)');
+});
+
+document.getElementById('inspImgBorderToggleBtn')?.addEventListener('click', () => {
+  const selected = getSelectedObjects().filter((o) => o.type === 'image');
+  if (!selected.length) return;
+  pushUndoSnapshot('이미지 테두리 토글');
+  const nextBorder = !Boolean(selected[0].borderEnabled);
+  selected.forEach((o) => {
+    o.borderEnabled = nextBorder;
+    if (nextBorder) {
+      if (!o.borderWidth) o.borderWidth = 4;
+      if (!o.borderStyle) o.borderStyle = 'solid';
+      if (!o.borderColor) {
+        const idx = Math.max(0, COLOR_NAMES.indexOf(o.color || 'blue'));
+        o.borderColor = o.customColor || customObjectSwatches[idx] || DEFAULT_OBJECT_SWATCHES[idx] || '#0a84ff';
+      }
+    }
+  });
+  renderAllObjects();
+  syncSelectionUI();
+  scheduleSaveBoard();
+  showToast(nextBorder ? '🖼️ 이미지 컬러 테두리 ON' : '이미지 테두리 OFF');
+});
+
+document.getElementById('inspImgBorderWidthSelect')?.addEventListener('change', (e) => {
+  const bw = Number(e.target.value) || 4;
+  const selected = getSelectedObjects().filter((o) => o.type === 'image');
+  if (!selected.length) return;
+  pushUndoSnapshot('이미지 테두리 두께 변경');
+  selected.forEach((o) => {
+    o.borderEnabled = true;
+    o.borderWidth = bw;
+  });
+  renderAllObjects();
+  syncSelectionUI();
+  scheduleSaveBoard();
+});
+
+document.getElementById('inspImgBorderStyleSelect')?.addEventListener('change', (e) => {
+  const bs = e.target.value || 'solid';
+  const selected = getSelectedObjects().filter((o) => o.type === 'image');
+  if (!selected.length) return;
+  pushUndoSnapshot('이미지 테두리 모양 변경');
+  selected.forEach((o) => {
+    o.borderEnabled = true;
+    o.borderStyle = bs;
+  });
+  renderAllObjects();
+  syncSelectionUI();
+  scheduleSaveBoard();
 });
 
 // Connector Line Style Toggle (Solid <-> Dashed)
@@ -5036,7 +5838,24 @@ document.getElementById('inspConnStyleBtn')?.addEventListener('click', () => {
 });
 
 // Typography Controls (Font Family, Font Size, Bold, Italic, Underline)
-function updateSelectedObjectsTextStyle(mutator, actionLabel = '텍스트 서식 변경') {
+function restoreLastFocusedEditorAfterInspectorChange() {
+  if (!lastActiveAlignTarget || !lastActiveAlignTarget.obj || !selectedObjectIds.has(lastActiveAlignTarget.obj.id)) {
+    return;
+  }
+  const t = lastActiveAlignTarget;
+  const focusEl =
+    (t.kind === 'check-row' && t.inputEl?.isConnected && t.inputEl) ||
+    (t.kind === 'line-editor' && t.editorEl?.isConnected && t.editorEl) ||
+    (t.kind === 'title' && t.el?.isConnected && t.el) ||
+    (t.kind === 'table-cell' && t.tdEl?.isConnected && (t.tdEl.querySelector('span[contenteditable="true"]') || t.tdEl));
+  if (focusEl && typeof focusEl.focus === 'function') {
+    requestAnimationFrame(() => {
+      focusEl.focus();
+    });
+  }
+}
+
+function updateSelectedObjectsTextStyle(mutator, actionLabel = '텍스트 서식 변경', restoreFocus = false) {
   const selected = getSelectedObjects();
   if (!selected.length) return;
   pushUndoSnapshot(actionLabel);
@@ -5049,16 +5868,19 @@ function updateSelectedObjectsTextStyle(mutator, actionLabel = '텍스트 서식
   });
   syncSelectionUI();
   scheduleSaveBoard();
+  if (restoreFocus) {
+    restoreLastFocusedEditorAfterInspectorChange();
+  }
 }
 
 document.getElementById('inspFontFamilySelect')?.addEventListener('change', (e) => {
   const fontFamily = e.target.value || 'system';
-  updateSelectedObjectsTextStyle((st) => ({ ...st, fontFamily }), '폰트 변경');
+  updateSelectedObjectsTextStyle((st) => ({ ...st, fontFamily }), '폰트 변경', true);
 });
 
 document.getElementById('inspFontSizeSelect')?.addEventListener('change', (e) => {
   const fontSize = Number(e.target.value) || 14;
-  updateSelectedObjectsTextStyle((st) => ({ ...st, fontSize }), '폰트 크기 변경');
+  updateSelectedObjectsTextStyle((st) => ({ ...st, fontSize }), '폰트 크기 변경', true);
 });
 
 document.getElementById('inspArtStyleSelect')?.addEventListener('change', (e) => {
@@ -5077,25 +5899,33 @@ document.getElementById('inspArtStyleSelect')?.addEventListener('change', (e) =>
 });
 
 document.getElementById('inspVectorizeBtn')?.addEventListener('click', () => {
-  const selected = getSelectedObjects().filter((o) => o.type === 'label');
+  const selected = getSelectedObjects().filter((o) => isVectorizableObject(o));
   if (!selected.length) return;
   if (selected.length === 1) {
-    toggleLabelVectorized(selected[0]);
+    toggleObjectVectorized(selected[0]);
     return;
   }
   const nextVec = !Boolean(selected[0].vectorized);
-  pushUndoSnapshot(nextVec ? '텍스트 벡터 이미지화' : '벡터 이미지 해제');
+  pushUndoSnapshot(nextVec ? '객체 벡터 이미지화' : '벡터 이미지 해제');
   selected.forEach((o) => {
     o.vectorized = nextVec;
     if (nextVec) {
-      if (!(o.content || '').trim()) {
-        o.content = (o.title && o.title !== '텍스트') ? o.title : '프로젝트 타이틀';
+      if (o.type === 'label') {
+        if (!(o.content || '').trim()) {
+          o.content = (o.title && o.title !== '텍스트') ? o.title : '프로젝트 타이틀';
+        }
+        const m = computeVectorLabelMetrics(o);
+        o.vectorAspect = m.aspect;
+        const baseW = Math.max(200, Math.round(o.width || 380));
+        o.width = baseW;
+        o.height = Math.max(48, Math.round(baseW / Math.max(0.2, m.aspect)));
+      } else {
+        const curW = Math.max(180, Math.round(o.width || 320));
+        const curH = Math.max(110, Math.round(o.height || 220));
+        o.vectorBaseW = curW;
+        o.vectorBaseH = curH;
+        o.vectorAspect = curW / curH;
       }
-      const m = computeVectorLabelMetrics(o);
-      o.vectorAspect = m.aspect;
-      const baseW = Math.max(200, Math.round(o.width || 380));
-      o.width = baseW;
-      o.height = Math.max(48, Math.round(baseW / Math.max(0.2, m.aspect)));
     }
   });
   renderAllObjects();
@@ -5104,8 +5934,8 @@ document.getElementById('inspVectorizeBtn')?.addEventListener('click', () => {
   scheduleSaveBoard();
   showToast(
     nextVec
-      ? '✨ 선택된 텍스트 객체가 벡터 이미지로 변환되었습니다!'
-      : '📝 일반 텍스트 편집 모드로 전환되었습니다'
+      ? '✨ 선택된 객체가 벡터 이미지로 변환되었습니다!'
+      : '📝 일반 객체 편집 모드로 전환되었습니다'
   );
 });
 
@@ -5156,21 +5986,21 @@ function toggleSelectedObjectsBold() {
   const selected = getSelectedObjects();
   if (!selected.length) return;
   const nextVal = !getObjectTextStyle(selected[0]).bold;
-  updateSelectedObjectsTextStyle((st) => ({ ...st, bold: nextVal }), '굵게 서식 변경');
+  updateSelectedObjectsTextStyle((st) => ({ ...st, bold: nextVal }), '굵게 서식 변경', true);
 }
 
 function toggleSelectedObjectsItalic() {
   const selected = getSelectedObjects();
   if (!selected.length) return;
   const nextVal = !getObjectTextStyle(selected[0]).italic;
-  updateSelectedObjectsTextStyle((st) => ({ ...st, italic: nextVal }), '기울임 서식 변경');
+  updateSelectedObjectsTextStyle((st) => ({ ...st, italic: nextVal }), '기울임 서식 변경', true);
 }
 
 function toggleSelectedObjectsUnderline() {
   const selected = getSelectedObjects();
   if (!selected.length) return;
   const nextVal = !getObjectTextStyle(selected[0]).underline;
-  updateSelectedObjectsTextStyle((st) => ({ ...st, underline: nextVal }), '밑줄 서식 변경');
+  updateSelectedObjectsTextStyle((st) => ({ ...st, underline: nextVal }), '밑줄 서식 변경', true);
 }
 
 ['inspBoldBtn', 'inspItalicBtn', 'inspUnderlineBtn', 'inspAlignLeftBtn', 'inspAlignCenterBtn', 'inspAlignRightBtn'].forEach(
@@ -5284,6 +6114,10 @@ function setSelectedObjectsTextAlign(align) {
         });
       });
     }
+    if (obj.vectorized && obj.type !== 'label') {
+      const vecWrap = domEl.querySelector('.ff-universal-vec-wrap');
+      if (vecWrap) renderUniversalVectorizedObjectInto(vecWrap, obj);
+    }
   });
   syncAlignButtonsUI(align);
   scheduleSaveBoard();
@@ -5305,6 +6139,11 @@ document.getElementById('inspBringFrontBtn')?.addEventListener('click', () => {
   selected.forEach((o) => (o.zIndex = getNextZIndex()));
   renderAllObjects();
   scheduleSaveBoard();
+  showToast('선택한 객체를 맨 앞으로 가져왔습니다');
+});
+
+document.getElementById('inspSendBackBtn')?.addEventListener('click', () => {
+  sendSelectedObjectsToBack();
 });
 
 function duplicateSelectedObjects() {
@@ -5368,6 +6207,10 @@ document.getElementById('inspDeleteBtn')?.addEventListener('click', deleteSelect
 document.getElementById('pasteClipboardBtn')?.addEventListener('click', () => handleSmartPaste());
 
 window.addEventListener('keydown', (e) => {
+  if (e.key === 'Control' || e.ctrlKey) {
+    document.body.classList.add('ctrl-move-mode');
+  }
+
   const isEditingText = Boolean(
     e.target.closest('input, textarea, [contenteditable="true"]') ||
       (document.activeElement && document.activeElement.closest('input, textarea, [contenteditable="true"]'))
@@ -5439,6 +6282,7 @@ window.addEventListener('keydown', (e) => {
     document.getElementById('linkModal')?.classList.add('hidden');
     document.getElementById('syncModal')?.classList.add('hidden');
     document.getElementById('lightboxModal')?.classList.add('hidden');
+    document.getElementById('gridSettingsPopover')?.classList.add('hidden');
     if (activeTool === 'pen' && selectedObjectIds.size === 0 && !selectedConnectorId) {
       setToolMode('select');
     }
@@ -5511,6 +6355,16 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Control' || !e.ctrlKey) {
+    document.body.classList.remove('ctrl-move-mode');
+  }
+});
+
+window.addEventListener('blur', () => {
+  document.body.classList.remove('ctrl-move-mode');
+});
+
 document.getElementById('lightboxModal')?.addEventListener('click', () => {
   document.getElementById('lightboxModal')?.classList.add('hidden');
 });
@@ -5519,20 +6373,15 @@ document.getElementById('lightboxModal')?.addEventListener('click', () => {
 // Zoom & View HUD Controls
 // ============================================================================
 document.getElementById('zoomInBtn')?.addEventListener('click', () => {
-  zoom = Math.min(3.5, zoom * 1.18);
-  applyViewportTransform();
+  zoomAtScreenPoint(zoom * 1.18);
   scheduleSaveBoard();
 });
 document.getElementById('zoomOutBtn')?.addEventListener('click', () => {
-  zoom = Math.max(0.1, zoom / 1.18);
-  applyViewportTransform();
+  zoomAtScreenPoint(zoom / 1.18);
   scheduleSaveBoard();
 });
 document.getElementById('zoomResetBtn')?.addEventListener('click', () => {
-  zoom = 1;
-  panX = 80;
-  panY = 60;
-  applyViewportTransform();
+  animateViewportTo(80, 60, 1, 320);
   scheduleSaveBoard();
 });
 document.getElementById('fitViewBtn')?.addEventListener('click', () => {
@@ -5544,15 +6393,39 @@ document.getElementById('fitViewBtn')?.addEventListener('click', () => {
   const rect = canvasViewport.getBoundingClientRect();
   const contentW = Math.max(400, maxX - minX + 120);
   const contentH = Math.max(300, maxY - minY + 120);
-  zoom = Math.min(1.4, Math.max(0.1, Math.min(rect.width / contentW, rect.height / contentH)));
-  panX = Math.round((rect.width - (maxX - minX) * zoom) / 2 - minX * zoom);
-  panY = Math.round((rect.height - (maxY - minY) * zoom) / 2 - minY * zoom);
-  applyViewportTransform();
+  const targetZoom = Math.min(1.4, Math.max(0.1, Math.min(rect.width / contentW, rect.height / contentH)));
+  const targetPanX = Math.round((rect.width - (maxX - minX) * targetZoom) / 2 - minX * targetZoom);
+  const targetPanY = Math.round((rect.height - (maxY - minY) * targetZoom) / 2 - minY * targetZoom);
+  animateViewportTo(targetPanX, targetPanY, targetZoom, 420);
   scheduleSaveBoard();
 });
 
 const GRID_MODES = ['grid-dots', 'grid-lines', 'grid-none'];
 let currentGridIdx = 0;
+
+function syncGridSettingsUI() {
+  const snapObjEl = document.getElementById('snapObjGridToggle');
+  const snapDrawEl = document.getElementById('snapDrawGridToggle');
+  const spacingEl = document.getElementById('gridSpacingInput');
+  const unitEl = document.getElementById('gridUnitSelect');
+  if (snapObjEl) snapObjEl.checked = Boolean(gridConfig.snapObjects);
+  if (snapDrawEl) snapDrawEl.checked = Boolean(gridConfig.snapDrawing);
+  if (spacingEl) spacingEl.value = String(gridConfig.spacingValue ?? 28);
+  if (unitEl) unitEl.value = gridConfig.spacingUnit || 'px';
+  const openBtn = document.getElementById('openGridSettingsBtn');
+  if (openBtn) {
+    openBtn.classList.toggle('active', Boolean(gridConfig.snapObjects || gridConfig.snapDrawing));
+  }
+}
+
+async function persistGridConfig() {
+  try {
+    await window.freeformAPI.saveConfig({ gridConfig });
+  } catch (err) {
+    console.warn('persistGridConfig error:', err);
+  }
+}
+
 document.getElementById('toggleGridBtn')?.addEventListener('click', () => {
   canvasViewport.classList.remove(...GRID_MODES);
   currentGridIdx = (currentGridIdx + 1) % GRID_MODES.length;
@@ -5560,6 +6433,68 @@ document.getElementById('toggleGridBtn')?.addEventListener('click', () => {
   const labels = ['도트', '격자', '무지'];
   const lbl = document.getElementById('toggleGridLabel');
   if (lbl) lbl.textContent = labels[currentGridIdx];
+  applyViewportTransform();
+});
+
+const gridSettingsPopover = document.getElementById('gridSettingsPopover');
+document.getElementById('openGridSettingsBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  syncGridSettingsUI();
+  gridSettingsPopover?.classList.toggle('hidden');
+});
+document.getElementById('closeGridSettingsBtn')?.addEventListener('click', () => {
+  gridSettingsPopover?.classList.add('hidden');
+});
+window.addEventListener('pointerdown', (e) => {
+  if (
+    gridSettingsPopover &&
+    !gridSettingsPopover.classList.contains('hidden') &&
+    !gridSettingsPopover.contains(e.target) &&
+    !e.target.closest('#openGridSettingsBtn')
+  ) {
+    gridSettingsPopover.classList.add('hidden');
+  }
+});
+
+document.getElementById('snapObjGridToggle')?.addEventListener('change', (e) => {
+  gridConfig.snapObjects = Boolean(e.target.checked);
+  syncGridSettingsUI();
+  persistGridConfig();
+  showToast(gridConfig.snapObjects ? '🧲 객체 격자/도트 물림 ON' : '객체 격자/도트 물림 OFF');
+});
+
+document.getElementById('snapDrawGridToggle')?.addEventListener('change', (e) => {
+  gridConfig.snapDrawing = Boolean(e.target.checked);
+  syncGridSettingsUI();
+  persistGridConfig();
+  showToast(gridConfig.snapDrawing ? '✏️ 펜/도형 그리기 격자/도트 물림 ON' : '그리기 격자/도트 물림 OFF');
+});
+
+document.getElementById('gridSpacingInput')?.addEventListener('input', (e) => {
+  const val = Number(e.target.value);
+  if (!Number.isFinite(val) || val <= 0) return;
+  gridConfig.spacingValue = val;
+  applyViewportTransform();
+  persistGridConfig();
+});
+
+document.getElementById('gridUnitSelect')?.addEventListener('change', (e) => {
+  const prevUnit = gridConfig.spacingUnit || 'px';
+  const nextUnit = e.target.value || 'px';
+  const prevPx = getGridSpacingWorldPx();
+  gridConfig.spacingUnit = nextUnit;
+  if (prevUnit !== nextUnit) {
+    if (nextUnit === 'px') {
+      gridConfig.spacingValue = Math.max(8, Math.round(prevPx));
+    } else if (nextUnit === 'cm') {
+      gridConfig.spacingValue = Math.max(0.2, Number((prevPx / 37.79527559).toFixed(1)));
+    } else if (nextUnit === 'm') {
+      gridConfig.spacingValue = Math.max(0.01, Number((prevPx / 3779.527559).toFixed(2)));
+    }
+  }
+  syncGridSettingsUI();
+  applyViewportTransform();
+  persistGridConfig();
 });
 
 document.getElementById('toggleThemeBtn')?.addEventListener('click', () => {
@@ -5794,6 +6729,71 @@ window.freeformAPI.onBoardExternallyUpdated(async (changedBoardId) => {
   }
 });
 
+window.freeformAPI.onBridgeAddObject((objData) => {
+  if (!objData) return;
+
+  if (Array.isArray(objData.objects) && objData.objects.length > 0) {
+    pushUndoSnapshot(`Spotlight AI 블록 ${objData.objects.length}개 추가`);
+    const center = getViewportCenterWorld();
+    const cols = objData.objects.length > 2 ? 2 : 1;
+    const colW = 430;
+    const gapX = 28;
+    const gapY = 26;
+    const startX = center.x - Math.round(((cols * colW + (cols - 1) * gapX) / 2));
+    let curY = center.y - Math.round((Math.ceil(objData.objects.length / cols) * 240) / 2);
+    const createdIds = [];
+
+    objData.objects.forEach((item, idx) => {
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+      const isTable = Boolean(item.tableData);
+      const w = isTable ? 460 : 410;
+      const lineCount = String(item.content || '').split(/\r?\n/).length;
+      const h = isTable ? Math.min(360, Math.max(220, item.tableData.length * 36 + 70)) : Math.min(380, Math.max(210, lineCount * 22 + 95));
+      const created = addObjectToBoard(
+        {
+          type: item.type || (isTable ? 'table' : 'text'),
+          title: item.title || `✨ Spotlight AI 블록 #${idx + 1}`,
+          content: item.content || '',
+          tableData: item.tableData || null,
+          url: item.url || null,
+          x: startX + col * (colW + gapX),
+          y: curY + row * (270 + gapY),
+          width: w,
+          height: h,
+          color: item.color || (isTable ? 'blue' : 'dark')
+        },
+        idx === 0,
+        false
+      );
+      if (created) createdIds.push(created.id);
+    });
+
+    if (createdIds.length > 0) {
+      setSelectedObjectIds(createdIds);
+    }
+    showToast(`✨ Spotlight AI에서 ${objData.objects.length}개의 블록 객체가 보드에 추가되었습니다!`);
+    return;
+  }
+
+  const isTable = Boolean(objData.tableData);
+  const lineCount = String(objData.content || '').split(/\r?\n/).length;
+  addObjectToBoard(
+    {
+      type: objData.type || (isTable ? 'table' : 'text'),
+      title: objData.title || '✨ Spotlight AI 카드',
+      content: objData.content || '',
+      tableData: objData.tableData || null,
+      url: objData.url || null,
+      width: isTable ? 480 : 420,
+      height: isTable ? 260 : Math.min(420, Math.max(240, lineCount * 22 + 95)),
+      color: objData.color || (isTable ? 'blue' : 'dark')
+    },
+    true
+  );
+  showToast('✨ Spotlight AI에서 보낸 항목이 보드에 추가되었습니다!');
+});
+
 // Initialize on startup
 window.addEventListener('DOMContentLoaded', async () => {
   try {
@@ -5804,10 +6804,17 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (cfg && Array.isArray(cfg.customPenSwatches) && cfg.customPenSwatches.length > 0) {
       customPenSwatches = DEFAULT_PEN_SWATCHES.map((def, i) => cfg.customPenSwatches[i] || def);
     }
+    if (cfg && cfg.gridConfig && typeof cfg.gridConfig === 'object') {
+      gridConfig = {
+        ...gridConfig,
+        ...cfg.gridConfig
+      };
+    }
   } catch (err) {
     console.warn('getConfig error:', err);
   }
   applyCustomSwatchesToDOM();
+  syncGridSettingsUI();
   await refreshSyncUI();
   await refreshBoardsSidebarList();
   const initialId = boardsList[0]?.id || 'board_welcome';
