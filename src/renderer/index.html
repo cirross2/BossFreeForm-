@@ -429,15 +429,21 @@
             </select>
             <!-- Label / Vector Title Fill & Outline Controls (Shown when a 'label' object is selected) -->
             <div class="insp-label-style-sub hidden" id="inspLabelStyleSubGroup">
-              <button class="insp-btn active" id="inspLabelFillToggleBtn" title="텍스트·타이틀 내부 채우기 ON / OFF">
-                <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M4 20h16"></path>
-                  <path d="m6 16 6-12 6 12"></path>
-                  <path d="M8 12h8"></path>
+              <button class="insp-btn" id="inspLabelFillToggleBtn" title="텍스트·타이틀 박스 배경 채우기 ON / OFF (글자를 제외한 박스 배경)">
+                <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+                  <rect x="3" y="5" width="18" height="14" rx="3" fill="currentColor" fill-opacity="0.35"></rect>
+                  <path d="M9 15l3-6 3 6" stroke-linecap="round"></path>
                 </svg>
-                <span id="inspLabelFillToggleLabel">내부채우기 ON</span>
+                <span id="inspLabelFillToggleLabel">박스 채우기 OFF</span>
               </button>
-              <input type="color" class="insp-color-chip" id="inspLabelFillColorInput" value="#ffffff" title="텍스트 내부 채우기 색상" />
+              <input type="color" class="insp-color-chip hidden" id="inspLabelFillColorInput" value="#1c1c22" title="박스 배경 색상" />
+              <select class="insp-select hidden" id="inspLabelBgOpacitySelect" title="박스 배경 투명도">
+                <option value="0.25">배경 25%</option>
+                <option value="0.5">배경 50%</option>
+                <option value="0.7">배경 70%</option>
+                <option value="0.85" selected>배경 85%</option>
+                <option value="1">배경 100%</option>
+              </select>
               <button class="insp-btn" id="inspLabelStrokeToggleBtn" title="텍스트·타이틀 외곽선 ON / OFF">
                 <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2">
                   <rect x="3" y="3" width="18" height="18" rx="3"></rect>

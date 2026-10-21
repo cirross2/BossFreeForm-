@@ -685,11 +685,24 @@ function applyObjectCustomColorStyles(el, obj) {
   if (obj.type === 'label') {
     const resolvedHex = getResolvedObjectColorHex(obj);
     el.style.setProperty('--label-color', resolvedHex);
-    const fillEnabled = obj.labelFillEnabled !== false;
+    const fillEnabled = true; // Text glyphs are always filled (text color = swatch color)
     const fillColor = obj.labelFillColor || resolvedHex;
     const strokeEnabled = Boolean(obj.labelStrokeEnabled);
     const strokeColor = obj.labelStrokeColor || '#111115';
     const strokeWidth = Number(obj.labelStrokeWidth) || 6;
+
+    // Box Background Fill (텍스트를 제외한 박스 배경 채우기)
+    if (obj.labelBgEnabled) {
+      const bgRgb = parseHexToRgb(obj.labelBgColor || '#1c1c22') || { r: 28, g: 28, b: 34 };
+      const bgOp = obj.labelBgOpacity !== undefined ? Number(obj.labelBgOpacity) : 0.85;
+      el.style.setProperty('background', `rgba(${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}, ${bgOp})`, 'important');
+      el.style.setProperty('border-radius', `${Math.max(0, Number(obj.labelBgRadius ?? 14))}px`);
+      el.classList.add('has-label-bg');
+    } else {
+      el.style.removeProperty('background');
+      el.style.removeProperty('border-radius');
+      el.classList.remove('has-label-bg');
+    }
 
     const editor = el.querySelector('.ff-label-editor');
     if (editor) {
@@ -812,7 +825,7 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
   const m = computeVectorLabelMetrics(obj);
   obj.vectorAspect = m.aspect;
   const resolvedColor = getResolvedObjectColorHex(obj);
-  const fillEnabled = obj.labelFillEnabled !== false;
+  const fillEnabled = true;
   const fillHex = obj.labelFillColor || resolvedColor;
   const customStrokeEnabled = Boolean(obj.labelStrokeEnabled);
   const customStrokeHex = obj.labelStrokeColor || '#111115';
@@ -2115,16 +2128,22 @@ function syncShapeInspectorUI(shapeObj) {
 function syncLabelStyleInspectorUI(labelObj) {
   if (!labelObj) return;
   const resolved = getResolvedObjectColorHex(labelObj);
-  const fillOn = labelObj.labelFillEnabled !== false;
-  document.getElementById('inspLabelFillToggleBtn')?.classList.toggle('active-pill', fillOn);
+  const bgOn = Boolean(labelObj.labelBgEnabled);
+  document.getElementById('inspLabelFillToggleBtn')?.classList.toggle('active-pill', bgOn);
   const fillLbl = document.getElementById('inspLabelFillToggleLabel');
-  if (fillLbl) fillLbl.textContent = fillOn ? '내부채우기 ON' : '내부채우기 OFF';
+  if (fillLbl) fillLbl.textContent = bgOn ? '박스 채우기 ON' : '박스 채우기 OFF';
   const fillInp = document.getElementById('inspLabelFillColorInput');
   if (fillInp) {
-    const hex = labelObj.labelFillColor || resolved;
-    fillInp.value = /^#[0-9a-f]{6}$/i.test(hex) ? hex : '#ffffff';
-    fillInp.classList.toggle('hidden', !fillOn);
+    const hex = labelObj.labelBgColor || '#1c1c22';
+    fillInp.value = /^#[0-9a-f]{6}$/i.test(hex) ? hex : '#1c1c22';
+    fillInp.classList.toggle('hidden', !bgOn);
   }
+  const bgOpSel = document.getElementById('inspLabelBgOpacitySelect');
+  if (bgOpSel) {
+    bgOpSel.value = String(labelObj.labelBgOpacity ?? 0.85);
+    bgOpSel.classList.toggle('hidden', !bgOn);
+  }
+  void resolved;
   const strokeOn = Boolean(labelObj.labelStrokeEnabled);
   document.getElementById('inspLabelStrokeToggleBtn')?.classList.toggle('active-pill', strokeOn);
   const strokeLbl = document.getElementById('inspLabelStrokeToggleLabel');
@@ -4627,6 +4646,10 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
     'strokeColor',
     'shapeBackground',
     'labelFillEnabled',
+    'labelBgEnabled',
+    'labelBgColor',
+    'labelBgOpacity',
+    'labelBgRadius',
     'labelFillColor',
     'labelStrokeEnabled',
     'labelStrokeColor',
@@ -6321,27 +6344,39 @@ function updateSelectedLabels(mutator, actionLabel) {
 document.getElementById('inspLabelFillToggleBtn')?.addEventListener('click', () => {
   const labels = getSelectedObjects().filter((o) => o.type === 'label');
   if (!labels.length) return;
-  const next = !(labels[0].labelFillEnabled !== false);
-  if (!next && !labels[0].labelStrokeEnabled) {
-    // Turning fill off without an outline would make the text invisible -> auto-enable outline
-    updateSelectedLabels((o) => {
-      o.labelFillEnabled = false;
-      o.labelStrokeEnabled = true;
-    }, '텍스트 내부 채우기 OFF (외곽선 자동 ON)');
-    showToast('내부 채우기를 끄면서 글자가 보이도록 외곽선을 자동으로 켰습니다');
-    return;
-  }
+  const next = !Boolean(labels[0].labelBgEnabled);
   updateSelectedLabels((o) => {
-    o.labelFillEnabled = next;
-  }, '텍스트 내부 채우기 토글');
+    o.labelBgEnabled = next;
+    if (next && !o.labelBgColor) o.labelBgColor = '#1c1c22';
+  }, next ? '텍스트 박스 배경 채우기 ON' : '텍스트 박스 배경 채우기 OFF');
+});
+
+document.getElementById('inspLabelFillColorInput')?.addEventListener('input', (e) => {
+  const hex = e.target.value;
+  getSelectedObjects()
+    .filter((o) => o.type === 'label')
+    .forEach((o) => {
+      o.labelBgEnabled = true;
+      o.labelBgColor = hex;
+      const domEl = objectLayer.querySelector(`.ff-object[data-id="${o.id}"]`);
+      if (domEl) applyObjectCustomColorStyles(domEl, o);
+    });
 });
 
 document.getElementById('inspLabelFillColorInput')?.addEventListener('change', (e) => {
   const hex = e.target.value;
   updateSelectedLabels((o) => {
-    o.labelFillEnabled = true;
-    o.labelFillColor = hex;
-  }, '텍스트 채우기 색상 변경');
+    o.labelBgEnabled = true;
+    o.labelBgColor = hex;
+  }, '텍스트 박스 배경 색상 변경');
+});
+
+document.getElementById('inspLabelBgOpacitySelect')?.addEventListener('change', (e) => {
+  const op = Number(e.target.value);
+  updateSelectedLabels((o) => {
+    o.labelBgEnabled = true;
+    o.labelBgOpacity = Number.isFinite(op) ? op : 0.85;
+  }, '텍스트 박스 배경 투명도 변경');
 });
 
 document.getElementById('inspLabelStrokeToggleBtn')?.addEventListener('click', () => {
