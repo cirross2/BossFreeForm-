@@ -51,6 +51,7 @@ class DriveSyncManager {
     this.oauthTokens = this.loadOAuthTokens();
     this.watcher = null;
     this.onExternalChange = null;
+    this.selfWriteTimestamps = new Map();
     this.ensureStorageDirectories();
   }
 
@@ -360,9 +361,13 @@ class DriveSyncManager {
       throw new Error('유효하지 않은 보드 데이터입니다.');
     }
     this.ensureStorageDirectories();
-    board.updatedAt = Date.now();
+    const now = Date.now();
+    board.updatedAt = now;
+    if (!this.selfWriteTimestamps) this.selfWriteTimestamps = new Map();
+    this.selfWriteTimestamps.set(board.id, now);
     const filePath = path.join(this.getBoardsDir(), `${board.id}.json`);
     fs.writeFileSync(filePath, JSON.stringify(board, null, 2), 'utf-8');
+    this.selfWriteTimestamps.set(board.id, Date.now());
 
     if (this.config.lastActiveBoardId !== board.id) {
       this.saveConfig({ lastActiveBoardId: board.id });
@@ -514,10 +519,19 @@ class DriveSyncManager {
       let debounceTimer = null;
       this.watcher = fs.watch(boardsDir, (eventType, filename) => {
         if (filename && filename.endsWith('.json')) {
+          const boardId = filename.replace(/\.json$/, '');
+          const lastSelfWrite = this.selfWriteTimestamps?.get(boardId) || 0;
+          if (Date.now() - lastSelfWrite < 3000) {
+            return;
+          }
           if (debounceTimer) clearTimeout(debounceTimer);
           debounceTimer = setTimeout(() => {
+            const recentSelfWrite = this.selfWriteTimestamps?.get(boardId) || 0;
+            if (Date.now() - recentSelfWrite < 3000) {
+              return;
+            }
             if (this.onExternalChange) {
-              this.onExternalChange(filename.replace(/\.json$/, ''));
+              this.onExternalChange(boardId);
             }
           }, 350);
         }

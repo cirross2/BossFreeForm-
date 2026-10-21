@@ -174,7 +174,7 @@ function applyViewportTransform() {
   if (!canvasWorld) return;
   canvasWorld.style.transform = `translate3d(${Math.round(panX)}px, ${Math.round(panY)}px, 0) scale(${zoom.toFixed(3)})`;
   if (canvasViewport) {
-    const gridSize = Math.max(10, Math.round(24 * zoom));
+    const gridSize = Math.max(4, Math.round(24 * zoom));
     canvasViewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
     canvasViewport.style.backgroundPosition = `${Math.round(panX)}px ${Math.round(panY)}px`;
   }
@@ -210,15 +210,51 @@ function getViewportCenterWorld() {
   };
 }
 
+let lastLocalSaveAt = 0;
+let isSavingBoard = false;
+
+function updateSidebarActiveBoardMetaInPlace() {
+  if (!currentBoard || !boardListContainer) return;
+  const entry = boardsList.find((b) => b.id === currentBoard.id);
+  const objCount = Array.isArray(currentBoard.objects) ? currentBoard.objects.length : 0;
+  if (entry) {
+    entry.title = currentBoard.title || '제목 없는 보드';
+    entry.objectCount = objCount;
+    entry.updatedAt = currentBoard.updatedAt || Date.now();
+  }
+  const activeItem = boardListContainer.querySelector('.board-item.active');
+  if (activeItem) {
+    const titleEl = activeItem.querySelector('.board-item-title');
+    const metaEl = activeItem.querySelector('.board-item-meta');
+    if (titleEl) titleEl.textContent = currentBoard.title || '제목 없는 보드';
+    if (metaEl) metaEl.textContent = `객체 ${objCount}개`;
+  }
+}
+
 function scheduleSaveBoard() {
   if (!currentBoard) return;
+  const now = Date.now();
+  currentBoard.updatedAt = now;
+  lastLocalSaveAt = now;
   if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
   saveDebounceTimer = setTimeout(async () => {
+    if (!currentBoard) return;
+    isSavingBoard = true;
+    const saveTs = Date.now();
+    currentBoard.updatedAt = saveTs;
+    lastLocalSaveAt = saveTs;
     try {
-      await window.freeformAPI.saveBoard(currentBoard);
-      await refreshBoardsSidebarList();
+      const saved = await window.freeformAPI.saveBoard(currentBoard);
+      const afterTs = Date.now();
+      lastLocalSaveAt = afterTs;
+      if (currentBoard) {
+        currentBoard.updatedAt = Math.max(currentBoard.updatedAt || 0, saved?.updatedAt || afterTs);
+      }
+      updateSidebarActiveBoardMetaInPlace();
     } catch (err) {
       console.error('Failed to auto-save board:', err);
+    } finally {
+      isSavingBoard = false;
     }
   }, 260);
 }
@@ -233,6 +269,7 @@ async function refreshBoardsSidebarList() {
 
 const SVG_ICONS = {
   board: `<svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>`,
+  vectorize: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>`,
   chkSquare: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect><path d="m8 12 3 3 5-6"></path></svg>`,
   chkCircle: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="m8.5 12 2.5 2.5 4.5-5"></path></svg>`,
   chkToggle: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="6"></rect><circle cx="16" cy="12" r="3" fill="currentColor"></circle></svg>`,
@@ -456,6 +493,11 @@ function applyObjectTypography(el, obj) {
       node.style.textDecoration = ts.underline ? 'underline' : 'none';
     }
   });
+
+  if (obj.type === 'label' && obj.vectorized) {
+    const wrapEl = el.querySelector('.ff-label-wrap');
+    if (wrapEl) renderVectorizedLabelIntoWrap(wrapEl, obj);
+  }
 }
 
 function parseHexToRgb(hexStr) {
@@ -507,6 +549,10 @@ function applyObjectCustomColorStyles(el, obj) {
         editor.style.color = '';
       }
     }
+    if (obj.vectorized) {
+      const wrapEl = el.querySelector('.ff-label-wrap');
+      if (wrapEl) renderVectorizedLabelIntoWrap(wrapEl, obj);
+    }
     return;
   }
 
@@ -539,6 +585,373 @@ function applyObjectCustomColorStyles(el, obj) {
   el.style.background = `linear-gradient(145deg, rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.95), rgba(${r2}, ${g2}, ${b2}, 0.95))`;
   el.style.color = isLightBg ? '#1d1d1f' : '#f5f5f7';
   el.style.borderColor = isLightBg ? 'rgba(0, 0, 0, 0.16)' : `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.55)`;
+}
+
+// ============================================================================
+// Vector Graphic Title / Label Mode (Unlimited Scalable SVG Vector Text)
+// ============================================================================
+let _vectorMeasureCtx = null;
+function measureVectorTextWidth(text, fontSpec) {
+  if (!_vectorMeasureCtx) {
+    const c = document.createElement('canvas');
+    _vectorMeasureCtx = c.getContext('2d');
+  }
+  _vectorMeasureCtx.font = fontSpec;
+  return _vectorMeasureCtx.measureText(text || ' ').width;
+}
+
+function getLabelDisplayLines(obj) {
+  const raw = (obj?.content || '').trim() ? String(obj.content) : String(obj?.title || '프로젝트 타이틀');
+  return raw.split('\n');
+}
+
+function computeVectorLabelMetrics(obj) {
+  const ts = getObjectTextStyle(obj);
+  const artStyle = obj?.artStyle || 'none';
+  const baseFs = 72;
+  const fontCss = FONT_FAMILY_STACKS[ts.fontFamily] || FONT_FAMILY_STACKS.default;
+  const fontWeight = artStyle !== 'none' || ts.bold ? '800' : '600';
+  const fontStyle = ts.italic ? 'italic' : 'normal';
+  const fontSpec = `${fontStyle} ${fontWeight} ${baseFs}px ${fontCss}`;
+  const rawLines = getLabelDisplayLines(obj);
+
+  const widths = rawLines.map((ln) => Math.max(baseFs * 0.65, measureVectorTextWidth(ln || ' ', fontSpec) * 1.07));
+  const maxTextW = Math.max(...widths, baseFs * 1.6);
+  const padX = artStyle === 'stamp' ? 56 : artStyle === 'graffiti' || artStyle === 'retro3d' ? 42 : 28;
+  const padY = artStyle === 'stamp' ? 38 : 24;
+  const lineH = Math.round(baseFs * 1.24);
+  const vbW = Math.round(maxTextW + padX * 2);
+  const vbH = Math.round(rawLines.length * lineH + padY * 2);
+  const aspect = Number((vbW / Math.max(1, vbH)).toFixed(4));
+
+  return {
+    ts,
+    artStyle,
+    baseFs,
+    fontCss,
+    fontWeight,
+    fontStyle,
+    rawLines,
+    padX,
+    padY,
+    lineH,
+    vbW,
+    vbH,
+    aspect
+  };
+}
+
+function renderVectorizedLabelIntoWrap(wrapEl, obj) {
+  if (!wrapEl || !obj) return;
+  const m = computeVectorLabelMetrics(obj);
+  obj.vectorAspect = m.aspect;
+  const resolvedColor = getResolvedObjectColorHex(obj);
+  const safeId = String(obj.id || 'lbl').replace(/[^a-zA-Z0-9_-]/g, '');
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'ff-label-vector-svg');
+  svg.setAttribute('viewBox', `0 0 ${m.vbW} ${m.vbH}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  if (m.artStyle === 'game') {
+    defs.innerHTML = `
+      <linearGradient id="grad_game_${safeId}" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#fffdf0"/>
+        <stop offset="36%" stop-color="#ffe066"/>
+        <stop offset="68%" stop-color="#ff9f0a"/>
+        <stop offset="100%" stop-color="#ff3b30"/>
+      </linearGradient>
+    `;
+  } else if (m.artStyle === 'gold') {
+    defs.innerHTML = `
+      <linearGradient id="grad_gold_${safeId}" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#fff8cc"/>
+        <stop offset="26%" stop-color="#ffd700"/>
+        <stop offset="50%" stop-color="#b8860b"/>
+        <stop offset="74%" stop-color="#fff1a8"/>
+        <stop offset="100%" stop-color="#cca12c"/>
+      </linearGradient>
+    `;
+  }
+  svg.appendChild(defs);
+
+  const artGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  if (m.artStyle === 'stamp') {
+    artGroup.setAttribute('transform', `rotate(-1.2 ${m.vbW / 2} ${m.vbH / 2})`);
+    const outerRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    outerRect.setAttribute('x', '14');
+    outerRect.setAttribute('y', '12');
+    outerRect.setAttribute('width', String(Math.max(20, m.vbW - 28)));
+    outerRect.setAttribute('height', String(Math.max(20, m.vbH - 24)));
+    outerRect.setAttribute('rx', '20');
+    outerRect.setAttribute('fill', 'rgba(20, 20, 26, 0.78)');
+    outerRect.setAttribute('stroke', resolvedColor);
+    outerRect.setAttribute('stroke-width', '7');
+    artGroup.appendChild(outerRect);
+
+    const innerRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    innerRect.setAttribute('x', '23');
+    innerRect.setAttribute('y', '21');
+    innerRect.setAttribute('width', String(Math.max(10, m.vbW - 46)));
+    innerRect.setAttribute('height', String(Math.max(10, m.vbH - 42)));
+    innerRect.setAttribute('rx', '14');
+    innerRect.setAttribute('fill', 'none');
+    innerRect.setAttribute('stroke', 'rgba(255, 255, 255, 0.22)');
+    innerRect.setAttribute('stroke-width', '2.5');
+    artGroup.appendChild(innerRect);
+  } else if (m.artStyle === 'graffiti') {
+    artGroup.setAttribute(
+      'transform',
+      `translate(${m.vbW / 2}, ${m.vbH / 2}) rotate(-2) skewX(-6) translate(${-m.vbW / 2}, ${-m.vbH / 2})`
+    );
+  }
+
+  const makeSvgTextNode = (str, x, y, attrs = {}) => {
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.textContent = str;
+    t.setAttribute('x', String(x));
+    t.setAttribute('y', String(y));
+    t.setAttribute('font-family', m.fontCss);
+    t.setAttribute('font-size', String(m.baseFs));
+    t.setAttribute('font-weight', m.fontWeight);
+    t.setAttribute('font-style', m.fontStyle);
+    t.setAttribute('paint-order', 'stroke fill');
+    t.setAttribute('stroke-linejoin', 'round');
+    t.setAttribute('stroke-linecap', 'round');
+    if (m.ts.underline) {
+      t.setAttribute('text-decoration', 'underline');
+    }
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v !== undefined && v !== null) t.setAttribute(k, String(v));
+    }
+    return t;
+  };
+
+  m.rawLines.forEach((lineStr, idx) => {
+    const align = (Array.isArray(obj.lineAligns) && obj.lineAligns[idx]) || 'left';
+    const anchor = align === 'center' ? 'middle' : align === 'right' ? 'end' : 'start';
+    const xPos = align === 'center' ? Math.round(m.vbW / 2) : align === 'right' ? m.vbW - m.padX : m.padX;
+    const yPos = Math.round(m.padY + idx * m.lineH + m.baseFs * 0.86);
+
+    if (m.artStyle === 'game') {
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos + 9, {
+          'text-anchor': anchor,
+          fill: '#1a0300',
+          stroke: '#1a0300',
+          'stroke-width': 10
+        })
+      );
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos + 5, {
+          'text-anchor': anchor,
+          fill: '#4a0e00',
+          stroke: '#4a0e00',
+          'stroke-width': 8
+        })
+      );
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos, {
+          'text-anchor': anchor,
+          fill: `url(#grad_game_${safeId})`,
+          stroke: '#2b0900',
+          'stroke-width': 5
+        })
+      );
+    } else if (m.artStyle === 'graffiti') {
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos + 12, yPos + 12, {
+          'text-anchor': anchor,
+          fill: '#111115',
+          stroke: '#111115',
+          'stroke-width': 8
+        })
+      );
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos + 8, yPos + 8, {
+          'text-anchor': anchor,
+          fill: '#00f5d4',
+          stroke: '#111115',
+          'stroke-width': 6
+        })
+      );
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos + 4, yPos + 4, {
+          'text-anchor': anchor,
+          fill: '#ff2d55',
+          stroke: '#111115',
+          'stroke-width': 6
+        })
+      );
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos, {
+          'text-anchor': anchor,
+          fill: resolvedColor,
+          stroke: '#111115',
+          'stroke-width': 7
+        })
+      );
+    } else if (m.artStyle === 'neon') {
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos, {
+          'text-anchor': anchor,
+          fill: 'none',
+          stroke: resolvedColor,
+          'stroke-width': 18,
+          opacity: 0.3,
+          style: 'filter: blur(8px);'
+        })
+      );
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos, {
+          'text-anchor': anchor,
+          fill: 'none',
+          stroke: resolvedColor,
+          'stroke-width': 8,
+          opacity: 0.72,
+          style: 'filter: blur(2.5px);'
+        })
+      );
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos, {
+          'text-anchor': anchor,
+          fill: '#ffffff',
+          stroke: resolvedColor,
+          'stroke-width': 2.5
+        })
+      );
+    } else if (m.artStyle === 'retro3d') {
+      const extrudeSteps = [
+        { d: 10, c: '#1d1d24' },
+        { d: 8, c: '#7209b7' },
+        { d: 6, c: '#7209b7' },
+        { d: 4, c: '#e63946' },
+        { d: 2, c: '#ff6b00' }
+      ];
+      extrudeSteps.forEach((st) => {
+        artGroup.appendChild(
+          makeSvgTextNode(lineStr, xPos + st.d, yPos + st.d, {
+            'text-anchor': anchor,
+            fill: st.c,
+            stroke: '#16161c',
+            'stroke-width': 3
+          })
+        );
+      });
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos, {
+          'text-anchor': anchor,
+          fill: resolvedColor,
+          stroke: '#16161c',
+          'stroke-width': 4.5
+        })
+      );
+    } else if (m.artStyle === 'sticker') {
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos + 5, {
+          'text-anchor': anchor,
+          fill: 'rgba(0,0,0,0.34)',
+          stroke: 'rgba(0,0,0,0.34)',
+          'stroke-width': 18
+        })
+      );
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos, {
+          'text-anchor': anchor,
+          fill: resolvedColor,
+          stroke: '#ffffff',
+          'stroke-width': 15
+        })
+      );
+    } else if (m.artStyle === 'gold') {
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos + 6, {
+          'text-anchor': anchor,
+          fill: '#3a2800',
+          stroke: '#3a2800',
+          'stroke-width': 7
+        })
+      );
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos, {
+          'text-anchor': anchor,
+          fill: `url(#grad_gold_${safeId})`,
+          stroke: '#4a3500',
+          'stroke-width': 4
+        })
+      );
+    } else if (m.artStyle === 'stamp') {
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos, {
+          'text-anchor': anchor,
+          fill: resolvedColor
+        })
+      );
+    } else {
+      artGroup.appendChild(
+        makeSvgTextNode(lineStr, xPos, yPos, {
+          'text-anchor': anchor,
+          fill: resolvedColor,
+          style: 'filter: drop-shadow(0 3px 10px rgba(0,0,0,0.32));'
+        })
+      );
+    }
+  });
+
+  svg.appendChild(artGroup);
+  wrapEl.innerHTML = '';
+  wrapEl.appendChild(svg);
+}
+
+function toggleLabelVectorized(obj) {
+  if (!obj || obj.type !== 'label') return;
+  draggingObjState = null;
+  resizingObjState = null;
+
+  // Sync any in-progress text from the live editor before switching
+  const domEl = objectLayer?.querySelector(`.ff-object[data-id="${obj.id}"]`);
+  const liveEditor = domEl?.querySelector('.ff-label-editor');
+  if (liveEditor) {
+    const lineDivs = Array.from(liveEditor.querySelectorAll('.ff-text-line'));
+    if (lineDivs.length > 0) {
+      obj.content = lineDivs.map((ln) => ln.textContent || '').join('\n');
+      obj.lineAligns = lineDivs.map((ln) => ln.dataset.align || 'left');
+    } else if (liveEditor.textContent) {
+      obj.content = liveEditor.textContent;
+    }
+  }
+
+  pushUndoSnapshot(obj.vectorized ? '벡터 이미지 해제 (텍스트 편집 전환)' : '텍스트 벡터 이미지화');
+  obj.vectorized = !Boolean(obj.vectorized);
+
+  if (obj.vectorized) {
+    if (!(obj.content || '').trim()) {
+      obj.content = (obj.title && obj.title !== '텍스트') ? obj.title : '프로젝트 타이틀';
+    }
+    const m = computeVectorLabelMetrics(obj);
+    obj.vectorAspect = m.aspect;
+    const baseW = Math.max(200, Math.round(obj.width || 380));
+    obj.width = baseW;
+    obj.height = Math.max(48, Math.round(baseW / Math.max(0.2, m.aspect)));
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
+  }
+
+  renderAllObjects();
+  renderAllConnectors();
+  selectObject(obj.id, { expandGroup: false });
+  syncSelectionUI();
+  scheduleSaveBoard();
+
+  if (obj.vectorized) {
+    showToast('✨ 벡터 이미지로 변환되었습니다! 우측 하단 모서리를 드래그해 원하는 크기로 크게 늘려보세요 (더블클릭 시 텍스트 편집)');
+  } else {
+    const nextEd = objectLayer?.querySelector(`.ff-object[data-id="${obj.id}"] .ff-label-editor`);
+    nextEd?.focus();
+    showToast('📝 일반 텍스트 편집 모드로 전환되었습니다');
+  }
 }
 
 function getOrCreateArrowMarkerUrl(colorStr = '#0a84ff', prefix = 'dynArrow') {
@@ -906,14 +1319,22 @@ function syncSelectionUI() {
       const famSel = document.getElementById('inspFontFamilySelect');
       const sizeSel = document.getElementById('inspFontSizeSelect');
       const artSel = document.getElementById('inspArtStyleSelect');
+      const vecBtn = document.getElementById('inspVectorizeBtn');
+      const vecLbl = document.getElementById('inspVectorizeBtnLabel');
+      const hasLabel = selected.some((o) => o.type === 'label');
       if (famSel) famSel.value = ts.fontFamily;
       if (sizeSel) sizeSel.value = String(ts.fontSize);
       if (artSel) {
-        const hasLabel = selected.some((o) => o.type === 'label');
         artSel.classList.toggle('hidden', !hasLabel);
         if (hasLabel) {
           artSel.value = primary.artStyle || 'none';
         }
+      }
+      if (vecBtn) {
+        vecBtn.classList.toggle('hidden', !hasLabel);
+        const isVec = Boolean(primary.vectorized);
+        vecBtn.classList.toggle('active-pill', isVec);
+        if (vecLbl) vecLbl.textContent = isVec ? '텍스트 편집' : '벡터 이미지화';
       }
       document.getElementById('inspBoldBtn')?.classList.toggle('active-pill', ts.bold);
       document.getElementById('inspItalicBtn')?.classList.toggle('active-pill', ts.italic);
@@ -1111,6 +1532,7 @@ function setupPerLineEditor(editorEl, { obj, initialText = '', initialAligns = [
   });
 
   let lastFocusedLineDiv = editorEl.querySelector('.ff-text-line');
+  let isComposing = false;
 
   const updatePlaceholderState = () => {
     const allLines = Array.from(editorEl.querySelectorAll('.ff-text-line'));
@@ -1120,8 +1542,11 @@ function setupPerLineEditor(editorEl, { obj, initialText = '', initialAligns = [
     editorEl.dataset.emptyAlign = firstAlign;
   };
 
-  const normalizeStructure = () => {
+  const normalizeStructure = (allowDomMutation = true) => {
     let lines = Array.from(editorEl.querySelectorAll('.ff-text-line'));
+    if (!allowDomMutation) {
+      return lines;
+    }
     if (lines.length === 0) {
       const fallbackText = editorEl.textContent || '';
       editorEl.innerHTML = '';
@@ -1139,8 +1564,13 @@ function setupPerLineEditor(editorEl, { obj, initialText = '', initialAligns = [
     return lines;
   };
 
-  const syncToModel = () => {
-    const lines = normalizeStructure();
+  const syncToModel = (fromInputEvent = false) => {
+    const lines = normalizeStructure(!isComposing && !fromInputEvent);
+    if (lines.length === 0) {
+      const raw = editorEl.textContent || '';
+      onSync(raw, ['left']);
+      return;
+    }
     const texts = lines.map((ln) => ln.textContent || '');
     const aligns = lines.map((ln) => ln.dataset.align || 'left');
     updatePlaceholderState();
@@ -1199,8 +1629,21 @@ function setupPerLineEditor(editorEl, { obj, initialText = '', initialAligns = [
   editorEl.addEventListener('mouseup', registerFocusContext);
   editorEl.addEventListener('keyup', registerFocusContext);
 
-  editorEl.addEventListener('input', () => {
-    syncToModel();
+  editorEl.addEventListener('compositionstart', () => {
+    isComposing = true;
+  });
+
+  editorEl.addEventListener('compositionend', () => {
+    isComposing = false;
+    syncToModel(false);
+  });
+
+  editorEl.addEventListener('input', (e) => {
+    if (e.isComposing || isComposing) {
+      syncToModel(true);
+    } else {
+      syncToModel(false);
+    }
   });
 
   editorEl.addEventListener('keydown', (e) => {
@@ -1383,7 +1826,7 @@ function createObjectDOM(obj) {
   const el = document.createElement('div');
   const isSelected = selectedObjectIds.has(obj.id);
   const isPdf = isPdfObject(obj);
-  const artClass = obj.type === 'label' ? `art-${obj.artStyle || 'none'}` : '';
+  const artClass = obj.type === 'label' ? `art-${obj.artStyle || 'none'} ${obj.vectorized ? 'is-vectorized' : ''}` : '';
   el.className = `ff-object type-${obj.type || 'sticky'} ${isPdf ? 'is-pdf' : ''} ${artClass} color-${obj.color || 'dark'} ${isSelected ? 'selected' : ''}`;
   el.dataset.id = obj.id;
   el.style.left = `${Math.round(obj.x || 0)}px`;
@@ -1475,8 +1918,20 @@ function createObjectDOM(obj) {
     headerActions.appendChild(grpBadge);
   }
 
-  // Graphic Art Style Cycle Button for 'label' (텍스트) objects
+  // Vectorize Button & Graphic Art Style Cycle Button for 'label' (텍스트·타이틀) objects
   if (obj.type === 'label') {
+    const vectorizeBtn = document.createElement('button');
+    vectorizeBtn.className = `ff-pdf-mode-toggle ff-vectorize-btn ${obj.vectorized ? 'is-active' : ''}`;
+    vectorizeBtn.innerHTML = `${SVG_ICONS.vectorize}<span>${obj.vectorized ? '텍스트 편집' : '벡터 이미지화'}</span>`;
+    vectorizeBtn.title = obj.vectorized
+      ? '벡터 이미지 모드 활성 중 (우측 하단 모서리를 드래그해 크기 자유 조절 · 클릭 또는 더블클릭 시 텍스트 편집 전환)'
+      : '텍스트를 벡터 이미지로 변환 (폰트 사이즈 한계 없이 객체 크기를 늘려 초대형 타이틀·구역 구분 가능)';
+    vectorizeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleLabelVectorized(obj);
+    });
+    headerActions.appendChild(vectorizeBtn);
+
     const curArt = ART_STYLE_LIST.find((a) => a.id === (obj.artStyle || 'none')) || ART_STYLE_LIST[0];
     const artCycleBtn = document.createElement('button');
     artCycleBtn.className = 'ff-pdf-mode-toggle ff-art-cycle-btn';
@@ -1554,26 +2009,35 @@ function createObjectDOM(obj) {
   } else if (obj.type === 'label') {
     // ========================================================================
     // 1-B. BORDERLESS CANVAS TEXT / GRAPHIC TITLE (텍스트 객체):
-    //      Transparent borderless display text with Per-Line Alignment & Graphic Art styles
+    //      Transparent borderless display text with Per-Line Alignment, Graphic Art styles & Vector Image Mode!
     // ========================================================================
     const labelWrap = document.createElement('div');
     labelWrap.className = 'ff-label-wrap';
 
-    const editor = document.createElement('div');
-    editor.className = `ff-label-editor art-style-${obj.artStyle || 'none'}`;
-    setupPerLineEditor(editor, {
-      obj,
-      initialText: obj.content || '',
-      initialAligns: Array.isArray(obj.lineAligns) ? obj.lineAligns : [],
-      placeholder: '프로젝트 제목이나 텍스트 입력...',
-      onSync: (nextText, nextAligns) => {
-        obj.content = nextText;
-        obj.lineAligns = nextAligns;
-        scheduleSaveBoard();
-      }
-    });
+    if (obj.vectorized) {
+      renderVectorizedLabelIntoWrap(labelWrap, obj);
+      labelWrap.title = '드래그: 이동 · 우측 하단 모서리 드래그: 크기 자유 확대/축소 (Shift+드래그: 비율 자유 변형) · 더블클릭: 텍스트 편집 전환';
+      labelWrap.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        toggleLabelVectorized(obj);
+      });
+    } else {
+      const editor = document.createElement('div');
+      editor.className = `ff-label-editor art-style-${obj.artStyle || 'none'}`;
+      setupPerLineEditor(editor, {
+        obj,
+        initialText: obj.content || '',
+        initialAligns: Array.isArray(obj.lineAligns) ? obj.lineAligns : [],
+        placeholder: '프로젝트 제목이나 텍스트 입력...',
+        onSync: (nextText, nextAligns) => {
+          obj.content = nextText;
+          obj.lineAligns = nextAligns;
+          scheduleSaveBoard();
+        }
+      });
+      labelWrap.appendChild(editor);
+    }
 
-    labelWrap.appendChild(editor);
     body.appendChild(labelWrap);
   } else if (obj.type === 'stroke') {
     // ========================================================================
@@ -2414,7 +2878,7 @@ function createObjectDOM(obj) {
 
   const startDrag = (e) => {
     if (e.button !== 0 || activeTool === 'pen' || obj.locked) return;
-    if (e.target.closest('button, input, textarea, [contenteditable="true"]:focus, .ff-chk-widget')) return;
+    if (e.target.closest('button, input, textarea, [contenteditable="true"], .ff-chk-widget')) return;
     e.stopPropagation();
 
     selectedConnectorId = null;
@@ -3123,6 +3587,8 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
     memoLineAligns: Array.isArray(partial.memoLineAligns) ? [...partial.memoLineAligns] : undefined,
     cellAligns: partial.cellAligns ? { ...partial.cellAligns } : undefined,
     artStyle: partial.artStyle || undefined,
+    vectorized: Boolean(partial.vectorized) || undefined,
+    vectorAspect: partial.vectorAspect || undefined,
     strokeData: partial.strokeData ? JSON.parse(JSON.stringify(partial.strokeData)) : undefined,
     pdfViewMode: partial.pdfViewMode || undefined,
     title: partial.title || '',
@@ -3501,10 +3967,32 @@ window.addEventListener('pointermove', (e) => {
     const cur = screenToWorld(e.clientX, e.clientY);
     const dw = cur.x - resizingObjState.startWorldX;
     const dh = cur.y - resizingObjState.startWorldY;
-    const minW = resizingObjState.obj.type === 'stroke' ? 36 : 180;
-    const minH = resizingObjState.obj.type === 'stroke' ? 36 : 120;
-    resizingObjState.obj.width = Math.max(minW, Math.round(resizingObjState.origW + dw));
-    resizingObjState.obj.height = Math.max(minH, Math.round(resizingObjState.origH + dh));
+    if (resizingObjState.obj.type === 'label' && resizingObjState.obj.vectorized) {
+      const minW = 60;
+      const minH = 28;
+      if (e.shiftKey) {
+        // Shift + Drag: Free non-proportional stretch (wide banner or tall title)
+        resizingObjState.obj.width = Math.max(minW, Math.round(resizingObjState.origW + dw));
+        resizingObjState.obj.height = Math.max(minH, Math.round(resizingObjState.origH + dh));
+      } else {
+        // Default Drag: Proportional vector scaling in one smooth drag!
+        const aspect =
+          resizingObjState.obj.vectorAspect ||
+          resizingObjState.origW / Math.max(1, resizingObjState.origH);
+        const scaleX = (resizingObjState.origW + dw) / Math.max(1, resizingObjState.origW);
+        const scaleY = (resizingObjState.origH + dh) / Math.max(1, resizingObjState.origH);
+        const scale = Math.abs(dw) >= Math.abs(dh) ? scaleX : scaleY;
+        const nextW = Math.max(minW, Math.round(resizingObjState.origW * scale));
+        const nextH = Math.max(minH, Math.round(nextW / Math.max(0.15, aspect)));
+        resizingObjState.obj.width = nextW;
+        resizingObjState.obj.height = nextH;
+      }
+    } else {
+      const minW = resizingObjState.obj.type === 'stroke' ? 36 : 180;
+      const minH = resizingObjState.obj.type === 'stroke' ? 36 : 120;
+      resizingObjState.obj.width = Math.max(minW, Math.round(resizingObjState.origW + dw));
+      resizingObjState.obj.height = Math.max(minH, Math.round(resizingObjState.origH + dh));
+    }
     resizingObjState.el.style.width = `${resizingObjState.obj.width}px`;
     resizingObjState.el.style.height = `${resizingObjState.obj.height}px`;
     renderAllConnectors();
@@ -3662,7 +4150,7 @@ canvasViewport.addEventListener(
     const worldY = (mouseY - panY) / zoom;
 
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    zoom = Math.min(3.5, Math.max(0.2, zoom * factor));
+    zoom = Math.min(3.5, Math.max(0.1, zoom * factor));
     panX = mouseX - worldX * zoom;
     panY = mouseY - worldY * zoom;
     applyViewportTransform();
@@ -3903,6 +4391,7 @@ window.addEventListener('contextmenu', (e) => {
     if (primary.type === 'label') {
       html += `
         <div class="ctx-divider"></div>
+        <button class="ctx-item" data-ctx="label-toggle-vector"><span class="ctx-item-left">${SVG_ICONS.vectorize}<span>${primary.vectorized ? '일반 텍스트 편집 모드로 전환' : '텍스트 벡터 이미지화 (자유 크기 확대)'}</span></span></button>
         <div class="ctx-submenu-row" style="flex-wrap:wrap;gap:4px;">
           <button class="ctx-mini-btn" data-ctx="art-none" title="기본 깔끔한 텍스트">기본</button>
           <button class="ctx-mini-btn" data-ctx="art-game" title="게임 타이틀 (골드&크림슨)">⚔️게임</button>
@@ -3995,6 +4484,10 @@ window.addEventListener('contextmenu', (e) => {
       if (primary && primary.resolvedFilePath) {
         await window.freeformAPI.openPath(primary.resolvedFilePath);
         showToast('기본 PDF 프로그램으로 문서를 열었습니다');
+      }
+    } else if (act === 'label-toggle-vector') {
+      if (primary && primary.type === 'label') {
+        toggleLabelVectorized(primary);
       }
     } else if (act.startsWith('art-')) {
       const styleId = act.replace('art-', '');
@@ -4583,6 +5076,39 @@ document.getElementById('inspArtStyleSelect')?.addEventListener('change', (e) =>
   showToast(`✨ 텍스트 그래픽 스타일: ${found ? found.label : styleId}`);
 });
 
+document.getElementById('inspVectorizeBtn')?.addEventListener('click', () => {
+  const selected = getSelectedObjects().filter((o) => o.type === 'label');
+  if (!selected.length) return;
+  if (selected.length === 1) {
+    toggleLabelVectorized(selected[0]);
+    return;
+  }
+  const nextVec = !Boolean(selected[0].vectorized);
+  pushUndoSnapshot(nextVec ? '텍스트 벡터 이미지화' : '벡터 이미지 해제');
+  selected.forEach((o) => {
+    o.vectorized = nextVec;
+    if (nextVec) {
+      if (!(o.content || '').trim()) {
+        o.content = (o.title && o.title !== '텍스트') ? o.title : '프로젝트 타이틀';
+      }
+      const m = computeVectorLabelMetrics(o);
+      o.vectorAspect = m.aspect;
+      const baseW = Math.max(200, Math.round(o.width || 380));
+      o.width = baseW;
+      o.height = Math.max(48, Math.round(baseW / Math.max(0.2, m.aspect)));
+    }
+  });
+  renderAllObjects();
+  renderAllConnectors();
+  syncSelectionUI();
+  scheduleSaveBoard();
+  showToast(
+    nextVec
+      ? '✨ 선택된 텍스트 객체가 벡터 이미지로 변환되었습니다!'
+      : '📝 일반 텍스트 편집 모드로 전환되었습니다'
+  );
+});
+
 // Stroke Object Inspector Controls (Thickness, Dashed Line, Arrowhead)
 document.getElementById('inspStrokeWidthSelect')?.addEventListener('change', (e) => {
   const nextWidth = Number(e.target.value) || 3.5;
@@ -4718,7 +5244,12 @@ function setSelectedObjectsTextAlign(align) {
   selected.forEach((obj) => {
     const domEl = objectLayer.querySelector(`.ff-object[data-id="${obj.id}"]`);
     if (!domEl) return;
-    if (obj.type === 'sticky' || obj.type === 'label') {
+    if (obj.type === 'label' && obj.vectorized) {
+      const rawLines = getLabelDisplayLines(obj);
+      obj.lineAligns = rawLines.map(() => align);
+      const wrapEl = domEl.querySelector('.ff-label-wrap');
+      if (wrapEl) renderVectorizedLabelIntoWrap(wrapEl, obj);
+    } else if (obj.type === 'sticky' || obj.type === 'label') {
       const lines = Array.from(domEl.querySelectorAll('.ff-text-line'));
       lines.forEach((ln) => {
         ln.dataset.align = align;
@@ -4993,7 +5524,7 @@ document.getElementById('zoomInBtn')?.addEventListener('click', () => {
   scheduleSaveBoard();
 });
 document.getElementById('zoomOutBtn')?.addEventListener('click', () => {
-  zoom = Math.max(0.2, zoom / 1.18);
+  zoom = Math.max(0.1, zoom / 1.18);
   applyViewportTransform();
   scheduleSaveBoard();
 });
@@ -5013,7 +5544,7 @@ document.getElementById('fitViewBtn')?.addEventListener('click', () => {
   const rect = canvasViewport.getBoundingClientRect();
   const contentW = Math.max(400, maxX - minX + 120);
   const contentH = Math.max(300, maxY - minY + 120);
-  zoom = Math.min(1.4, Math.max(0.25, Math.min(rect.width / contentW, rect.height / contentH)));
+  zoom = Math.min(1.4, Math.max(0.1, Math.min(rect.width / contentW, rect.height / contentH)));
   panX = Math.round((rect.width - (maxX - minX) * zoom) / 2 - minX * zoom);
   panY = Math.round((rect.height - (maxY - minY) * zoom) / 2 - minY * zoom);
   applyViewportTransform();
@@ -5100,7 +5631,6 @@ if (hotkeyRecorderInput) {
     if (e.key === 'Tab') return;
     e.preventDefault();
 
-    // Ignore standalone modifier key presses while waiting for the main key
     if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
       return;
     }
@@ -5235,13 +5765,27 @@ document.getElementById('disconnectOAuthBtn')?.addEventListener('click', async (
 });
 
 // ============================================================================
-// External Sync Update Listener
+// External Sync Update & SpotlightAgent Bridge Listener
 // ============================================================================
 window.freeformAPI.onBoardExternallyUpdated(async (changedBoardId) => {
+  if (isSavingBoard || Date.now() - lastLocalSaveAt < 3500) {
+    return;
+  }
+  const activeEl = document.activeElement;
+  const isActivelyTyping = Boolean(
+    activeEl &&
+      (activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.isContentEditable ||
+        activeEl.closest?.('[contenteditable="true"]'))
+  );
+  if (isActivelyTyping) {
+    return;
+  }
   await refreshBoardsSidebarList();
   if (currentBoard && currentBoard.id === changedBoardId && !draggingObjState && !resizingObjState && !rotatingObjState) {
     const fresh = await window.freeformAPI.getBoard(changedBoardId);
-    if (fresh && fresh.updatedAt > (currentBoard.updatedAt || 0)) {
+    if (fresh && fresh.updatedAt > (currentBoard.updatedAt || 0) + 500) {
       currentBoard = fresh;
       renderAllObjects();
       renderAllConnectors();

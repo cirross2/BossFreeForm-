@@ -306,6 +306,15 @@
               <option value="gold">👑 로얄 골드 엠블럼</option>
               <option value="stamp">🔖 프로젝트 배지 스탬프</option>
             </select>
+            <button class="insp-btn hidden" id="inspVectorizeBtn" title="텍스트를 벡터 이미지로 변환 (폰트 크기 제한 없이 객체 크기를 늘려 초대형 타이틀·구역 구분 가능)">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <polyline points="9 21 3 21 3 15"></polyline>
+                <line x1="21" y1="3" x2="14" y2="10"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>
+              <span id="inspVectorizeBtnLabel">벡터 이미지화</span>
+            </button>
             <button class="insp-btn insp-fmt-btn" id="inspBoldBtn" title="굵게 (Ctrl+B)"><b>B</b></button>
             <button class="insp-btn insp-fmt-btn" id="inspItalicBtn" title="기울기체 (Ctrl+I)"><i>I</i></button>
             <button class="insp-btn insp-fmt-btn" id="inspUnderlineBtn" title="밑줄 (Ctrl+U)"><u>U</u></button>
