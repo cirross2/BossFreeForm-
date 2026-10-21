@@ -50,6 +50,15 @@
           <span>펜 그리기 (D)</span>
         </button>
 
+        <button class="tool-btn" id="toolShapeBtn" data-tool="shape">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="8.5" height="8.5" rx="1.8"></rect>
+            <circle cx="17" cy="17" r="4.5"></circle>
+            <polygon points="17 3 21.5 10.5 12.5 10.5"></polygon>
+          </svg>
+          <span>도형 그리기 (B)</span>
+        </button>
+
         <div class="toolbar-divider"></div>
 
         <button class="tool-btn" id="addStickyBtn">
@@ -237,53 +246,15 @@
             <button class="swatch orange" data-slot="5" data-color="orange" data-hex="#ff9f0a" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
             <button class="swatch dark" data-slot="6" data-color="dark" data-hex="#242428" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
             <button class="swatch light" data-slot="7" data-color="light" data-hex="#ffffff" title="좌클릭: 적용 / 우클릭: 이 색상칸 색상 변경"></button>
-            <button class="swatch random-swatch" id="inspRandomColorBtn" title="클릭할 때마다 선택된 객체에만 고유한 랜덤 컬러 부여 (다른 객체의 컬러는 변경되지 않음)">
-              <svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="4"></rect>
-                <circle cx="8.5" cy="8.5" r="1.3" fill="currentColor"></circle>
-                <circle cx="15.5" cy="15.5" r="1.3" fill="currentColor"></circle>
-                <circle cx="12" cy="12" r="1.3" fill="currentColor"></circle>
+            <button class="swatch random-swatch" id="inspRandomColorBtn" title="랜덤 컬러 생성 적용 (클릭할 때마다 선택된 객체에 새로운 고유 랜덤 색상을 부여합니다)">
+              <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 3 21 3 21 8"></polyline>
+                <line x1="4" y1="20" x2="21" y2="3"></line>
+                <polyline points="21 16 21 21 16 21"></polyline>
+                <line x1="15" y1="15" x2="21" y2="21"></line>
+                <line x1="4" y1="4" x2="9" y2="9"></line>
               </svg>
             </button>
-          </div>
-
-          <!-- Image-Only Controls (Aspect Ratio Lock & Colored Border Controls) -->
-          <div class="insp-image-only-group hidden" id="inspImageOnlyGroup">
-            <div class="inspector-divider"></div>
-            <button class="insp-btn active" id="inspImgAspectBtn" title="이미지 비율 유지 토글 (ON: 원본 비율대로만 여백 없이 크기 조절 / OFF: 자유 비율로 여백 없이 크기 조절)">
-              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-                <path d="M7 9h3v3"></path>
-                <path d="M17 15h-3v-3"></path>
-              </svg>
-              <span id="inspImgAspectLabel">비율유지 ON</span>
-            </button>
-            <button class="insp-btn" id="inspImgBorderToggleBtn" title="이미지 컬러 테두리 표시 ON / OFF (좌측 컬러 버튼 클릭 시 해당 컬러 테두리 즉시 적용)">
-              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="3"></rect>
-                <rect x="7" y="7" width="10" height="10" rx="1"></rect>
-              </svg>
-              <span id="inspImgBorderToggleLabel">테두리 OFF</span>
-            </button>
-            <div class="insp-img-border-sub hidden" id="inspImgBorderSubControls" style="display:inline-flex;align-items:center;gap:4px;">
-              <select class="insp-select" id="inspImgBorderWidthSelect" title="이미지 테두리 두께">
-                <option value="2">2px</option>
-                <option value="3">3px</option>
-                <option value="4" selected>4px</option>
-                <option value="6">6px</option>
-                <option value="8">8px</option>
-                <option value="12">12px</option>
-                <option value="16">16px</option>
-              </select>
-              <select class="insp-select" id="inspImgBorderStyleSelect" title="이미지 테두리 모양 (실선 / 점선 / 원형점선 / 이중선)">
-                <option value="solid" selected>실선</option>
-                <option value="dashed">점선</option>
-                <option value="dotted">원형점선</option>
-                <option value="double">이중선</option>
-                <option value="groove">입체(Groove)</option>
-                <option value="ridge">융기(Ridge)</option>
-              </select>
-            </div>
           </div>
 
           <!-- Connector-Only Controls (Shown when an arrow connector is selected) -->
@@ -292,6 +263,42 @@
             <button class="insp-btn" id="inspConnStyleBtn" title="실선 / 점선 화살표 스타일 전환">
               <span id="inspConnStyleLabel">실선 화살표</span>
             </button>
+          </div>
+
+          <!-- Image Border & Aspect Ratio Controls (Shown when an image object is selected) -->
+          <div class="insp-image-only-group hidden" id="inspImageOnlyGroup">
+            <div class="inspector-divider"></div>
+            <button class="insp-btn" id="inspImgAspectBtn" title="이미지 비율 유지 ON/OFF (크기 조절 시 여백 없이 비율 고정 vs 자유 비율 변형)">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+              </svg>
+              <span id="inspImgAspectLabel">비율유지 ON</span>
+            </button>
+            <button class="insp-btn" id="inspImgBorderToggleBtn" title="이미지 테두리 표시 ON/OFF (컬러 버튼 클릭 시 해당 색상 테두리 자동 활성화)">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+              </svg>
+              <span id="inspImgBorderToggleLabel">테두리 OFF</span>
+            </button>
+            <div class="insp-img-border-sub hidden" id="inspImgBorderSubControls">
+              <select class="insp-select" id="inspImgBorderWidthSelect" title="이미지 테두리 두께">
+                <option value="2">두께 2px</option>
+                <option value="4" selected>두께 4px</option>
+                <option value="6">두께 6px</option>
+                <option value="8">두께 8px</option>
+                <option value="12">두께 12px</option>
+                <option value="16">두께 16px</option>
+              </select>
+              <select class="insp-select" id="inspImgBorderStyleSelect" title="이미지 테두리 선 모양 (실선 / 점선 / 원형점선 / 이중선)">
+                <option value="solid" selected>실선 (Solid)</option>
+                <option value="dashed">파선 (Dashed)</option>
+                <option value="dotted">점선 (Dotted)</option>
+                <option value="double">이중선 (Double)</option>
+                <option value="groove">입체 홈 (Groove)</option>
+                <option value="ridge">입체 돌출 (Ridge)</option>
+              </select>
+            </div>
           </div>
 
           <!-- Stroke / Shape Object Controls (Shown when a pen-drawn shape/line/arrow is selected) -->
@@ -309,6 +316,73 @@
             </button>
             <button class="insp-btn" id="inspStrokeArrowBtn" title="화살촉 표시 ON / OFF">
               <span id="inspStrokeArrowLabel">화살촉 OFF</span>
+            </button>
+          </div>
+
+          <!-- Dedicated Shape Object Controls (Shown when a 'shape' object is selected) -->
+          <div class="insp-shape-only-group hidden" id="inspShapeOnlyGroup">
+            <div class="inspector-divider"></div>
+            <select class="insp-select" id="inspShapeTypeSelect" title="도형 모양 선택 (사각형 / 삼각형 / 원형 / 타원형 / 다각형)">
+              <option value="rect">사각형</option>
+              <option value="triangle">삼각형</option>
+              <option value="circle">원형</option>
+              <option value="ellipse">타원형</option>
+              <option value="polygon">다각형</option>
+            </select>
+            <label class="insp-inline-field hidden" id="inspShapePolySidesWrap" title="다각형 꼭짓점(변) 개수 설정 (3~24각)">
+              <span class="insp-mini-label">각</span>
+              <input type="number" class="insp-num-input" id="inspShapePolySidesInput" min="3" max="24" step="1" value="5" />
+            </label>
+            <div class="insp-inline-group" id="inspShapeCornerWrap" title="모서리 곡률 (원형 제외 모든 도형의 모서리 둥글기 조절)">
+              <button class="insp-btn" id="inspShapeCornerToggleBtn" title="모서리 곡률(둥글기) ON / OFF">
+                <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <path d="M5 19V9a4 4 0 0 1 4-4h10"></path>
+                </svg>
+                <span id="inspShapeCornerToggleLabel">모서리 곡률</span>
+              </button>
+              <input type="number" class="insp-num-input" id="inspShapeCornerRadiusInput" min="0" max="120" step="2" value="0" title="모서리 곡률 수치 (px)" />
+            </div>
+            <div class="inspector-divider"></div>
+            <button class="insp-btn" id="inspShapeFillToggleBtn" title="도형 내부 채우기 ON / OFF">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="3" fill="currentColor" fill-opacity="0.35"></rect>
+              </svg>
+              <span id="inspShapeFillToggleLabel">내부 채우기</span>
+            </button>
+            <input type="color" class="insp-color-chip" id="inspShapeFillColorInput" value="#0a84ff" title="내부 채우기 색상 선택" />
+            <select class="insp-select" id="inspShapeFillOpacitySelect" title="내부 채우기 투명도">
+              <option value="0.14">채우기 15%</option>
+              <option value="0.25" selected>채우기 25%</option>
+              <option value="0.45">채우기 45%</option>
+              <option value="0.7">채우기 70%</option>
+              <option value="0.9">채우기 90%</option>
+              <option value="1">채우기 100%</option>
+            </select>
+            <div class="inspector-divider"></div>
+            <select class="insp-select" id="inspShapeBorderStyleSelect" title="도형 테두리 선 모양">
+              <option value="solid" selected>테두리: 실선</option>
+              <option value="dashed">테두리: 파선</option>
+              <option value="dotted">테두리: 점선</option>
+              <option value="double">테두리: 이중선</option>
+              <option value="none">테두리 없음</option>
+            </select>
+            <select class="insp-select" id="inspShapeBorderWidthSelect" title="도형 테두리 굵기">
+              <option value="1.5">선 1.5px</option>
+              <option value="2.5">선 2.5px</option>
+              <option value="3.5" selected>선 3.5px</option>
+              <option value="5">선 5px</option>
+              <option value="8">선 8px</option>
+              <option value="12">선 12px</option>
+              <option value="16">선 16px</option>
+              <option value="22">선 22px</option>
+            </select>
+            <input type="color" class="insp-color-chip" id="inspShapeStrokeColorInput" value="#0a84ff" title="도형 테두리 선 색상 선택" />
+            <button class="insp-btn" id="inspShapeBgBtn" title="도형 배경화 ON/OFF (배경화 시 도형 내부 클릭·드래그 상호작용이 꺼지며 상단 자동숨김 헤더의 배경화 버튼만 동작)">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="2.5" stroke-dasharray="3 2"></rect>
+                <path d="M8 10h8v4H8z"></path>
+              </svg>
+              <span id="inspShapeBgLabel">배경화 전환</span>
             </button>
           </div>
 
@@ -353,6 +427,35 @@
               <option value="gold">👑 로얄 골드 엠블럼</option>
               <option value="stamp">🔖 프로젝트 배지 스탬프</option>
             </select>
+            <!-- Label / Vector Title Fill & Outline Controls (Shown when a 'label' object is selected) -->
+            <div class="insp-label-style-sub hidden" id="inspLabelStyleSubGroup">
+              <button class="insp-btn active" id="inspLabelFillToggleBtn" title="텍스트·타이틀 내부 채우기 ON / OFF">
+                <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 20h16"></path>
+                  <path d="m6 16 6-12 6 12"></path>
+                  <path d="M8 12h8"></path>
+                </svg>
+                <span id="inspLabelFillToggleLabel">내부채우기 ON</span>
+              </button>
+              <input type="color" class="insp-color-chip" id="inspLabelFillColorInput" value="#ffffff" title="텍스트 내부 채우기 색상" />
+              <button class="insp-btn" id="inspLabelStrokeToggleBtn" title="텍스트·타이틀 외곽선 ON / OFF">
+                <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+                  <path d="M8 16L12 8l4 8"></path>
+                </svg>
+                <span id="inspLabelStrokeToggleLabel">외곽선 OFF</span>
+              </button>
+              <input type="color" class="insp-color-chip hidden" id="inspLabelStrokeColorInput" value="#111115" title="텍스트 외곽선 색상" />
+              <select class="insp-select hidden" id="inspLabelStrokeWidthSelect" title="텍스트 외곽선 굵기">
+                <option value="2">외곽선 2px</option>
+                <option value="4">외곽선 4px</option>
+                <option value="6" selected>외곽선 6px</option>
+                <option value="8">외곽선 8px</option>
+                <option value="12">외곽선 12px</option>
+                <option value="16">외곽선 16px</option>
+                <option value="22">외곽선 22px</option>
+              </select>
+            </div>
             <button class="insp-btn insp-fmt-btn" id="inspBoldBtn" title="굵게 (Ctrl+B)"><b>B</b></button>
             <button class="insp-btn insp-fmt-btn" id="inspItalicBtn" title="기울기체 (Ctrl+I)"><i>I</i></button>
             <button class="insp-btn insp-fmt-btn" id="inspUnderlineBtn" title="밑줄 (Ctrl+U)"><u>U</u></button>
@@ -383,9 +486,11 @@
           <!-- Object-Only Controls -->
           <div class="insp-obj-only-group" id="inspObjOnlyGroup">
             <div class="inspector-divider"></div>
-            <button class="insp-btn hidden" id="inspVectorizeBtn" title="벡터 이미지화 토글 (객체를 고해상도 벡터 그래픽으로 변환하여 여백 없이 자유롭게 확대/축소)">
+            <button class="insp-btn hidden" id="inspVectorizeBtn">
               <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
+                <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                <path d="M2 17l10 5 10-5"></path>
+                <path d="M2 12l10 5 10-5"></path>
               </svg>
               <span id="inspVectorizeBtnLabel">벡터 이미지화</span>
             </button>
@@ -507,6 +612,91 @@
           <button class="insp-btn" id="exitPenModeBtn">선택 모드</button>
         </div>
 
+        <!-- Smart Shape Drawing Toolbar (shown when shape tool is active) -->
+        <div class="pen-toolbar shape-toolbar hidden" id="shapeToolbar">
+          <button class="insp-btn shape-type-btn active" data-shape="rect" title="사각형 그리기">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+            </svg>
+            <span>사각형</span>
+          </button>
+          <button class="insp-btn shape-type-btn" data-shape="triangle" title="삼각형 그리기">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+              <polygon points="12 4 21 19 3 19"></polygon>
+            </svg>
+            <span>삼각형</span>
+          </button>
+          <button class="insp-btn shape-type-btn" data-shape="circle" title="원형 그리기 (1:1 정원)">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="8"></circle>
+            </svg>
+            <span>원형</span>
+          </button>
+          <button class="insp-btn shape-type-btn" data-shape="ellipse" title="타원형 그리기">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <ellipse cx="12" cy="12" rx="9" ry="5.5"></ellipse>
+            </svg>
+            <span>타원형</span>
+          </button>
+          <button class="insp-btn shape-type-btn" data-shape="polygon" title="다각형 그리기 (꼭짓점 개수 자유 설정)">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+              <polygon points="12 3 20.5 9.2 17.3 19.2 6.7 19.2 3.5 9.2"></polygon>
+            </svg>
+            <span>다각형</span>
+          </button>
+          <label class="insp-inline-field hidden" id="shapeToolPolySidesWrap" title="다각형 꼭짓점(변) 수 설정 (3~24각)">
+            <span class="insp-mini-label">각</span>
+            <input type="number" class="insp-num-input" id="shapeToolPolySidesInput" min="3" max="24" step="1" value="5" />
+          </label>
+          <div class="inspector-divider"></div>
+          <div class="insp-inline-group" id="shapeToolCornerWrap" title="모서리 곡률 (원형 제외 모든 도형의 모서리 곡률 설정)">
+            <button class="insp-btn active-pill" id="shapeToolCornerToggleBtn" title="모서리 곡률 ON / OFF">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M5 19V9a4 4 0 0 1 4-4h10"></path>
+              </svg>
+              <span id="shapeToolCornerLabel">곡률 ON</span>
+            </button>
+            <input type="number" class="insp-num-input" id="shapeToolCornerInput" min="0" max="120" step="2" value="18" title="모서리 곡률 (px)" />
+          </div>
+          <div class="inspector-divider"></div>
+          <button class="insp-btn active-pill" id="shapeToolFillToggleBtn" title="도형 내부 채우기 ON / OFF">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="3" fill="currentColor" fill-opacity="0.35"></rect>
+            </svg>
+            <span id="shapeToolFillLabel">내부채우기 ON</span>
+          </button>
+          <input type="color" class="insp-color-chip" id="shapeToolFillColorInput" value="#0a84ff" title="내부 채우기 색상" />
+          <select class="insp-select" id="shapeToolFillOpacitySelect" title="내부 채우기 투명도">
+            <option value="0.14">15%</option>
+            <option value="0.25" selected>25%</option>
+            <option value="0.45">45%</option>
+            <option value="0.7">70%</option>
+            <option value="0.9">90%</option>
+            <option value="1">100%</option>
+          </select>
+          <div class="inspector-divider"></div>
+          <select class="insp-select" id="shapeToolBorderStyleSelect" title="테두리 선 모양">
+            <option value="solid" selected>실선</option>
+            <option value="dashed">파선</option>
+            <option value="dotted">점선</option>
+            <option value="double">이중선</option>
+            <option value="none">선 없음</option>
+          </select>
+          <select class="insp-select" id="shapeToolBorderWidthSelect" title="테두리 굵기">
+            <option value="1.5">1.5px</option>
+            <option value="2.5">2.5px</option>
+            <option value="3.5" selected>3.5px</option>
+            <option value="5">5px</option>
+            <option value="8">8px</option>
+            <option value="12">12px</option>
+            <option value="16">16px</option>
+            <option value="22">22px</option>
+          </select>
+          <input type="color" class="insp-color-chip" id="shapeToolStrokeColorInput" value="#0a84ff" title="테두리 선 색상" />
+          <div class="inspector-divider"></div>
+          <button class="insp-btn" id="exitShapeModeBtn">선택 모드</button>
+        </div>
+
         <!-- Shift + Drag Multi-Selection Marquee Box -->
         <div id="selectionMarquee" class="selection-marquee hidden"></div>
 
@@ -516,7 +706,7 @@
             <div class="drop-overlay-icon">
               <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#2997ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
+                <polyline points="17 8 12 3 7 8"></polyline>
                 <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
             </div>
@@ -560,44 +750,63 @@
           </svg>
 
           <div class="object-layer" id="objectLayer"></div>
+          <div id="shapeDrawPreview" class="shape-draw-preview hidden"></div>
         </div>
 
         <!-- Bottom-Left Help Hint Pill -->
         <div class="canvas-hint-pill">
-          <span><b>왼손 단축키(비선택 시)</b>: <b>A</b> 선택 · <b>D</b> 펜 · <b>S</b> 포스트잇 · <b>T/F</b> 텍스트 · <b>C</b> 체크 · <b>G</b> 표 · <b>X</b> 캡처 · <b>휠클릭+드래그</b> 이동</span>
+          <span><b>단축키</b>: <b>Ctrl누름</b> 객체 즉시이동 · <b>A</b> 선택 · <b>D</b> 펜 · <b>B</b> 도형 · <b>S</b> 포스트잇 · <b>T/F</b> 텍스트 · <b>C</b> 체크 · <b>G</b> 표 · <b>X</b> 캡처</span>
         </div>
 
-        <!-- Grid & Snap Settings Popover (Above Bottom-Right HUD) -->
+        <!-- Bottom-Right Grid Popover & Zoom/View HUD -->
         <div class="grid-settings-popover hidden" id="gridSettingsPopover">
           <div class="grid-popover-header">
-            <span>격자 · 도트 물림 및 간격 설정</span>
-            <button class="grid-popover-close" id="closeGridSettingsBtn" title="닫기">✕</button>
+            <span>캔버스 배경 · 격자/도트 스냅 설정</span>
+            <button class="grid-popover-close" id="closeGridPopoverBtn">&times;</button>
           </div>
-          <label class="grid-popover-row">
-            <span>객체 이동/크기조절 시 격자·도트 물림</span>
-            <input type="checkbox" id="snapObjGridToggle" />
-          </label>
-          <label class="grid-popover-row">
-            <span>펜/도형 그리기 시 격자·도트 물림</span>
-            <input type="checkbox" id="snapDrawGridToggle" />
-          </label>
-          <div class="grid-popover-divider"></div>
-          <div class="grid-popover-row">
-            <span>격자/도트 간격</span>
-            <div class="grid-spacing-controls">
-              <input type="number" id="gridSpacingInput" class="grid-spacing-input" value="28" min="0.1" max="500" step="1" />
-              <select id="gridUnitSelect" class="grid-unit-select" title="단위 선택 (픽셀 / 센티미터 / 미터)">
-                <option value="px" selected>px (픽셀)</option>
-                <option value="cm">cm (센티미터)</option>
-                <option value="m">m (미터)</option>
-              </select>
+
+          <div class="grid-popover-section">
+            <div class="grid-popover-label">배경 스타일</div>
+            <div class="grid-style-pills">
+              <button class="grid-style-pill active" data-grid-mode="grid-dots">도트 (Dots)</button>
+              <button class="grid-style-pill" data-grid-mode="grid-lines">격자 (Lines)</button>
+              <button class="grid-style-pill" data-grid-mode="grid-none">무지 (None)</button>
             </div>
+          </div>
+
+          <div class="grid-popover-section">
+            <div class="grid-popover-row">
+              <span class="grid-popover-label">간격 단위</span>
+              <div class="grid-unit-pills">
+                <button class="grid-unit-pill active" data-grid-unit="px">px (픽셀)</button>
+                <button class="grid-unit-pill" data-grid-unit="cm">cm (센티미터)</button>
+                <button class="grid-unit-pill" data-grid-unit="m">m (미터)</button>
+              </div>
+            </div>
+            <div class="grid-spacing-control">
+              <input type="range" id="gridSpacingRange" min="8" max="200" step="1" value="24" />
+              <div class="grid-spacing-input-wrap">
+                <input type="number" id="gridSpacingNumber" min="0.05" max="500" step="1" value="24" />
+                <span id="gridSpacingUnitSuffix">px</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid-popover-section">
+            <div class="grid-popover-label">자석 물림 (Snap to Grid / Dots)</div>
+            <label class="grid-snap-toggle-row">
+              <input type="checkbox" id="snapObjectsCheckbox" />
+              <span>객체 이동·크기 조절 시 격자/도트에 물림</span>
+            </label>
+            <label class="grid-snap-toggle-row">
+              <input type="checkbox" id="snapDrawingCheckbox" />
+              <span>펜 그리기·도형 작성 시 격자/도트에 물림</span>
+            </label>
           </div>
         </div>
 
-        <!-- Bottom-Right Zoom & View HUD -->
         <div class="canvas-hud">
-          <button class="hud-btn" id="toggleGridBtn" title="배경 격자 스타일 변경 (도트 / 라인 / 없음)">
+          <button class="hud-btn" id="toggleGridBtn" title="클릭: 도트/격자/무지 전환 · 우클릭: 간격 및 물림(스냅) 설정">
             <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="6" cy="6" r="1.2" fill="currentColor"></circle>
               <circle cx="12" cy="6" r="1.2" fill="currentColor"></circle>
@@ -611,13 +820,19 @@
             </svg>
             <span id="toggleGridLabel">도트</span>
           </button>
-          <button class="hud-btn" id="openGridSettingsBtn" title="격자·도트 물림(스냅) 및 간격(px/cm/m) 설정">
+          <button class="hud-btn" id="openGridSettingsBtn" title="격자·도트 간격(px/cm/m) 및 물림(스냅) 옵션 설정">
             <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M6 3v7a6 6 0 0 0 12 0V3"></path>
-              <line x1="4" y1="3" x2="8" y2="3"></line>
-              <line x1="16" y1="3" x2="20" y2="3"></line>
+              <line x1="4" y1="21" x2="4" y2="14"></line>
+              <line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line>
+              <line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line>
+              <line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
             </svg>
-            <span id="gridSnapStatusLabel">스냅·간격</span>
+            <span id="gridSnapBadge">스냅</span>
           </button>
           <button class="hud-btn" id="toggleThemeBtn" title="다크 / 라이트 테마 전환">
             <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -680,7 +895,7 @@
             <div>
               <span class="sync-badge blue">글로벌 단축키 · 사용자 지정</span>
               <h4>어디서든 보드 호출 / 숨기기 단축키</h4>
-              <p>입력칸을 클릭한 뒤 원하는 키 조합(예: <code>Ctrl+Shift+Space</code>, <code>Alt+Space</code>, <code>Ctrl+Alt+F</code> 등)을 누르고 <b>단축키 적용</b>을 클릭하세요.</p>
+              <p>입력칸을 클릭한 뒤 원하는 키 조합(예: <code>Ctrl+Shift+Space</code>, <code>Alt+Space</code>, <code>Shift+Alt+F</code> 등)을 누르고 <b>단축키 적용</b>을 클릭하세요.</p>
             </div>
           </div>
           <div class="sync-path-row">

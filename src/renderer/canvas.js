@@ -221,6 +221,19 @@ let connectingState = null;
 let draggingConnectorEndpoint = null; // { conn, end: 'from' | 'to', origObjId, snapPreview, snapshotBefore }
 let selectedConnectorId = null;
 let drawingStroke = null;
+let drawingShapeState = null; // { startX, startY, curX, curY }
+let shapeToolConfig = {
+  shapeType: 'rect', // 'rect' | 'triangle' | 'circle' | 'ellipse' | 'polygon'
+  polygonSides: 5,
+  cornerEnabled: true,
+  cornerRadius: 18,
+  fillEnabled: true,
+  fillColor: '#0a84ff',
+  fillOpacity: 0.25,
+  borderStyle: 'solid', // 'solid' | 'dashed' | 'dotted' | 'double' | 'none'
+  borderWidth: 3.5,
+  strokeColor: '#0a84ff'
+};
 let saveDebounceTimer = null;
 let lastFocusedTableCell = null; // { obj, rIdx, cIdx }
 
@@ -233,6 +246,8 @@ const strokesGroup = document.getElementById('strokesGroup');
 const tempConnectorPath = document.getElementById('tempConnectorPath');
 const objectInspector = document.getElementById('objectInspector');
 const penToolbar = document.getElementById('penToolbar');
+const shapeToolbar = document.getElementById('shapeToolbar');
+const shapeDrawPreview = document.getElementById('shapeDrawPreview');
 const boardListContainer = document.getElementById('boardListContainer');
 const activeBoardTitleInput = document.getElementById('activeBoardTitleInput');
 const activeBoardEmoji = document.getElementById('activeBoardEmoji');
@@ -387,6 +402,7 @@ const SVG_ICONS = {
   wrapText: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><path d="M3 12h15a3 3 0 1 1 0 6h-4"></path><polyline points="16 16 14 18 16 20"></polyline><line x1="3" y1="18" x2="10" y2="18"></line></svg>`,
   aspectRatio: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 9h3v3"></path><path d="M17 15h-3v-3"></path></svg>`,
   borderFrame: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3" stroke-dasharray="4 2"></rect></svg>`,
+  bgLayer: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2.5" stroke-dasharray="3 2"></rect><path d="M8 10h8v4H8z"></path></svg>`,
   sparkle: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3Z"></path></svg>`,
   sticky: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"></path><path d="M14 3v4a2 2 0 0 0 2 2h4"></path></svg>`,
   table: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>`,
@@ -658,15 +674,36 @@ function applyObjectCustomColorStyles(el, obj) {
     return;
   }
 
+  if (obj.type === 'shape') {
+    const shapeWrap = el.querySelector('.ff-shape-wrap');
+    if (shapeWrap) {
+      renderShapeObjectInto(shapeWrap, obj);
+    }
+    return;
+  }
+
   if (obj.type === 'label') {
     const resolvedHex = getResolvedObjectColorHex(obj);
     el.style.setProperty('--label-color', resolvedHex);
+    const fillEnabled = obj.labelFillEnabled !== false;
+    const fillColor = obj.labelFillColor || resolvedHex;
+    const strokeEnabled = Boolean(obj.labelStrokeEnabled);
+    const strokeColor = obj.labelStrokeColor || '#111115';
+    const strokeWidth = Number(obj.labelStrokeWidth) || 6;
+
     const editor = el.querySelector('.ff-label-editor');
     if (editor) {
       if (!obj.artStyle || obj.artStyle === 'none') {
-        editor.style.color = resolvedHex;
+        editor.style.color = fillEnabled ? fillColor : 'transparent';
+        editor.style.webkitTextFillColor = fillEnabled ? fillColor : 'transparent';
+        editor.style.webkitTextStroke = strokeEnabled
+          ? `${Math.max(1, Math.round(strokeWidth * 0.45))}px ${strokeColor}`
+          : '';
+        editor.style.paintOrder = 'stroke fill';
       } else {
         editor.style.color = '';
+        editor.style.webkitTextFillColor = '';
+        editor.style.webkitTextStroke = '';
       }
     }
     if (obj.vectorized) {
@@ -745,8 +782,9 @@ function computeVectorLabelMetrics(obj) {
 
   const widths = rawLines.map((ln) => Math.max(baseFs * 0.65, measureVectorTextWidth(ln || ' ', fontSpec) * 1.07));
   const maxTextW = Math.max(...widths, baseFs * 1.6);
-  const padX = artStyle === 'stamp' ? 56 : artStyle === 'graffiti' || artStyle === 'retro3d' ? 42 : 28;
-  const padY = artStyle === 'stamp' ? 38 : 24;
+  const extraStrokePad = obj?.labelStrokeEnabled ? Math.ceil((Number(obj.labelStrokeWidth) || 6) * 1.4) : 0;
+  const padX = (artStyle === 'stamp' ? 56 : artStyle === 'graffiti' || artStyle === 'retro3d' ? 42 : 28) + extraStrokePad;
+  const padY = (artStyle === 'stamp' ? 38 : 24) + extraStrokePad;
   const lineH = Math.round(baseFs * 1.24);
   const vbW = Math.round(maxTextW + padX * 2);
   const vbH = Math.round(rawLines.length * lineH + padY * 2);
@@ -774,6 +812,11 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
   const m = computeVectorLabelMetrics(obj);
   obj.vectorAspect = m.aspect;
   const resolvedColor = getResolvedObjectColorHex(obj);
+  const fillEnabled = obj.labelFillEnabled !== false;
+  const fillHex = obj.labelFillColor || resolvedColor;
+  const customStrokeEnabled = Boolean(obj.labelStrokeEnabled);
+  const customStrokeHex = obj.labelStrokeColor || '#111115';
+  const customStrokeW = Math.max(1, Math.round((Number(obj.labelStrokeWidth) || 6) * 1.55));
   const safeId = String(obj.id || 'lbl').replace(/[^a-zA-Z0-9_-]/g, '');
 
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -814,7 +857,7 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
     outerRect.setAttribute('height', String(Math.max(20, m.vbH - 24)));
     outerRect.setAttribute('rx', '20');
     outerRect.setAttribute('fill', 'rgba(20, 20, 26, 0.78)');
-    outerRect.setAttribute('stroke', resolvedColor);
+    outerRect.setAttribute('stroke', customStrokeEnabled ? customStrokeHex : fillHex);
     outerRect.setAttribute('stroke-width', '7');
     artGroup.appendChild(outerRect);
 
@@ -840,6 +883,7 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
     t.textContent = str;
     t.setAttribute('x', String(x));
     t.setAttribute('y', String(y));
+    t.setAttribute('dominant-baseline', 'central');
     t.setAttribute('font-family', m.fontCss);
     t.setAttribute('font-size', String(m.baseFs));
     t.setAttribute('font-weight', m.fontWeight);
@@ -856,11 +900,15 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
     return t;
   };
 
+  const totalLines = m.rawLines.length;
+  const blockCenterY = m.vbH / 2;
+
   m.rawLines.forEach((lineStr, idx) => {
-    const align = (Array.isArray(obj.lineAligns) && obj.lineAligns[idx]) || 'left';
-    const anchor = align === 'center' ? 'middle' : align === 'right' ? 'end' : 'start';
-    const xPos = align === 'center' ? Math.round(m.vbW / 2) : align === 'right' ? m.vbW - m.padX : m.padX;
-    const yPos = Math.round(m.padY + idx * m.lineH + m.baseFs * 0.86);
+    // Vectorized label defaults to horizontal & vertical center alignment unless explicitly aligned left/right
+    const align = (Array.isArray(obj.lineAligns) && obj.lineAligns[idx]) || 'center';
+    const anchor = align === 'left' ? 'start' : align === 'right' ? 'end' : 'middle';
+    const xPos = align === 'left' ? m.padX : align === 'right' ? m.vbW - m.padX : Math.round(m.vbW / 2);
+    const yPos = Math.round(blockCenterY + (idx - (totalLines - 1) / 2) * m.lineH);
 
     if (m.artStyle === 'game') {
       artGroup.appendChild(
@@ -882,9 +930,9 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
       artGroup.appendChild(
         makeSvgTextNode(lineStr, xPos, yPos, {
           'text-anchor': anchor,
-          fill: `url(#grad_game_${safeId})`,
-          stroke: '#2b0900',
-          'stroke-width': 5
+          fill: fillEnabled ? (obj.labelFillColor ? fillHex : `url(#grad_game_${safeId})`) : 'none',
+          stroke: customStrokeEnabled ? customStrokeHex : '#2b0900',
+          'stroke-width': customStrokeEnabled ? customStrokeW : 5
         })
       );
     } else if (m.artStyle === 'graffiti') {
@@ -915,17 +963,18 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
       artGroup.appendChild(
         makeSvgTextNode(lineStr, xPos, yPos, {
           'text-anchor': anchor,
-          fill: resolvedColor,
-          stroke: '#111115',
-          'stroke-width': 7
+          fill: fillEnabled ? fillHex : 'none',
+          stroke: customStrokeEnabled ? customStrokeHex : '#111115',
+          'stroke-width': customStrokeEnabled ? customStrokeW : 7
         })
       );
     } else if (m.artStyle === 'neon') {
+      const neonStroke = customStrokeEnabled ? customStrokeHex : fillHex;
       artGroup.appendChild(
         makeSvgTextNode(lineStr, xPos, yPos, {
           'text-anchor': anchor,
           fill: 'none',
-          stroke: resolvedColor,
+          stroke: neonStroke,
           'stroke-width': 18,
           opacity: 0.3,
           style: 'filter: blur(8px);'
@@ -935,7 +984,7 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
         makeSvgTextNode(lineStr, xPos, yPos, {
           'text-anchor': anchor,
           fill: 'none',
-          stroke: resolvedColor,
+          stroke: neonStroke,
           'stroke-width': 8,
           opacity: 0.72,
           style: 'filter: blur(2.5px);'
@@ -944,9 +993,9 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
       artGroup.appendChild(
         makeSvgTextNode(lineStr, xPos, yPos, {
           'text-anchor': anchor,
-          fill: '#ffffff',
-          stroke: resolvedColor,
-          'stroke-width': 2.5
+          fill: fillEnabled ? (obj.labelFillColor || '#ffffff') : 'none',
+          stroke: neonStroke,
+          'stroke-width': customStrokeEnabled ? customStrokeW : 2.5
         })
       );
     } else if (m.artStyle === 'retro3d') {
@@ -970,9 +1019,9 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
       artGroup.appendChild(
         makeSvgTextNode(lineStr, xPos, yPos, {
           'text-anchor': anchor,
-          fill: resolvedColor,
-          stroke: '#16161c',
-          'stroke-width': 4.5
+          fill: fillEnabled ? fillHex : 'none',
+          stroke: customStrokeEnabled ? customStrokeHex : '#16161c',
+          'stroke-width': customStrokeEnabled ? customStrokeW : 4.5
         })
       );
     } else if (m.artStyle === 'sticker') {
@@ -987,9 +1036,9 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
       artGroup.appendChild(
         makeSvgTextNode(lineStr, xPos, yPos, {
           'text-anchor': anchor,
-          fill: resolvedColor,
-          stroke: '#ffffff',
-          'stroke-width': 15
+          fill: fillEnabled ? fillHex : 'none',
+          stroke: customStrokeEnabled ? customStrokeHex : '#ffffff',
+          'stroke-width': customStrokeEnabled ? customStrokeW : 15
         })
       );
     } else if (m.artStyle === 'gold') {
@@ -1004,23 +1053,27 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
       artGroup.appendChild(
         makeSvgTextNode(lineStr, xPos, yPos, {
           'text-anchor': anchor,
-          fill: `url(#grad_gold_${safeId})`,
-          stroke: '#4a3500',
-          'stroke-width': 4
+          fill: fillEnabled ? (obj.labelFillColor ? fillHex : `url(#grad_gold_${safeId})`) : 'none',
+          stroke: customStrokeEnabled ? customStrokeHex : '#4a3500',
+          'stroke-width': customStrokeEnabled ? customStrokeW : 4
         })
       );
     } else if (m.artStyle === 'stamp') {
       artGroup.appendChild(
         makeSvgTextNode(lineStr, xPos, yPos, {
           'text-anchor': anchor,
-          fill: resolvedColor
+          fill: fillEnabled ? fillHex : 'none',
+          stroke: customStrokeEnabled ? customStrokeHex : undefined,
+          'stroke-width': customStrokeEnabled ? customStrokeW : undefined
         })
       );
     } else {
       artGroup.appendChild(
         makeSvgTextNode(lineStr, xPos, yPos, {
           'text-anchor': anchor,
-          fill: resolvedColor,
+          fill: fillEnabled ? fillHex : 'none',
+          stroke: customStrokeEnabled ? customStrokeHex : undefined,
+          'stroke-width': customStrokeEnabled ? customStrokeW : undefined,
           style: 'filter: drop-shadow(0 3px 10px rgba(0,0,0,0.32));'
         })
       );
@@ -1028,6 +1081,180 @@ function renderVectorizedLabelIntoWrap(wrapEl, obj) {
   });
 
   svg.appendChild(artGroup);
+  wrapEl.innerHTML = '';
+  wrapEl.appendChild(svg);
+}
+
+// ============================================================================
+// Dedicated Shape Object SVG Renderer (rect, triangle, circle, ellipse, polygon)
+// ============================================================================
+function buildRoundedPolygonPath(pts, radius) {
+  if (!Array.isArray(pts) || pts.length < 3) return '';
+  const r = Math.max(0, Number(radius) || 0);
+  if (r <= 0.5) {
+    return (
+      pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ') + ' Z'
+    );
+  }
+  const n = pts.length;
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const prev = pts[(i - 1 + n) % n];
+    const curr = pts[i];
+    const next = pts[(i + 1) % n];
+    const v1x = prev.x - curr.x;
+    const v1y = prev.y - curr.y;
+    const v2x = next.x - curr.x;
+    const v2y = next.y - curr.y;
+    const len1 = Math.hypot(v1x, v1y) || 1;
+    const len2 = Math.hypot(v2x, v2y) || 1;
+    const cut = Math.min(r, len1 * 0.46, len2 * 0.46);
+    const pA = {
+      x: curr.x + (v1x / len1) * cut,
+      y: curr.y + (v1y / len1) * cut
+    };
+    const pB = {
+      x: curr.x + (v2x / len2) * cut,
+      y: curr.y + (v2y / len2) * cut
+    };
+    if (i === 0) {
+      d += `M ${pA.x.toFixed(1)} ${pA.y.toFixed(1)}`;
+    } else {
+      d += ` L ${pA.x.toFixed(1)} ${pA.y.toFixed(1)}`;
+    }
+    d += ` Q ${curr.x.toFixed(1)} ${curr.y.toFixed(1)} ${pB.x.toFixed(1)} ${pB.y.toFixed(1)}`;
+  }
+  return d + ' Z';
+}
+
+function renderShapeObjectInto(wrapEl, obj) {
+  if (!wrapEl || !obj) return;
+  const w = Math.max(40, Math.round(obj.width || 240));
+  const h = Math.max(40, Math.round(obj.height || 180));
+  const shapeType = obj.shapeType || 'rect';
+  const sides = Math.max(3, Math.min(24, Math.round(Number(obj.polygonSides) || 5)));
+  const cornerEnabled = shapeType !== 'circle' && obj.cornerEnabled !== false;
+  const cornerRadius = cornerEnabled ? Math.max(0, Number(obj.cornerRadius ?? 18)) : 0;
+
+  const resolvedHex = getResolvedObjectColorHex(obj) || '#0a84ff';
+  const fillEnabled = obj.fillEnabled !== false;
+  const fillColor = obj.fillColor || resolvedHex;
+  const fillOpacity = obj.fillOpacity !== undefined ? Number(obj.fillOpacity) : 0.25;
+  const borderStyle = obj.borderStyle || 'solid';
+  const rawBorderWidth = Number(obj.borderWidth ?? 3.5);
+  const borderWidth = borderStyle === 'none' ? 0 : Math.max(1, rawBorderWidth);
+  const strokeColor = obj.strokeColor || resolvedHex;
+
+  const pad = Math.max(4, Math.ceil((borderStyle === 'double' ? borderWidth * 2.2 : borderWidth) / 2) + 3);
+  const rw = Math.max(10, w - pad * 2);
+  const rh = Math.max(10, h - pad * 2);
+  const cx = w / 2;
+  const cy = h / 2;
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'ff-shape-svg');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  const createShapeGeoElement = () => {
+    if (shapeType === 'circle') {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      const r = Math.max(4, Math.min(rw, rh) / 2);
+      el.setAttribute('cx', String(cx));
+      el.setAttribute('cy', String(cy));
+      el.setAttribute('r', String(r));
+      return el;
+    }
+    if (shapeType === 'ellipse') {
+      if (cornerEnabled && cornerRadius > 0) {
+        const el = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        el.setAttribute('x', String(pad));
+        el.setAttribute('y', String(pad));
+        el.setAttribute('width', String(rw));
+        el.setAttribute('height', String(rh));
+        const maxRx = rw / 2;
+        const maxRy = rh / 2;
+        const factor = Math.max(0.15, Math.min(1, 1 - cornerRadius / 160));
+        el.setAttribute('rx', String(Math.max(4, Math.round(maxRx * factor))));
+        el.setAttribute('ry', String(Math.max(4, Math.round(maxRy * factor))));
+        return el;
+      }
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+      el.setAttribute('cx', String(cx));
+      el.setAttribute('cy', String(cy));
+      el.setAttribute('rx', String(rw / 2));
+      el.setAttribute('ry', String(rh / 2));
+      return el;
+    }
+    if (shapeType === 'triangle') {
+      const pts = [
+        { x: cx, y: pad },
+        { x: w - pad, y: h - pad },
+        { x: pad, y: h - pad }
+      ];
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      el.setAttribute('d', buildRoundedPolygonPath(pts, cornerRadius));
+      return el;
+    }
+    if (shapeType === 'polygon') {
+      const pts = [];
+      const rx = rw / 2;
+      const ry = rh / 2;
+      for (let i = 0; i < sides; i++) {
+        const ang = -Math.PI / 2 + (i * 2 * Math.PI) / sides;
+        pts.push({
+          x: cx + rx * Math.cos(ang),
+          y: cy + ry * Math.sin(ang)
+        });
+      }
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      el.setAttribute('d', buildRoundedPolygonPath(pts, cornerRadius));
+      return el;
+    }
+    // Default: 'rect'
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    el.setAttribute('x', String(pad));
+    el.setAttribute('y', String(pad));
+    el.setAttribute('width', String(rw));
+    el.setAttribute('height', String(rh));
+    const rx = Math.min(cornerRadius, rw / 2, rh / 2);
+    el.setAttribute('rx', String(rx));
+    el.setAttribute('ry', String(rx));
+    return el;
+  };
+
+  const mainGeo = createShapeGeoElement();
+  mainGeo.setAttribute('fill', fillEnabled ? fillColor : 'none');
+  if (fillEnabled) {
+    mainGeo.setAttribute('fill-opacity', String(fillOpacity));
+  }
+  if (borderStyle === 'none' || borderWidth <= 0) {
+    mainGeo.setAttribute('stroke', 'none');
+  } else {
+    mainGeo.setAttribute('stroke', strokeColor);
+    mainGeo.setAttribute('stroke-width', String(borderStyle === 'double' ? borderWidth * 2.2 : borderWidth));
+    mainGeo.setAttribute('stroke-linejoin', 'round');
+    mainGeo.setAttribute('stroke-linecap', 'round');
+    if (borderStyle === 'dashed') {
+      mainGeo.setAttribute('stroke-dasharray', `${borderWidth * 2.6} ${borderWidth * 1.7}`);
+    } else if (borderStyle === 'dotted') {
+      mainGeo.setAttribute('stroke-dasharray', `${Math.max(1, borderWidth * 0.25)} ${borderWidth * 2.1}`);
+    }
+  }
+  svg.appendChild(mainGeo);
+
+  if (borderStyle === 'double' && borderWidth > 0) {
+    const innerGeo = createShapeGeoElement();
+    innerGeo.setAttribute('fill', 'none');
+    innerGeo.setAttribute(
+      'stroke',
+      document.body.classList.contains('theme-light') ? 'rgba(245, 245, 247, 0.92)' : 'rgba(18, 18, 24, 0.92)'
+    );
+    innerGeo.setAttribute('stroke-width', String(Math.max(1.2, borderWidth * 0.7)));
+    innerGeo.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(innerGeo);
+  }
+
   wrapEl.innerHTML = '';
   wrapEl.appendChild(svg);
 }
@@ -1339,6 +1566,7 @@ function toggleObjectVectorized(obj) {
       if (!(obj.content || '').trim()) {
         obj.content = obj.title && obj.title !== '텍스트' ? obj.title : '프로젝트 타이틀';
       }
+      obj.lineAligns = getLabelDisplayLines(obj).map(() => 'center');
       const m = computeVectorLabelMetrics(obj);
       obj.vectorAspect = m.aspect;
       const baseW = Math.max(200, Math.round(obj.width || 380));
@@ -1588,7 +1816,7 @@ async function loadBoardById(boardId) {
   if (activeBoardTitleInput) activeBoardTitleInput.value = currentBoard.title || '새 프리폼 보드';
   if (activeBoardEmoji) {
     activeBoardEmoji.innerHTML =
-      '<img src="../../assets/icon.png" alt="FreeformDrive" class="board-brand-icon" draggable="false" />';
+      '<img src="../../assets/icon.png" alt="BossFreeForm" class="board-brand-icon" draggable="false" />';
   }
 
   selectedConnectorId = null;
@@ -1691,6 +1919,7 @@ function syncSelectionUI() {
       typoGroupEl?.classList.add('hidden');
       strokeGroupEl?.classList.add('hidden');
       imgGroupEl?.classList.add('hidden');
+      document.getElementById('inspShapeOnlyGroup')?.classList.add('hidden');
       connGroupEl?.classList.remove('hidden');
 
       const styleLbl = document.getElementById('inspConnStyleLabel');
@@ -1707,14 +1936,28 @@ function syncSelectionUI() {
       const primary = selected[selected.length - 1];
       const allStrokes = selected.every((o) => o.type === 'stroke');
       const allImages = selected.every((o) => o.type === 'image');
+      const allShapes = selected.every((o) => o.type === 'shape');
       const hasStrokes = selected.some((o) => o.type === 'stroke');
       const hasImages = selected.some((o) => o.type === 'image');
+      const hasShapes = selected.some((o) => o.type === 'shape');
+      const hasLabels = selected.some((o) => o.type === 'label');
 
       objGroupEl?.classList.remove('hidden');
-      typoGroupEl?.classList.toggle('hidden', allStrokes || allImages);
+      typoGroupEl?.classList.toggle('hidden', allStrokes || allImages || allShapes);
       strokeGroupEl?.classList.toggle('hidden', !hasStrokes);
       imgGroupEl?.classList.toggle('hidden', !hasImages);
       connGroupEl?.classList.add('hidden');
+
+      const shapeGroupEl = document.getElementById('inspShapeOnlyGroup');
+      shapeGroupEl?.classList.toggle('hidden', !hasShapes);
+      if (hasShapes) {
+        syncShapeInspectorUI(selected.find((o) => o.type === 'shape') || primary);
+      }
+      const labelSubEl = document.getElementById('inspLabelStyleSubGroup');
+      labelSubEl?.classList.toggle('hidden', !hasLabels);
+      if (hasLabels) {
+        syncLabelStyleInspectorUI(selected.find((o) => o.type === 'label') || primary);
+      }
 
       if (hasImages) {
         const imgObj = selected.find((o) => o.type === 'image') || primary;
@@ -1819,6 +2062,103 @@ function syncSelectionUI() {
       });
     }
   }
+}
+
+function syncShapeInspectorUI(shapeObj) {
+  if (!shapeObj) return;
+  const st = shapeObj.shapeType || 'rect';
+  const typeSel = document.getElementById('inspShapeTypeSelect');
+  if (typeSel) typeSel.value = st;
+  document.getElementById('inspShapePolySidesWrap')?.classList.toggle('hidden', st !== 'polygon');
+  const sidesInp = document.getElementById('inspShapePolySidesInput');
+  if (sidesInp) sidesInp.value = String(shapeObj.polygonSides || 5);
+  const cornerWrap = document.getElementById('inspShapeCornerWrap');
+  cornerWrap?.classList.toggle('hidden', st === 'circle');
+  const cornerOn = shapeObj.cornerEnabled !== false;
+  document.getElementById('inspShapeCornerToggleBtn')?.classList.toggle('active-pill', cornerOn);
+  const cornerLbl = document.getElementById('inspShapeCornerToggleLabel');
+  if (cornerLbl) cornerLbl.textContent = cornerOn ? '곡률 ON' : '곡률 OFF';
+  const cornerInp = document.getElementById('inspShapeCornerRadiusInput');
+  if (cornerInp) {
+    cornerInp.value = String(shapeObj.cornerRadius ?? 18);
+    cornerInp.disabled = !cornerOn;
+  }
+  const fillOn = shapeObj.fillEnabled !== false;
+  document.getElementById('inspShapeFillToggleBtn')?.classList.toggle('active-pill', fillOn);
+  const fillLbl = document.getElementById('inspShapeFillToggleLabel');
+  if (fillLbl) fillLbl.textContent = fillOn ? '채우기 ON' : '채우기 OFF';
+  const resolved = getResolvedObjectColorHex(shapeObj);
+  const fillColorInp = document.getElementById('inspShapeFillColorInput');
+  if (fillColorInp) {
+    fillColorInp.value = /^#[0-9a-f]{6}$/i.test(shapeObj.fillColor || resolved) ? shapeObj.fillColor || resolved : '#0a84ff';
+    fillColorInp.classList.toggle('hidden', !fillOn);
+  }
+  const fillOpSel = document.getElementById('inspShapeFillOpacitySelect');
+  if (fillOpSel) {
+    fillOpSel.value = String(shapeObj.fillOpacity ?? 0.25);
+    fillOpSel.classList.toggle('hidden', !fillOn);
+  }
+  const bStyleSel = document.getElementById('inspShapeBorderStyleSelect');
+  if (bStyleSel) bStyleSel.value = shapeObj.borderStyle || 'solid';
+  const bWidthSel = document.getElementById('inspShapeBorderWidthSelect');
+  if (bWidthSel) bWidthSel.value = String(shapeObj.borderWidth ?? 3.5);
+  const strokeColorInp = document.getElementById('inspShapeStrokeColorInput');
+  if (strokeColorInp) {
+    strokeColorInp.value = /^#[0-9a-f]{6}$/i.test(shapeObj.strokeColor || resolved) ? shapeObj.strokeColor || resolved : '#0a84ff';
+  }
+  const isBg = Boolean(shapeObj.shapeBackground);
+  document.getElementById('inspShapeBgBtn')?.classList.toggle('active-pill', isBg);
+  const bgLbl = document.getElementById('inspShapeBgLabel');
+  if (bgLbl) bgLbl.textContent = isBg ? '배경화 ON' : '배경화 OFF';
+}
+
+function syncLabelStyleInspectorUI(labelObj) {
+  if (!labelObj) return;
+  const resolved = getResolvedObjectColorHex(labelObj);
+  const fillOn = labelObj.labelFillEnabled !== false;
+  document.getElementById('inspLabelFillToggleBtn')?.classList.toggle('active-pill', fillOn);
+  const fillLbl = document.getElementById('inspLabelFillToggleLabel');
+  if (fillLbl) fillLbl.textContent = fillOn ? '내부채우기 ON' : '내부채우기 OFF';
+  const fillInp = document.getElementById('inspLabelFillColorInput');
+  if (fillInp) {
+    const hex = labelObj.labelFillColor || resolved;
+    fillInp.value = /^#[0-9a-f]{6}$/i.test(hex) ? hex : '#ffffff';
+    fillInp.classList.toggle('hidden', !fillOn);
+  }
+  const strokeOn = Boolean(labelObj.labelStrokeEnabled);
+  document.getElementById('inspLabelStrokeToggleBtn')?.classList.toggle('active-pill', strokeOn);
+  const strokeLbl = document.getElementById('inspLabelStrokeToggleLabel');
+  if (strokeLbl) strokeLbl.textContent = strokeOn ? '외곽선 ON' : '외곽선 OFF';
+  const strokeInp = document.getElementById('inspLabelStrokeColorInput');
+  if (strokeInp) {
+    strokeInp.value = /^#[0-9a-f]{6}$/i.test(labelObj.labelStrokeColor || '') ? labelObj.labelStrokeColor : '#111115';
+    strokeInp.classList.toggle('hidden', !strokeOn);
+  }
+  const strokeWSel = document.getElementById('inspLabelStrokeWidthSelect');
+  if (strokeWSel) {
+    strokeWSel.value = String(labelObj.labelStrokeWidth || 6);
+    strokeWSel.classList.toggle('hidden', !strokeOn);
+  }
+}
+
+function toggleShapeBackgroundMode(obj) {
+  if (!obj || obj.type !== 'shape') return;
+  pushUndoSnapshot(obj.shapeBackground ? '도형 배경화 해제' : '도형 배경화');
+  obj.shapeBackground = !Boolean(obj.shapeBackground);
+  draggingObjState = null;
+  resizingObjState = null;
+  if (obj.shapeBackground) {
+    selectedObjectIds.delete(obj.id);
+  }
+  renderAllObjects();
+  renderAllConnectors();
+  syncSelectionUI();
+  scheduleSaveBoard();
+  showToast(
+    obj.shapeBackground
+      ? '🧱 도형이 배경화되었습니다 (도형 상단에 마우스를 올리면 나타나는 배경화 버튼으로만 해제 가능)'
+      : '도형 배경화가 해제되어 다시 선택·이동·편집할 수 있습니다'
+  );
 }
 
 function toggleGroupSelectedObjects() {
@@ -2280,7 +2620,8 @@ function createObjectDOM(obj) {
   const isPdf = isPdfObject(obj);
   const artClass = obj.type === 'label' ? `art-${obj.artStyle || 'none'}` : '';
   const vecClass = obj.vectorized ? 'is-vectorized' : '';
-  el.className = `ff-object type-${obj.type || 'sticky'} ${isPdf ? 'is-pdf' : ''} ${artClass} ${vecClass} color-${obj.color || 'dark'} ${isSelected ? 'selected' : ''}`;
+  const bgShapeClass = obj.type === 'shape' && obj.shapeBackground ? 'is-background-shape' : '';
+  el.className = `ff-object type-${obj.type || 'sticky'} ${isPdf ? 'is-pdf' : ''} ${artClass} ${vecClass} ${bgShapeClass} color-${obj.color || 'dark'} ${isSelected ? 'selected' : ''}`;
   el.dataset.id = obj.id;
   el.style.left = `${Math.round(obj.x || 0)}px`;
   el.style.top = `${Math.round(obj.y || 0)}px`;
@@ -2401,6 +2742,22 @@ function createObjectDOM(obj) {
       showToast(`✨ 텍스트 그래픽 스타일: ${nextArt.label}`);
     });
     headerActions.appendChild(artCycleBtn);
+  }
+
+  // Shape Background-Mode Toggle Button (the ONLY interactive element while a shape is backgrounded)
+  if (obj.type === 'shape') {
+    const bgBtn = document.createElement('button');
+    bgBtn.className = `ff-obj-icon-btn ff-shape-bg-btn ${obj.shapeBackground ? 'is-active' : ''}`;
+    bgBtn.innerHTML = `${SVG_ICONS.bgLayer}<span>${obj.shapeBackground ? '배경화 해제' : '배경화 (내부 상호작용 끄기)'}</span>`;
+    bgBtn.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+    });
+    bgBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      toggleShapeBackgroundMode(obj);
+    });
+    headerActions.appendChild(bgBtn);
   }
 
   // Image Aspect Ratio Lock & Border Toggle Buttons in Header
@@ -2540,6 +2897,14 @@ function createObjectDOM(obj) {
     }
 
     body.appendChild(labelWrap);
+  } else if (obj.type === 'shape') {
+    // ========================================================================
+    // 1-D. DEDICATED SHAPE OBJECT (도형: 사각형/삼각형/원형/타원형/다각형)
+    // ========================================================================
+    const shapeWrap = document.createElement('div');
+    shapeWrap.className = 'ff-shape-wrap';
+    renderShapeObjectInto(shapeWrap, obj);
+    body.appendChild(shapeWrap);
   } else if (obj.type === 'stroke') {
     // ========================================================================
     // 1-C. PEN-DRAWN STROKE / SHAPE OBJECT (펜으로 그린 선·도형·화살표 객체):
@@ -3439,8 +3804,10 @@ function createObjectDOM(obj) {
     el.appendChild(connectHandle);
   });
 
+  const isBgShape = () => obj.type === 'shape' && Boolean(obj.shapeBackground);
+
   const startDrag = (e, forceMove = false) => {
-    if (e.button !== 0 || activeTool === 'pen' || obj.locked) return;
+    if (e.button !== 0 || activeTool !== 'select' || obj.locked || isBgShape()) return;
     if (!forceMove && e.target.closest('button, input, textarea, [contenteditable="true"], .ff-chk-widget')) return;
     e.stopPropagation();
 
@@ -3475,7 +3842,7 @@ function createObjectDOM(obj) {
   el.addEventListener(
     'pointerdown',
     (e) => {
-      if (e.ctrlKey && e.button === 0 && activeTool === 'select' && !obj.locked) {
+      if (e.ctrlKey && e.button === 0 && activeTool === 'select' && !obj.locked && !isBgShape()) {
         if (e.target.closest('.ff-resize-handle, .ff-rotate-handle, .ff-connect-handle')) return;
         e.preventDefault();
         e.stopPropagation();
@@ -3490,7 +3857,11 @@ function createObjectDOM(obj) {
 
   // Object Selection & Multi-Object Dragging
   el.addEventListener('pointerdown', (e) => {
-    if (activeTool === 'pen' || e.button !== 0) return;
+    if (activeTool !== 'select' || e.button !== 0) return;
+    if (isBgShape()) {
+      // Backgrounded shape: let the click fall through to the canvas (only the bg toggle button stops propagation itself)
+      return;
+    }
     e.stopPropagation();
     selectedConnectorId = null;
     if (e.shiftKey) {
@@ -3502,6 +3873,7 @@ function createObjectDOM(obj) {
   });
 
   el.addEventListener('focusin', () => {
+    if (isBgShape()) return;
     if (!selectedObjectIds.has(obj.id)) {
       selectedConnectorId = null;
       selectObject(obj.id, { additive: false });
@@ -3515,6 +3887,7 @@ function createObjectDOM(obj) {
     obj.type === 'image' ||
     obj.type === 'label' ||
     obj.type === 'stroke' ||
+    obj.type === 'shape' ||
     (obj.type === 'file' && !(isPdf && (obj.pdfViewMode || 'viewer') === 'viewer'))
   ) {
     body.addEventListener('pointerdown', (e) => startDrag(e, false));
@@ -4243,6 +4616,30 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
     createdAt: Date.now()
   };
 
+  [
+    'shapeType',
+    'polygonSides',
+    'cornerEnabled',
+    'cornerRadius',
+    'fillEnabled',
+    'fillColor',
+    'fillOpacity',
+    'strokeColor',
+    'shapeBackground',
+    'labelFillEnabled',
+    'labelFillColor',
+    'labelStrokeEnabled',
+    'labelStrokeColor',
+    'labelStrokeWidth'
+  ].forEach((k) => {
+    if (partial[k] !== undefined && partial[k] !== null) newObj[k] = partial[k];
+  });
+  if (newObj.type === 'shape') {
+    // Shapes reuse borderStyle/borderWidth with 'none' & fractional widths allowed
+    if (partial.borderStyle !== undefined) newObj.borderStyle = partial.borderStyle;
+    if (partial.borderWidth !== undefined) newObj.borderWidth = partial.borderWidth;
+  }
+
   currentBoard.objects.push(newObj);
   if (panToNew) {
     const rect = canvasViewport.getBoundingClientRect();
@@ -4476,6 +4873,18 @@ canvasViewport.addEventListener(
       return;
     }
 
+    // 3-B. Shape Tool Drawing (drag anywhere on the canvas, even over existing objects)
+    if (activeTool === 'shape' && e.button === 0 && !e.target.closest('.ff-shape-bg-btn')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const pt = screenToWorld(e.clientX, e.clientY);
+      const sx = snapWorldVal(pt.x, gridConfig.snapDrawing);
+      const sy = snapWorldVal(pt.y, gridConfig.snapDrawing);
+      drawingShapeState = { startX: sx, startY: sy, curX: sx, curY: sy, shiftKey: false };
+      updateShapeDrawPreview();
+      return;
+    }
+
     if (!isEmptyCanvasTarget) return;
 
     // 4. Empty Canvas Left-Click Drag -> Pan (Hand cursor -> Grabbing Hand cursor)
@@ -4522,6 +4931,15 @@ window.addEventListener('pointermove', (e) => {
       draggingConnectorEndpoint.snapPreview = snap;
       renderAllConnectors();
     }
+    return;
+  }
+
+  if (drawingShapeState) {
+    const pt = screenToWorld(e.clientX, e.clientY);
+    drawingShapeState.curX = snapWorldVal(pt.x, gridConfig.snapDrawing);
+    drawingShapeState.curY = snapWorldVal(pt.y, gridConfig.snapDrawing);
+    drawingShapeState.shiftKey = e.shiftKey;
+    updateShapeDrawPreview();
     return;
   }
 
@@ -4654,13 +5072,28 @@ window.addEventListener('pointermove', (e) => {
         rObj.height = Math.max(minH, snapWorldVal(resizingObjState.origH + dh, gridConfig.snapObjects));
       }
     } else {
-      const minW = rObj.type === 'stroke' ? 36 : 180;
-      const minH = rObj.type === 'stroke' ? 36 : 120;
-      rObj.width = Math.max(minW, snapWorldVal(resizingObjState.origW + dw, gridConfig.snapObjects));
-      rObj.height = Math.max(minH, snapWorldVal(resizingObjState.origH + dh, gridConfig.snapObjects));
+      const isSmallKind = rObj.type === 'stroke' || rObj.type === 'shape';
+      const minW = isSmallKind ? 36 : 180;
+      const minH = isSmallKind ? 36 : 120;
+      if (rObj.type === 'shape' && (rObj.shapeType === 'circle' || e.shiftKey)) {
+        // Circle (or Shift+drag): keep 1:1 proportional sizing
+        const side = Math.max(
+          minW,
+          snapWorldVal(Math.max(resizingObjState.origW + dw, resizingObjState.origH + dh), gridConfig.snapObjects)
+        );
+        rObj.width = side;
+        rObj.height = side;
+      } else {
+        rObj.width = Math.max(minW, snapWorldVal(resizingObjState.origW + dw, gridConfig.snapObjects));
+        rObj.height = Math.max(minH, snapWorldVal(resizingObjState.origH + dh, gridConfig.snapObjects));
+      }
     }
     resizingObjState.el.style.width = `${rObj.width}px`;
     resizingObjState.el.style.height = `${rObj.height}px`;
+    if (rObj.type === 'shape') {
+      const sWrap = resizingObjState.el.querySelector('.ff-shape-wrap');
+      if (sWrap) renderShapeObjectInto(sWrap, rObj);
+    }
     renderAllConnectors();
     return;
   }
@@ -4703,6 +5136,10 @@ window.addEventListener('pointerup', (e) => {
     showToast('화살표 연결 위치가 이동되었습니다');
   }
 
+  if (drawingShapeState) {
+    finalizeShapeDrawing();
+  }
+
   if (drawingStroke) {
     recognizeAndBeautifyStroke(drawingStroke, {
       forceLine: e.ctrlKey || e.shiftKey,
@@ -4729,6 +5166,7 @@ window.addEventListener('pointerup', (e) => {
       Math.max(marqueeState.startY, marqueeState.curY)
     );
     const matchedIds = (currentBoard?.objects || [])
+      .filter((o) => !(o.type === 'shape' && o.shapeBackground))
       .filter((o) => o.x + o.width >= p1.x && o.x <= p2.x && o.y + o.height >= p1.y && o.y <= p2.y)
       .map((o) => o.id);
     setSelectedObjectIds(matchedIds);
@@ -5489,12 +5927,20 @@ function setToolMode(mode) {
   activeTool = mode;
   document.getElementById('toolSelectBtn')?.classList.toggle('active', mode === 'select');
   document.getElementById('toolPenBtn')?.classList.toggle('active', mode === 'pen');
-  canvasViewport?.classList.toggle('pen-mode', mode === 'pen');
+  document.getElementById('toolShapeBtn')?.classList.toggle('active', mode === 'shape');
+  canvasViewport?.classList.toggle('pen-mode', mode === 'pen' || mode === 'shape');
   penToolbar?.classList.toggle('hidden', mode !== 'pen');
-  if (mode === 'pen') clearSelection();
+  shapeToolbar?.classList.toggle('hidden', mode !== 'shape');
+  if (mode === 'shape') syncShapeToolbarUI();
+  if (mode !== 'shape') {
+    drawingShapeState = null;
+    shapeDrawPreview?.classList.add('hidden');
+  }
+  if (mode === 'pen' || mode === 'shape') clearSelection();
 }
 document.getElementById('toolSelectBtn')?.addEventListener('click', () => setToolMode('select'));
 document.getElementById('toolPenBtn')?.addEventListener('click', () => setToolMode(activeTool === 'pen' ? 'select' : 'pen'));
+document.getElementById('toolShapeBtn')?.addEventListener('click', () => setToolMode(activeTool === 'shape' ? 'select' : 'shape'));
 document.getElementById('exitPenModeBtn')?.addEventListener('click', () => setToolMode('select'));
 
 const toggleAutoShapeBtn = document.getElementById('toggleAutoShapeBtn');
@@ -5543,10 +5989,402 @@ document.getElementById('clearStrokesBtn')?.addEventListener('click', () => {
 });
 
 // ============================================================================
+// Shape Drawing Tool (사각형 / 삼각형 / 원형 / 타원형 / 다각형)
+// ============================================================================
+const SHAPE_LABELS_KO = {
+  rect: '사각형',
+  triangle: '삼각형',
+  circle: '원형',
+  ellipse: '타원형',
+  polygon: '다각형'
+};
+
+function getDrawingShapeRect() {
+  if (!drawingShapeState) return null;
+  const { startX, startY, curX, curY, shiftKey } = drawingShapeState;
+  let w = Math.abs(curX - startX);
+  let h = Math.abs(curY - startY);
+  if (shapeToolConfig.shapeType === 'circle' || shiftKey) {
+    const side = Math.max(w, h);
+    w = side;
+    h = side;
+  }
+  const x = curX >= startX ? startX : startX - w;
+  const y = curY >= startY ? startY : startY - h;
+  return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+}
+
+function buildShapePropsFromToolConfig() {
+  return {
+    shapeType: shapeToolConfig.shapeType,
+    polygonSides: shapeToolConfig.polygonSides,
+    cornerEnabled: shapeToolConfig.cornerEnabled,
+    cornerRadius: shapeToolConfig.cornerRadius,
+    fillEnabled: shapeToolConfig.fillEnabled,
+    fillColor: shapeToolConfig.fillColor,
+    fillOpacity: shapeToolConfig.fillOpacity,
+    borderStyle: shapeToolConfig.borderStyle,
+    borderWidth: shapeToolConfig.borderWidth,
+    strokeColor: shapeToolConfig.strokeColor
+  };
+}
+
+function updateShapeDrawPreview() {
+  if (!shapeDrawPreview) return;
+  const r = getDrawingShapeRect();
+  if (!r || (r.w < 2 && r.h < 2)) {
+    shapeDrawPreview.classList.add('hidden');
+    return;
+  }
+  shapeDrawPreview.classList.remove('hidden');
+  shapeDrawPreview.style.left = `${r.x}px`;
+  shapeDrawPreview.style.top = `${r.y}px`;
+  shapeDrawPreview.style.width = `${Math.max(4, r.w)}px`;
+  shapeDrawPreview.style.height = `${Math.max(4, r.h)}px`;
+  renderShapeObjectInto(shapeDrawPreview, {
+    id: 'preview',
+    type: 'shape',
+    width: Math.max(40, r.w),
+    height: Math.max(40, r.h),
+    color: 'blue',
+    ...buildShapePropsFromToolConfig()
+  });
+}
+
+function finalizeShapeDrawing() {
+  const r = getDrawingShapeRect();
+  drawingShapeState = null;
+  shapeDrawPreview?.classList.add('hidden');
+  if (!r || !currentBoard) return;
+  // A simple click (no drag) creates a default-sized shape centered at the click point
+  let { x, y, w, h } = r;
+  if (w < 12 && h < 12) {
+    w = 200;
+    h = shapeToolConfig.shapeType === 'circle' ? 200 : 140;
+    x = Math.round(x - w / 2);
+    y = Math.round(y - h / 2);
+  }
+  w = Math.max(36, w);
+  h = Math.max(36, h);
+  const label = SHAPE_LABELS_KO[shapeToolConfig.shapeType] || '도형';
+  addObjectToBoard({
+    type: 'shape',
+    title: shapeToolConfig.shapeType === 'polygon' ? `${shapeToolConfig.polygonSides}각형` : label,
+    x,
+    y,
+    width: w,
+    height: h,
+    color: 'blue',
+    ...buildShapePropsFromToolConfig()
+  });
+}
+
+function syncShapeToolbarUI() {
+  document.querySelectorAll('#shapeToolbar .shape-type-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.shape === shapeToolConfig.shapeType);
+  });
+  document.getElementById('shapeToolPolySidesWrap')?.classList.toggle('hidden', shapeToolConfig.shapeType !== 'polygon');
+  const sidesInp = document.getElementById('shapeToolPolySidesInput');
+  if (sidesInp) sidesInp.value = String(shapeToolConfig.polygonSides);
+  document.getElementById('shapeToolCornerWrap')?.classList.toggle('hidden', shapeToolConfig.shapeType === 'circle');
+  const cornerBtn = document.getElementById('shapeToolCornerToggleBtn');
+  cornerBtn?.classList.toggle('active-pill', shapeToolConfig.cornerEnabled);
+  const cornerLbl = document.getElementById('shapeToolCornerLabel');
+  if (cornerLbl) cornerLbl.textContent = shapeToolConfig.cornerEnabled ? '곡률 ON' : '곡률 OFF';
+  const cornerInp = document.getElementById('shapeToolCornerInput');
+  if (cornerInp) {
+    cornerInp.value = String(shapeToolConfig.cornerRadius);
+    cornerInp.disabled = !shapeToolConfig.cornerEnabled;
+  }
+  const fillBtn = document.getElementById('shapeToolFillToggleBtn');
+  fillBtn?.classList.toggle('active-pill', shapeToolConfig.fillEnabled);
+  const fillLbl = document.getElementById('shapeToolFillLabel');
+  if (fillLbl) fillLbl.textContent = shapeToolConfig.fillEnabled ? '내부채우기 ON' : '내부채우기 OFF';
+  document.getElementById('shapeToolFillColorInput')?.classList.toggle('hidden', !shapeToolConfig.fillEnabled);
+  document.getElementById('shapeToolFillOpacitySelect')?.classList.toggle('hidden', !shapeToolConfig.fillEnabled);
+}
+
+async function persistShapeToolConfig() {
+  try {
+    await window.freeformAPI.saveConfig({ shapeToolConfig });
+  } catch (err) {
+    console.warn('persistShapeToolConfig error:', err);
+  }
+}
+
+document.querySelectorAll('#shapeToolbar .shape-type-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    shapeToolConfig.shapeType = btn.dataset.shape || 'rect';
+    syncShapeToolbarUI();
+    persistShapeToolConfig();
+  });
+});
+
+document.getElementById('shapeToolPolySidesInput')?.addEventListener('input', (e) => {
+  const n = Math.round(Number(e.target.value));
+  if (!Number.isFinite(n)) return;
+  shapeToolConfig.polygonSides = Math.max(3, Math.min(24, n));
+  persistShapeToolConfig();
+});
+
+document.getElementById('shapeToolCornerToggleBtn')?.addEventListener('click', () => {
+  shapeToolConfig.cornerEnabled = !shapeToolConfig.cornerEnabled;
+  syncShapeToolbarUI();
+  persistShapeToolConfig();
+});
+
+document.getElementById('shapeToolCornerInput')?.addEventListener('input', (e) => {
+  const v = Number(e.target.value);
+  if (!Number.isFinite(v)) return;
+  shapeToolConfig.cornerRadius = Math.max(0, Math.min(120, v));
+  persistShapeToolConfig();
+});
+
+document.getElementById('shapeToolFillToggleBtn')?.addEventListener('click', () => {
+  shapeToolConfig.fillEnabled = !shapeToolConfig.fillEnabled;
+  syncShapeToolbarUI();
+  persistShapeToolConfig();
+});
+
+document.getElementById('shapeToolFillColorInput')?.addEventListener('input', (e) => {
+  shapeToolConfig.fillColor = e.target.value || '#0a84ff';
+  persistShapeToolConfig();
+});
+
+document.getElementById('shapeToolFillOpacitySelect')?.addEventListener('change', (e) => {
+  shapeToolConfig.fillOpacity = Number(e.target.value) || 0.25;
+  persistShapeToolConfig();
+});
+
+document.getElementById('shapeToolBorderStyleSelect')?.addEventListener('change', (e) => {
+  shapeToolConfig.borderStyle = e.target.value || 'solid';
+  persistShapeToolConfig();
+});
+
+document.getElementById('shapeToolBorderWidthSelect')?.addEventListener('change', (e) => {
+  shapeToolConfig.borderWidth = Number(e.target.value) || 3.5;
+  persistShapeToolConfig();
+});
+
+document.getElementById('shapeToolStrokeColorInput')?.addEventListener('input', (e) => {
+  shapeToolConfig.strokeColor = e.target.value || '#0a84ff';
+  persistShapeToolConfig();
+});
+
+document.getElementById('exitShapeModeBtn')?.addEventListener('click', () => setToolMode('select'));
+
+// --- Selected Shape Object Inspector Controls ---
+function updateSelectedShapes(mutator, actionLabel) {
+  const shapes = getSelectedObjects().filter((o) => o.type === 'shape');
+  if (!shapes.length) return;
+  pushUndoSnapshot(actionLabel);
+  shapes.forEach((o) => mutator(o));
+  shapes.forEach((o) => {
+    const domEl = objectLayer.querySelector(`.ff-object[data-id="${o.id}"]`);
+    const sWrap = domEl?.querySelector('.ff-shape-wrap');
+    if (sWrap) renderShapeObjectInto(sWrap, o);
+  });
+  syncSelectionUI();
+  scheduleSaveBoard();
+}
+
+document.getElementById('inspShapeTypeSelect')?.addEventListener('change', (e) => {
+  const nextType = e.target.value || 'rect';
+  updateSelectedShapes((o) => {
+    o.shapeType = nextType;
+    if (nextType === 'circle') {
+      const side = Math.max(o.width, o.height);
+      o.width = side;
+      o.height = side;
+    }
+    if (o.title === undefined || Object.values(SHAPE_LABELS_KO).includes(o.title) || /각형$/.test(o.title || '')) {
+      o.title = nextType === 'polygon' ? `${o.polygonSides || 5}각형` : SHAPE_LABELS_KO[nextType];
+    }
+  }, '도형 모양 변경');
+  renderAllObjects();
+  renderAllConnectors();
+});
+
+document.getElementById('inspShapePolySidesInput')?.addEventListener('change', (e) => {
+  const n = Math.max(3, Math.min(24, Math.round(Number(e.target.value)) || 5));
+  updateSelectedShapes((o) => {
+    o.polygonSides = n;
+    if (o.shapeType === 'polygon' && (/각형$/.test(o.title || '') || !o.title)) o.title = `${n}각형`;
+  }, '다각형 꼭짓점 수 변경');
+  renderAllObjects();
+});
+
+document.getElementById('inspShapeCornerToggleBtn')?.addEventListener('click', () => {
+  const shapes = getSelectedObjects().filter((o) => o.type === 'shape');
+  if (!shapes.length) return;
+  const next = !(shapes[0].cornerEnabled !== false);
+  updateSelectedShapes((o) => {
+    o.cornerEnabled = next;
+  }, '도형 모서리 곡률 토글');
+});
+
+document.getElementById('inspShapeCornerRadiusInput')?.addEventListener('change', (e) => {
+  const v = Math.max(0, Math.min(120, Number(e.target.value) || 0));
+  updateSelectedShapes((o) => {
+    o.cornerEnabled = true;
+    o.cornerRadius = v;
+  }, '도형 모서리 곡률 변경');
+});
+
+document.getElementById('inspShapeFillToggleBtn')?.addEventListener('click', () => {
+  const shapes = getSelectedObjects().filter((o) => o.type === 'shape');
+  if (!shapes.length) return;
+  const next = !(shapes[0].fillEnabled !== false);
+  updateSelectedShapes((o) => {
+    o.fillEnabled = next;
+  }, '도형 내부 채우기 토글');
+});
+
+document.getElementById('inspShapeFillColorInput')?.addEventListener('change', (e) => {
+  const hex = e.target.value;
+  updateSelectedShapes((o) => {
+    o.fillEnabled = true;
+    o.fillColor = hex;
+  }, '도형 채우기 색상 변경');
+});
+
+document.getElementById('inspShapeFillOpacitySelect')?.addEventListener('change', (e) => {
+  const op = Number(e.target.value) || 0.25;
+  updateSelectedShapes((o) => {
+    o.fillOpacity = op;
+  }, '도형 채우기 투명도 변경');
+});
+
+document.getElementById('inspShapeBorderStyleSelect')?.addEventListener('change', (e) => {
+  const bs = e.target.value || 'solid';
+  updateSelectedShapes((o) => {
+    o.borderStyle = bs;
+  }, '도형 테두리 모양 변경');
+});
+
+document.getElementById('inspShapeBorderWidthSelect')?.addEventListener('change', (e) => {
+  const bw = Number(e.target.value) || 3.5;
+  updateSelectedShapes((o) => {
+    o.borderWidth = bw;
+    if (o.borderStyle === 'none') o.borderStyle = 'solid';
+  }, '도형 테두리 굵기 변경');
+});
+
+document.getElementById('inspShapeStrokeColorInput')?.addEventListener('change', (e) => {
+  const hex = e.target.value;
+  updateSelectedShapes((o) => {
+    o.strokeColor = hex;
+    if (o.borderStyle === 'none') o.borderStyle = 'solid';
+  }, '도형 테두리 색상 변경');
+});
+
+document.getElementById('inspShapeBgBtn')?.addEventListener('click', () => {
+  const shapes = getSelectedObjects().filter((o) => o.type === 'shape');
+  if (!shapes.length) return;
+  if (shapes.length === 1) {
+    toggleShapeBackgroundMode(shapes[0]);
+    return;
+  }
+  pushUndoSnapshot('도형 배경화');
+  const next = !Boolean(shapes[0].shapeBackground);
+  shapes.forEach((o) => {
+    o.shapeBackground = next;
+    if (next) selectedObjectIds.delete(o.id);
+  });
+  renderAllObjects();
+  syncSelectionUI();
+  scheduleSaveBoard();
+});
+
+// --- Text/Title (label) Fill & Outline Inspector Controls ---
+function updateSelectedLabels(mutator, actionLabel) {
+  const labels = getSelectedObjects().filter((o) => o.type === 'label');
+  if (!labels.length) return;
+  pushUndoSnapshot(actionLabel);
+  labels.forEach((o) => mutator(o));
+  labels.forEach((o) => {
+    if (o.vectorized) {
+      const m = computeVectorLabelMetrics(o);
+      o.vectorAspect = m.aspect;
+      o.height = Math.max(40, Math.round((o.width || 380) / Math.max(0.2, m.aspect)));
+      const domElV = objectLayer.querySelector(`.ff-object[data-id="${o.id}"]`);
+      if (domElV) domElV.style.height = `${o.height}px`;
+    }
+    const domEl = objectLayer.querySelector(`.ff-object[data-id="${o.id}"]`);
+    if (domEl) applyObjectCustomColorStyles(domEl, o);
+  });
+  renderAllConnectors();
+  syncSelectionUI();
+  scheduleSaveBoard();
+}
+
+document.getElementById('inspLabelFillToggleBtn')?.addEventListener('click', () => {
+  const labels = getSelectedObjects().filter((o) => o.type === 'label');
+  if (!labels.length) return;
+  const next = !(labels[0].labelFillEnabled !== false);
+  if (!next && !labels[0].labelStrokeEnabled) {
+    // Turning fill off without an outline would make the text invisible -> auto-enable outline
+    updateSelectedLabels((o) => {
+      o.labelFillEnabled = false;
+      o.labelStrokeEnabled = true;
+    }, '텍스트 내부 채우기 OFF (외곽선 자동 ON)');
+    showToast('내부 채우기를 끄면서 글자가 보이도록 외곽선을 자동으로 켰습니다');
+    return;
+  }
+  updateSelectedLabels((o) => {
+    o.labelFillEnabled = next;
+  }, '텍스트 내부 채우기 토글');
+});
+
+document.getElementById('inspLabelFillColorInput')?.addEventListener('change', (e) => {
+  const hex = e.target.value;
+  updateSelectedLabels((o) => {
+    o.labelFillEnabled = true;
+    o.labelFillColor = hex;
+  }, '텍스트 채우기 색상 변경');
+});
+
+document.getElementById('inspLabelStrokeToggleBtn')?.addEventListener('click', () => {
+  const labels = getSelectedObjects().filter((o) => o.type === 'label');
+  if (!labels.length) return;
+  const next = !Boolean(labels[0].labelStrokeEnabled);
+  updateSelectedLabels((o) => {
+    o.labelStrokeEnabled = next;
+    if (!next && o.labelFillEnabled === false) o.labelFillEnabled = true;
+  }, '텍스트 외곽선 토글');
+});
+
+document.getElementById('inspLabelStrokeColorInput')?.addEventListener('change', (e) => {
+  const hex = e.target.value;
+  updateSelectedLabels((o) => {
+    o.labelStrokeEnabled = true;
+    o.labelStrokeColor = hex;
+  }, '텍스트 외곽선 색상 변경');
+});
+
+document.getElementById('inspLabelStrokeWidthSelect')?.addEventListener('change', (e) => {
+  const sw = Number(e.target.value) || 6;
+  updateSelectedLabels((o) => {
+    o.labelStrokeEnabled = true;
+    o.labelStrokeWidth = sw;
+  }, '텍스트 외곽선 굵기 변경');
+});
+
+// ============================================================================
 // Persistent Swatch Color Picker (Right-Click on Object & Pen Swatches)
 // ============================================================================
 const swatchColorPickerInput = document.getElementById('swatchColorPickerInput');
 let activeColorPickerTarget = null; // { kind: 'object' | 'pen', slot: number, btn: HTMLElement }
+
+function applySwatchHexToShapeOrLabel(o, hex) {
+  if (!o || !hex) return;
+  if (o.type === 'shape') {
+    o.fillColor = hex;
+    o.strokeColor = hex;
+  } else if (o.type === 'label') {
+    o.labelFillColor = hex;
+  }
+}
 
 function generateVibrantRandomHex() {
   const h = Math.floor(Math.random() * 360);
@@ -5636,6 +6474,7 @@ function applyPickedColorToTarget(hex, recordUndo = false) {
       selectedObjs.forEach((o) => {
         o.color = presetName;
         o.customColor = hex.toLowerCase() !== defaultHex ? hex : null;
+        applySwatchHexToShapeOrLabel(o, hex);
         if (o.type === 'image') {
           o.borderEnabled = true;
           o.borderColor = hex;
@@ -5706,6 +6545,7 @@ document.querySelectorAll('#inspectorColors .swatch:not(.random-swatch)').forEac
     selected.forEach((o) => {
       o.color = presetName;
       o.customColor = isCustomized ? slotHex : null;
+      applySwatchHexToShapeOrLabel(o, slotHex);
       if (o.type === 'image') {
         o.borderEnabled = true;
         o.borderColor = slotHex;
@@ -5744,6 +6584,7 @@ document.getElementById('inspRandomColorBtn')?.addEventListener('click', () => {
   pushUndoSnapshot('객체 고유 랜덤 색상 적용');
   selected.forEach((o) => {
     o.customColor = randomHex;
+    applySwatchHexToShapeOrLabel(o, randomHex);
     if (o.type === 'image') {
       o.borderEnabled = true;
       o.borderColor = randomHex;
@@ -6283,7 +7124,7 @@ window.addEventListener('keydown', (e) => {
     document.getElementById('syncModal')?.classList.add('hidden');
     document.getElementById('lightboxModal')?.classList.add('hidden');
     document.getElementById('gridSettingsPopover')?.classList.add('hidden');
-    if (activeTool === 'pen' && selectedObjectIds.size === 0 && !selectedConnectorId) {
+    if ((activeTool === 'pen' || activeTool === 'shape') && selectedObjectIds.size === 0 && !selectedConnectorId) {
       setToolMode('select');
     }
     selectedConnectorId = null;
@@ -6319,6 +7160,10 @@ window.addEventListener('keydown', (e) => {
       e.preventDefault();
       setToolMode(activeTool === 'pen' ? 'select' : 'pen');
       showToast(activeTool === 'pen' ? '✏️ 펜 그리기 모드 (D)' : '선택 도구 (A)');
+    } else if (code === 'KeyB' || key === 'b') {
+      e.preventDefault();
+      setToolMode(activeTool === 'shape' ? 'select' : 'shape');
+      showToast(activeTool === 'shape' ? '🔷 도형 그리기 모드 (B) — 드래그하여 도형 생성 (Shift: 정비율)' : '선택 도구 (A)');
     } else if (code === 'KeyS' || key === 's') {
       e.preventDefault();
       setToolMode('select');
@@ -6729,7 +7574,7 @@ window.freeformAPI.onBoardExternallyUpdated(async (changedBoardId) => {
   }
 });
 
-window.freeformAPI.onBridgeAddObject((objData) => {
+window.freeformAPI.onBridgeAddObject?.((objData) => {
   if (!objData) return;
 
   if (Array.isArray(objData.objects) && objData.objects.length > 0) {
@@ -6808,6 +7653,12 @@ window.addEventListener('DOMContentLoaded', async () => {
       gridConfig = {
         ...gridConfig,
         ...cfg.gridConfig
+      };
+    }
+    if (cfg && cfg.shapeToolConfig && typeof cfg.shapeToolConfig === 'object') {
+      shapeToolConfig = {
+        ...shapeToolConfig,
+        ...cfg.shapeToolConfig
       };
     }
   } catch (err) {

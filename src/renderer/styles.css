@@ -2929,10 +2929,252 @@ body.theme-light .grid-settings-popover {
   height: 14px;
   cursor: pointer;
 }
-.hud-btn.snap-active {
+.hud-btn.snap-active,
+.hud-btn.active {
   background: rgba(41, 151, 255, 0.22);
   color: #2997ff;
 }
+
+/* ============================================================================
+   7. Shape Drawing Toolbar, Shape Object & Background Mode (is-background-shape)
+   ============================================================================ */
+.insp-shape-only-group,
+.insp-label-style-sub,
+.insp-inline-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.insp-inline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(128, 128, 135, 0.14);
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.insp-mini-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.insp-num-input {
+  width: 44px;
+  height: 22px;
+  background: rgba(128, 128, 135, 0.15);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+  padding: 0 3px;
+}
+.insp-inline-field .insp-num-input {
+  width: 38px;
+  height: 20px;
+  background: transparent;
+  border: none;
+}
+
+.insp-color-chip {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.38);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.insp-color-chip::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.insp-color-chip::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.shape-toolbar {
+  flex-wrap: wrap;
+  max-width: min(94vw, 1080px);
+  justify-content: center;
+}
+
+.shape-toolbar .shape-type-btn.active,
+.insp-btn.active {
+  background: var(--apple-blue) !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+}
+
+/* Shape Object Card on Canvas */
+.ff-object.type-shape {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  border: 1.5px solid transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+.ff-object.type-shape:hover:not(.is-background-shape) {
+  border-color: rgba(255, 255, 255, 0.22) !important;
+}
+.ff-object.type-shape.selected:not(.is-background-shape) {
+  border-color: var(--apple-bright-blue) !important;
+  box-shadow: 0 0 0 2px rgba(41, 151, 255, 0.35) !important;
+}
+
+.ff-object.type-shape .ff-obj-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 12;
+  background: linear-gradient(180deg, rgba(20, 20, 26, 0.92) 0%, rgba(20, 20, 26, 0.72) 100%);
+  backdrop-filter: blur(14px);
+  color: #f5f5f7;
+  border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.ff-object.type-shape:not(.is-background-shape):hover .ff-obj-header,
+.ff-object.type-shape:not(.is-background-shape).selected .ff-obj-header,
+.ff-object.type-shape:not(.is-background-shape):focus-within .ff-obj-header {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.ff-object.type-shape .ff-obj-body {
+  padding: 0 !important;
+  width: 100%;
+  height: 100%;
+  overflow: visible !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ff-shape-wrap {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ff-shape-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* Shape Background Mode (.is-background-shape):
+   Disables ALL interior interaction on the shape body, handles, ports, and title.
+   ONLY the auto-hiding top header strip & its background-toggle button (.ff-shape-bg-btn) can be interacted with! */
+.ff-object.type-shape.is-background-shape {
+  pointer-events: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.ff-object.type-shape.is-background-shape .ff-obj-body,
+.ff-object.type-shape.is-background-shape .ff-shape-wrap,
+.ff-object.type-shape.is-background-shape .ff-shape-svg,
+.ff-object.type-shape.is-background-shape .ff-shape-svg * {
+  pointer-events: none !important;
+}
+.ff-object.type-shape.is-background-shape .ff-resize-handle,
+.ff-object.type-shape.is-background-shape .ff-rotate-handle,
+.ff-object.type-shape.is-background-shape .ff-connect-handle,
+.ff-object.type-shape.is-background-shape .ff-header-copy-btn,
+.ff-object.type-shape.is-background-shape .ff-group-badge {
+  display: none !important;
+}
+.ff-object.type-shape.is-background-shape .ff-obj-title {
+  pointer-events: none !important;
+  opacity: 0.75;
+}
+.ff-object.type-shape.is-background-shape .ff-obj-header {
+  pointer-events: auto !important;
+  opacity: 0;
+  transform: translateY(0);
+  cursor: default !important;
+  background: linear-gradient(180deg, rgba(16, 16, 22, 0.88) 0%, rgba(16, 16, 22, 0.48) 100%);
+}
+.ff-object.type-shape.is-background-shape .ff-obj-header:hover {
+  opacity: 1;
+}
+.ff-object.type-shape.is-background-shape .ff-shape-bg-btn {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  background: var(--apple-blue) !important;
+  color: #ffffff !important;
+}
+
+/* Ensure Ctrl-Hold Instant Move Mode NEVER grabs a backgrounded shape */
+body.ctrl-move-mode .ff-object.type-shape.is-background-shape,
+body.ctrl-move-mode .ff-object.type-shape.is-background-shape .ff-obj-body,
+body.ctrl-move-mode .ff-object.type-shape.is-background-shape .ff-shape-wrap,
+body.ctrl-move-mode .ff-object.type-shape.is-background-shape .ff-shape-svg,
+body.ctrl-move-mode .ff-object.type-shape.is-background-shape .ff-shape-svg * {
+  pointer-events: none !important;
+  cursor: default !important;
+}
+
+/* Live Shape Drawing Preview on Canvas */
+.shape-draw-preview {
+  position: absolute;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Vectorized Label / Title: Strict Vertical & Horizontal Center Alignment inside Full Object Box */
+.ff-object.type-label.is-vectorized .ff-obj-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 12;
+}
+.ff-object.type-label.is-vectorized .ff-obj-body {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.ff-object.type-label.is-vectorized .ff-label-wrap {
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.ff-object.type-label.is-vectorized .ff-label-vector-svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
 
 
 
