@@ -2241,22 +2241,8 @@ body.theme-light .ff-object.type-label:hover {
   color: #ffffff !important;
 }
 
-.ff-vectorize-btn {
-  background: rgba(48, 209, 88, 0.18) !important;
-  border-color: rgba(48, 209, 88, 0.5) !important;
-  color: #52e575 !important;
-}
-.ff-vectorize-btn:hover {
-  background: #30d158 !important;
-  border-color: transparent !important;
-  color: #ffffff !important;
-}
-.ff-vectorize-btn.is-active {
-  background: linear-gradient(135deg, #30d158, #0a84ff) !important;
-  border-color: transparent !important;
-  color: #ffffff !important;
-  box-shadow: 0 0 10px rgba(48, 209, 88, 0.45);
-}
+/* Vectorize header button now uses the same neutral icon-button look as every other header button
+   (active state = standard Apple Blue via .ff-obj-icon-btn.is-active) */
 
 .ff-object.type-label.is-vectorized .ff-obj-body {
   padding: 2px 4px;
@@ -3218,6 +3204,203 @@ body.ctrl-move-mode .ff-object.type-shape.is-background-shape .ff-shape-svg * {
 .ff-object.is-opaque {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+}
+
+/* ============================================================================
+   10. Tooltip Unification: same black style, slightly larger font everywhere
+   ============================================================================ */
+.top-titlebar .tool-btn > span,
+.sync-status-pill > #syncStatusLabel,
+.insp-obj-only-group .insp-btn > span,
+#inspDeleteBtn > span,
+#undoStrokeBtn > span,
+.ff-floating-tip {
+  font-size: 13px !important;
+  padding: 6px 11px !important;
+}
+/* Object header icon buttons: hide their in-canvas (zoom-scaled, upward) span tooltip;
+   the fixed-size floating black tooltip below the button is used instead */
+.ff-obj-icon-btn > span {
+  display: none !important;
+}
+
+/* ============================================================================
+   11. Larger Object Inspector Bar + Auto 2-Line Wrapping When Too Wide
+   ============================================================================ */
+.object-inspector {
+  padding: 8px 12px;
+  gap: 7px;
+  row-gap: 7px;
+  border-radius: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100% - 32px);
+  width: max-content;
+}
+/* Flatten inner groups so their buttons wrap naturally onto a 2nd line */
+.object-inspector > .color-swatches,
+.object-inspector > .insp-image-only-group:not(.hidden),
+.object-inspector > .insp-conn-only-group:not(.hidden),
+.object-inspector > .insp-stroke-only-group:not(.hidden),
+.object-inspector > .insp-shape-only-group:not(.hidden),
+.object-inspector > .insp-typo-group:not(.hidden),
+.object-inspector > .insp-obj-only-group:not(.hidden),
+.object-inspector .insp-label-style-sub:not(.hidden),
+.object-inspector .insp-img-border-sub:not(.hidden) {
+  display: contents !important;
+}
+.object-inspector .hidden {
+  display: none !important;
+}
+.object-inspector .insp-btn {
+  padding: 6px 10px;
+  font-size: 12.5px;
+  border-radius: 8px;
+  min-height: 30px;
+}
+.object-inspector .insp-btn .ui-icon {
+  width: 15px;
+  height: 15px;
+}
+.object-inspector .insp-select {
+  height: 30px;
+  font-size: 12.5px;
+  border-radius: 8px;
+}
+.object-inspector .swatch {
+  width: 21px;
+  height: 21px;
+}
+.object-inspector .inspector-divider {
+  height: 22px;
+}
+.object-inspector .insp-color-chip {
+  width: 26px;
+  height: 26px;
+}
+.object-inspector .insp-num-input {
+  height: 26px;
+  font-size: 12.5px;
+}
+
+/* Sticky note compact checklist bar: only while the sticky is selected */
+.ff-object.type-sticky .ff-sticky-chk-bar {
+  display: none;
+}
+.ff-object.type-sticky.selected .ff-sticky-chk-bar {
+  display: flex;
+}
+
+/* ============================================================================
+   12. Link Card: Page Title + Preview + Shortened URL, click card to open
+   ============================================================================ */
+.ff-object.type-link .ff-obj-body {
+  padding: 0 !important;
+  overflow: hidden;
+}
+.ff-link-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 0 0 12px 12px;
+}
+.ff-link-card.is-page {
+  cursor: pointer;
+}
+.ff-link-card.is-page:hover .ff-link-page-title {
+  color: #2997ff;
+}
+.ff-link-preview {
+  flex: 1 1 auto;
+  min-height: 70px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.22);
+}
+.ff-link-preview .ff-link-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0;
+  display: block;
+  pointer-events: none;
+}
+.ff-link-preview.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, rgba(41, 151, 255, 0.16), rgba(128, 128, 135, 0.1));
+}
+.ff-link-preview-domain {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  opacity: 0.85;
+}
+.ff-link-info {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 11px;
+}
+.ff-link-card.is-video .ff-link-info {
+  cursor: pointer;
+}
+.ff-link-page-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition: color 0.13s ease;
+}
+.ff-link-page-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.72;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ff-link-url-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: #2997ff;
+  min-width: 0;
+}
+body.theme-light .ff-link-url-row {
+  color: #0066cc;
+}
+.ff-link-favicon {
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.ff-link-favicon-fallback {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.ff-link-url-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.ff-link-card.is-video .ff-video-iframe,
+.ff-link-card.is-video .ff-video-native {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 

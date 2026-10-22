@@ -276,6 +276,17 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// "https://www.naver.com/blog/some/very/long/path?x=1" -> "https://www.naver.com/blog/some/ve..."
+function shortenDisplayUrl(url, maxLen = 38) {
+  let s = String(url || '').trim();
+  if (!s) return '';
+  try {
+    s = decodeURI(s);
+  } catch (_) {}
+  s = s.replace(/\/+$/, '');
+  return s.length > maxLen ? `${s.slice(0, maxLen)}...` : s;
+}
+
 function applyViewportTransform() {
   if (!canvasWorld) return;
   canvasWorld.style.transform = `translate3d(${Math.round(panX)}px, ${Math.round(panY)}px, 0) scale(${zoom.toFixed(3)})`;
@@ -2657,6 +2668,98 @@ function appendCheckItemToNote(obj, style = 'square', labelText = '') {
   scheduleSaveBoard();
 }
 
+// Converts the block-selected lines (split ONLY by real Enter line breaks, never by visual auto-wrap)
+// inside a sticky note or a checklist's bottom free-memo area into checklist items of the given style.
+// Returns true when a conversion actually happened.
+function convertSelectedLinesToChecklist(obj, style = 'square', savedRange = null) {
+  if (!obj || (obj.type !== 'sticky' && obj.type !== 'text')) return false;
+  const domEl = objectLayer?.querySelector(`.ff-object[data-id="${obj.id}"]`);
+  if (!domEl) return false;
+
+  let range = savedRange;
+  if (!range) {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) range = sel.getRangeAt(0);
+  }
+  if (!range || range.collapsed) return false;
+
+  const editor =
+    obj.type === 'sticky' ? domEl.querySelector('.ff-sticky-textarea') : domEl.querySelector('.ff-note-memo-area');
+  if (!editor || !editor.contains(range.commonAncestorContainer)) return false;
+
+  const lines = Array.from(editor.querySelectorAll('.ff-text-line'));
+  if (!lines.length) return false;
+
+  let picked = lines.filter((ln) => {
+    try {
+      return range.intersectsNode(ln);
+    } catch (_) {
+      return false;
+    }
+  });
+  // Ignore a trailing line where the selection merely ends at its very first character
+  if (picked.length > 1) {
+    const lastLn = picked[picked.length - 1];
+    try {
+      const probe = document.createRange();
+      probe.selectNodeContents(lastLn);
+      probe.setEnd(range.endContainer, range.endOffset);
+      if (!probe.toString()) picked = picked.slice(0, -1);
+    } catch (_) {}
+  }
+  if (!picked.length) return false;
+
+  const cleanText = (ln) => String(ln.textContent || '').replace(/\u200b/g, '');
+  const pickedSet = new Set(picked);
+  const newChecks = picked
+    .map((ln) => ({
+      isCheck: true,
+      style,
+      checked: false,
+      align: ln.dataset.align || 'left',
+      text: cleanText(ln)
+    }))
+    .filter((it) => it.text.trim() !== '');
+  if (!newChecks.length) return false;
+
+  const remaining = lines.filter((ln) => !pickedSet.has(ln));
+  let remainingTexts = remaining.map(cleanText);
+  let remainingAligns = remaining.map((ln) => ln.dataset.align || 'left');
+  while (remainingTexts.length && !remainingTexts[remainingTexts.length - 1].trim()) {
+    remainingTexts.pop();
+    remainingAligns.pop();
+  }
+
+  pushUndoSnapshot(`선택 텍스트 ${newChecks.length}줄 체크리스트화`);
+
+  const existingChecks =
+    obj.type === 'text'
+      ? parseNoteLines(obj.content || '').filter((it) => it.isCheck && String(it.text || '').trim() !== '')
+      : [];
+
+  if (obj.type === 'sticky') {
+    obj.type = 'text';
+    if (!obj.title || obj.title === '📌 포스트잇 메모') obj.title = '체크리스트 & 노트';
+    delete obj.lineAligns;
+  }
+
+  const items = [
+    ...existingChecks,
+    ...newChecks,
+    ...remainingTexts.map((t) => ({ isCheck: false, text: t }))
+  ];
+  obj.content = serializeNoteLines(items);
+  obj.memoLineAligns = remainingAligns;
+
+  window.getSelection()?.removeAllRanges();
+  renderAllObjects();
+  renderAllConnectors();
+  syncSelectionUI();
+  scheduleSaveBoard();
+  showToast(`☑ 선택한 ${newChecks.length}줄을 체크리스트 항목으로 변환했습니다`);
+  return true;
+}
+
 // ============================================================================
 // Render Objects on Infinite Canvas
 // ============================================================================
@@ -2961,6 +3064,28 @@ function createObjectDOM(obj) {
       }
     });
     body.appendChild(stickyEditor);
+
+    // Compact checklist bar (shown only while selected): converts block-selected lines into checklist items
+    const stickyBar = document.createElement('div');
+    stickyBar.className = 'ff-note-toolbar ff-sticky-chk-bar';
+    stickyBar.innerHTML = `
+      <button class="ff-chk-Insert-btn" data-chk="square" title="선택한 줄을 네모 체크리스트로 변환 (선택 없으면 체크 항목 추가)">${SVG_ICONS.chkSquare}<span>네모체크</span></button>
+      <button class="ff-chk-Insert-btn" data-chk="circle" title="선택한 줄을 원형 체크리스트로 변환 (선택 없으면 체크 항목 추가)">${SVG_ICONS.chkCircle}<span>원형체크</span></button>
+      <button class="ff-chk-Insert-btn" data-chk="toggle" title="선택한 줄을 슬라이드 토글로 변환 (선택 없으면 토글 항목 추가)">${SVG_ICONS.chkToggle}<span>슬라이드</span></button>
+    `;
+    stickyBar.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.ff-chk-Insert-btn')) e.preventDefault();
+    });
+    stickyBar.addEventListener('click', (e) => {
+      const btn = e.target.closest('.ff-chk-Insert-btn');
+      if (!btn) return;
+      e.stopPropagation();
+      const kind = btn.dataset.chk || 'square';
+      if (!convertSelectedLinesToChecklist(obj, kind)) {
+        appendCheckItemToNote(obj, kind, '');
+      }
+    });
+    el.appendChild(stickyBar);
   } else if (obj.type === 'label') {
     // ========================================================================
     // 1-B. BORDERLESS CANVAS TEXT / GRAPHIC TITLE (텍스트 객체):
@@ -3345,11 +3470,19 @@ function createObjectDOM(obj) {
     });
     body.appendChild(memoArea);
 
+    // Keep the block selection in the free-memo area alive while pressing checklist buttons
+    noteBar.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.ff-chk-Insert-btn')) e.preventDefault();
+    });
+
     noteBar.addEventListener('click', (e) => {
       const btn = e.target.closest('.ff-chk-Insert-btn');
       if (!btn) return;
       e.stopPropagation();
       const kind = btn.dataset.chk;
+      if (['square', 'circle', 'toggle'].includes(kind) && convertSelectedLinesToChecklist(obj, kind)) {
+        return;
+      }
       if (kind === 'autowrap') {
         obj.checkAutoWrap = obj.checkAutoWrap === false ? true : false;
         const wrapOn = obj.checkAutoWrap !== false;
@@ -3606,21 +3739,82 @@ function createObjectDOM(obj) {
       mediaHtml = `<img class="ff-link-thumb" src="${escapeHtml(obj.thumbnail)}" alt="" />`;
     }
 
-    card.innerHTML = `
-      ${mediaHtml}
-      <div class="ff-link-meta">
-        ${obj.favicon ? `<img src="${escapeHtml(obj.favicon)}" width="14" height="14" style="border-radius:3px;" />` : SVG_ICONS.externalLink}
-        <span>${escapeHtml(obj.domain || obj.url || '')}</span>
-      </div>
-      ${!youtubeId && !isDirectVideo ? `<div class="ff-link-desc">${escapeHtml(obj.description || obj.url || '')}</div>` : ''}
-      <button class="ff-link-open-btn">${youtubeId ? `${SVG_ICONS.play}<span>브라우저에서 유튜브 열기</span>` : `${SVG_ICONS.externalLink}<span>링크 열기</span>`}</button>
-    `;
-    const openBtn = card.querySelector('.ff-link-open-btn');
-    if (openBtn) {
-      openBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (obj.url) window.freeformAPI.openExternal(obj.url);
+    const shortUrl = shortenDisplayUrl(obj.url || '');
+    const pageTitle = obj.pageTitle || (obj.title && obj.title !== obj.url ? obj.title : '') || obj.domain || shortUrl || '웹 링크';
+    const faviconHtml = obj.favicon
+      ? `<img class="ff-link-favicon" src="${escapeHtml(obj.favicon)}" width="14" height="14" alt="" />`
+      : `<span class="ff-link-favicon-fallback">${SVG_ICONS.externalLink}</span>`;
+
+    if (youtubeId || isDirectVideo) {
+      card.classList.add('is-video');
+      card.innerHTML = `
+        ${mediaHtml}
+        <div class="ff-link-info" data-link-open title="클릭하여 기본 브라우저로 열기">
+          <div class="ff-link-page-title">${escapeHtml(pageTitle)}</div>
+          <div class="ff-link-url-row">${faviconHtml}<span class="ff-link-url-text">${escapeHtml(shortUrl)}</span></div>
+        </div>
+      `;
+    } else {
+      card.classList.add('is-page');
+      card.dataset.linkOpen = '1';
+      card.title = `클릭하여 기본 브라우저로 열기\n${obj.url || ''}`;
+      card.innerHTML = `
+        ${obj.thumbnail
+          ? `<div class="ff-link-preview"><img class="ff-link-thumb" src="${escapeHtml(obj.thumbnail)}" alt="" draggable="false" /></div>`
+          : `<div class="ff-link-preview is-empty"><div class="ff-link-preview-domain">${faviconHtml}<span>${escapeHtml(obj.domain || shortUrl)}</span></div></div>`}
+        <div class="ff-link-info">
+          <div class="ff-link-page-title">${escapeHtml(pageTitle)}</div>
+          ${obj.description ? `<div class="ff-link-page-desc">${escapeHtml(obj.description)}</div>` : ''}
+          <div class="ff-link-url-row">${faviconHtml}<span class="ff-link-url-text">${escapeHtml(shortUrl)}</span></div>
+        </div>
+      `;
+      card.querySelector('.ff-link-thumb')?.addEventListener('error', (ev) => {
+        const prev = ev.target.closest('.ff-link-preview');
+        if (prev) {
+          prev.classList.add('is-empty');
+          prev.innerHTML = `<div class="ff-link-preview-domain">${faviconHtml}<span>${escapeHtml(obj.domain || shortUrl)}</span></div>`;
+        }
       });
+    }
+
+    // Click (NOT drag) on the card -> open with the OS default browser
+    let linkDownPos = null;
+    card.addEventListener('pointerdown', (e) => {
+      linkDownPos = e.button === 0 && !e.ctrlKey && !e.shiftKey ? { x: e.clientX, y: e.clientY } : null;
+    });
+    card.addEventListener('pointerup', (e) => {
+      if (!linkDownPos || e.button !== 0) return;
+      const moved = Math.hypot(e.clientX - linkDownPos.x, e.clientY - linkDownPos.y);
+      linkDownPos = null;
+      if (moved > 5) return;
+      if (!e.target.closest('[data-link-open]')) return;
+      if (obj.url) window.freeformAPI.openExternal(obj.url);
+    });
+
+    // Legacy link objects that only stored the bare URL: fetch title / preview once in the background
+    if (obj.url && !obj._metaRefreshTried && !obj.thumbnail && (!obj.title || obj.title === obj.url) && !youtubeId) {
+      obj._metaRefreshTried = true;
+      window.freeformAPI
+        .fetchUrlMetadata(obj.url)
+        .then((meta) => {
+          if (!meta) return;
+          let changed = false;
+          if (meta.title && (!obj.title || obj.title === obj.url)) {
+            obj.title = meta.title;
+            changed = true;
+          }
+          ['description', 'thumbnail', 'favicon', 'domain'].forEach((k) => {
+            if (meta[k] && !obj[k]) {
+              obj[k] = meta[k];
+              changed = true;
+            }
+          });
+          if (changed) {
+            renderAllObjects();
+            scheduleSaveBoard();
+          }
+        })
+        .catch(() => {});
     }
     body.appendChild(card);
   } else if (obj.type === 'file' || obj.type === 'pdf') {
@@ -3985,6 +4179,7 @@ function createObjectDOM(obj) {
     obj.type === 'label' ||
     obj.type === 'stroke' ||
     obj.type === 'shape' ||
+    obj.type === 'link' ||
     (obj.type === 'file' && !(isPdf && (obj.pdfViewMode || 'viewer') === 'viewer'))
   ) {
     body.addEventListener('pointerdown', (e) => startDrag(e, false));
@@ -5546,6 +5741,8 @@ window.addEventListener('contextmenu', (e) => {
   const objEl = e.target.closest('.ff-object');
   const isTextTarget = Boolean(e.target.closest('input, textarea, [contenteditable="true"]'));
   const selectedText = window.getSelection()?.toString() || '';
+  const ctxSel = window.getSelection();
+  const ctxSavedRange = ctxSel && ctxSel.rangeCount > 0 && !ctxSel.isCollapsed ? ctxSel.getRangeAt(0).cloneRange() : null;
 
   if (objEl && objEl.dataset.id) {
     const objId = objEl.dataset.id;
@@ -5724,7 +5921,9 @@ window.addEventListener('contextmenu', (e) => {
     } else if (act.startsWith('insert-chk-')) {
       const style = act.replace('insert-chk-', '');
       if (primary && (primary.type === 'text' || primary.type === 'sticky')) {
-        appendCheckItemToNote(primary, style, '');
+        if (!convertSelectedLinesToChecklist(primary, style, ctxSavedRange)) {
+          appendCheckItemToNote(primary, style, '');
+        }
       } else if (primary && primary.type === 'table') {
         pushUndoSnapshot('표 체크박스 추가');
         const r = lastFocusedTableCell && lastFocusedTableCell.obj.id === primary.id ? lastFocusedTableCell.rIdx : 1;
@@ -6537,8 +6736,8 @@ document.getElementById('inspOpacityBtn')?.addEventListener('click', toggleSelec
 // Unified Fast Black Floating Tooltip (replaces slow native `title` tooltips everywhere)
 // ============================================================================
 const SPAN_TOOLTIP_HOSTS =
-  '.top-titlebar .tool-btn, .sync-status-pill, .insp-obj-only-group .insp-btn, #inspDeleteBtn, #undoStrokeBtn, .ff-obj-icon-btn';
-const FLOATING_TIP_TARGETS = 'button, select, input, label, .swatch, .pen-color, .hud-btn, [role="button"], .board-item, .drive-path-box';
+  '.top-titlebar .tool-btn, .sync-status-pill, .insp-obj-only-group .insp-btn, #inspDeleteBtn, #undoStrokeBtn';
+const FLOATING_TIP_TARGETS = 'button, select, input, label, .swatch, .pen-color, .hud-btn, [role="button"], .board-item, .drive-path-box, .ff-obj-icon-btn';
 const floatingTipEl = document.createElement('div');
 floatingTipEl.className = 'ff-floating-tip';
 document.body.appendChild(floatingTipEl);
@@ -6570,10 +6769,16 @@ function positionFloatingTip(host) {
 document.addEventListener(
   'mouseover',
   (e) => {
-    const titled = e.target.closest?.('[title], [data-ff-tip]');
+    const titled = e.target.closest?.('.ff-obj-icon-btn, [title], [data-ff-tip]');
     if (!titled) {
       if (floatingTipHost && !floatingTipHost.contains(e.target)) hideFloatingTip();
       return;
+    }
+    // Object header icon buttons: their hidden <span> label becomes the floating tooltip text
+    if (titled.matches('.ff-obj-icon-btn')) {
+      const spanTxt = titled.querySelector(':scope > span')?.textContent?.trim();
+      if (spanTxt) titled.dataset.ffTip = spanTxt;
+      titled.removeAttribute('title');
     }
     // Move native title into data attribute so the slow white OS tooltip never appears
     if (titled.hasAttribute('title')) {
@@ -6875,8 +7080,7 @@ document.getElementById('inspImgBorderToggleBtn')?.addEventListener('click', () 
       if (!o.borderWidth) o.borderWidth = 4;
       if (!o.borderStyle) o.borderStyle = 'solid';
       if (!o.borderColor) {
-        const idx = Math.max(0, COLOR_NAMES.indexOf(o.color || 'blue'));
-        o.borderColor = o.customColor || customObjectSwatches[idx] || DEFAULT_OBJECT_SWATCHES[idx] || '#0a84ff';
+        o.borderColor = o.customColor || getResolvedObjectColorHex(o) || '#0a84ff';
       }
     }
   });
