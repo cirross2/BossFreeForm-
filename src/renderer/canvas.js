@@ -2288,7 +2288,8 @@ function rotateSelectedObjects(deltaDeg, absoluteDeg = null) {
 // 3-Style Interactive Checkbox Parser & Builder (Checklist Cards & Table Cells)
 // ============================================================================
 function parseNoteLines(rawContent) {
-  const lines = String(rawContent ?? '').split('\n');
+  // Strip Windows CR characters (pasted text) so "[square:0] text\r" is still recognized as a checklist line
+  const lines = String(rawContent ?? '').replace(/\r/g, '').split('\n');
   return lines.map((line) => {
     let m = line.match(/^\[(square|circle|toggle):(0|1)(?::(left|center|right))?\]\s?(.*)$/);
     if (m) {
@@ -2709,22 +2710,32 @@ function convertSelectedLinesToChecklist(obj, style = 'square', savedRange = nul
   }
   if (!picked.length) return false;
 
-  const cleanText = (ln) => String(ln.textContent || '').replace(/\u200b/g, '');
+  const cleanText = (ln) => String(ln.textContent || '').replace(/[\u200b\r]/g, '');
   const pickedSet = new Set(picked);
-  const newChecks = picked
-    .map((ln) => ({
-      isCheck: true,
-      style,
-      checked: false,
-      align: ln.dataset.align || 'left',
-      text: cleanText(ln)
-    }))
-    .filter((it) => it.text.trim() !== '');
+  // A single line element can still contain real line breaks (e.g. pasted text) -> split them into separate items
+  const newChecks = [];
+  picked.forEach((ln) => {
+    cleanText(ln)
+      .split('\n')
+      .forEach((part) => {
+        if (part.trim() !== '') {
+          newChecks.push({ isCheck: true, style, checked: false, align: ln.dataset.align || 'left', text: part });
+        }
+      });
+  });
   if (!newChecks.length) return false;
 
   const remaining = lines.filter((ln) => !pickedSet.has(ln));
-  let remainingTexts = remaining.map(cleanText);
-  let remainingAligns = remaining.map((ln) => ln.dataset.align || 'left');
+  let remainingTexts = [];
+  let remainingAligns = [];
+  remaining.forEach((ln) => {
+    cleanText(ln)
+      .split('\n')
+      .forEach((part) => {
+        remainingTexts.push(part);
+        remainingAligns.push(ln.dataset.align || 'left');
+      });
+  });
   while (remainingTexts.length && !remainingTexts[remainingTexts.length - 1].trim()) {
     remainingTexts.pop();
     remainingAligns.pop();
