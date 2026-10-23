@@ -5185,8 +5185,12 @@ canvasViewport.addEventListener(
       return;
     }
 
-    // 3-B. Shape Tool Drawing (drag anywhere on the canvas, even over existing objects)
-    if (activeTool === 'shape' && e.button === 0 && !e.target.closest('.ff-shape-bg-btn')) {
+    // 3-B. Shape Tool Drawing (drag anywhere on the canvas, even over existing objects, except UI toolbars/HUD)
+    if (
+      activeTool === 'shape' &&
+      e.button === 0 &&
+      !e.target.closest('.pen-toolbar, .object-inspector, .grid-settings-popover, .canvas-hud, .canvas-hint-pill, .ff-shape-bg-btn')
+    ) {
       e.preventDefault();
       e.stopPropagation();
       const pt = screenToWorld(e.clientX, e.clientY);
@@ -7708,20 +7712,98 @@ document.getElementById('fitViewBtn')?.addEventListener('click', () => {
 });
 
 const GRID_MODES = ['grid-dots', 'grid-lines', 'grid-none'];
-let currentGridIdx = 0;
+const GRID_MODE_LABELS = {
+  'grid-dots': '도트',
+  'grid-lines': '격자',
+  'grid-none': '무지'
+};
 
 function syncGridSettingsUI() {
-  const snapObjEl = document.getElementById('snapObjGridToggle');
-  const snapDrawEl = document.getElementById('snapDrawGridToggle');
-  const spacingEl = document.getElementById('gridSpacingInput');
-  const unitEl = document.getElementById('gridUnitSelect');
+  const mode = GRID_MODES.includes(gridConfig.mode) ? gridConfig.mode : 'grid-dots';
+  gridConfig.mode = mode;
+
+  // Normalize legacy spacingUnit -> unit if present
+  if (!gridConfig.unit && gridConfig.spacingUnit) {
+    gridConfig.unit = gridConfig.spacingUnit;
+  }
+  const unit = ['px', 'cm', 'm'].includes(gridConfig.unit) ? gridConfig.unit : 'px';
+  gridConfig.unit = unit;
+
+  if (canvasViewport) {
+    canvasViewport.classList.remove(...GRID_MODES);
+    canvasViewport.classList.add(mode);
+  }
+
+  const lbl = document.getElementById('toggleGridLabel');
+  if (lbl) lbl.textContent = GRID_MODE_LABELS[mode] || '도트';
+
+  // Background style pills
+  document.querySelectorAll('.grid-style-pill[data-grid-mode]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.gridMode === mode);
+  });
+
+  // Unit pills
+  document.querySelectorAll('.grid-unit-pill[data-grid-unit]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.gridUnit === unit);
+  });
+
+  // Range & Number inputs + suffix
+  const rangeEl = document.getElementById('gridSpacingRange');
+  const numEl = document.getElementById('gridSpacingNumber');
+  const suffixEl = document.getElementById('gridSpacingUnitSuffix');
+
+  let minVal = 8;
+  let maxVal = 200;
+  let stepVal = 1;
+  let defaultVal = 24;
+  if (unit === 'cm') {
+    minVal = 0.2;
+    maxVal = 10;
+    stepVal = 0.1;
+    defaultVal = 1;
+  } else if (unit === 'm') {
+    minVal = 0.01;
+    maxVal = 0.5;
+    stepVal = 0.01;
+    defaultVal = 0.05;
+  }
+
+  const curVal =
+    Number.isFinite(Number(gridConfig.spacingValue)) && Number(gridConfig.spacingValue) > 0
+      ? Number(gridConfig.spacingValue)
+      : defaultVal;
+  gridConfig.spacingValue = curVal;
+
+  if (rangeEl) {
+    rangeEl.min = String(minVal);
+    rangeEl.max = String(maxVal);
+    rangeEl.step = String(stepVal);
+    rangeEl.value = String(Math.min(maxVal, Math.max(minVal, curVal)));
+  }
+  if (numEl) {
+    numEl.min = String(minVal);
+    numEl.max = String(unit === 'px' ? 500 : unit === 'cm' ? 30 : 1);
+    numEl.step = String(stepVal);
+    numEl.value = String(curVal);
+  }
+  if (suffixEl) {
+    suffixEl.textContent = unit;
+  }
+
+  const snapObjEl = document.getElementById('snapObjectsCheckbox');
+  const snapDrawEl = document.getElementById('snapDrawingCheckbox');
   if (snapObjEl) snapObjEl.checked = Boolean(gridConfig.snapObjects);
   if (snapDrawEl) snapDrawEl.checked = Boolean(gridConfig.snapDrawing);
-  if (spacingEl) spacingEl.value = String(gridConfig.spacingValue ?? 28);
-  if (unitEl) unitEl.value = gridConfig.spacingUnit || 'px';
+
   const openBtn = document.getElementById('openGridSettingsBtn');
+  const snapBadge = document.getElementById('gridSnapBadge');
+  const anySnap = Boolean(gridConfig.snapObjects || gridConfig.snapDrawing);
   if (openBtn) {
-    openBtn.classList.toggle('active', Boolean(gridConfig.snapObjects || gridConfig.snapDrawing));
+    openBtn.classList.toggle('active', anySnap);
+    openBtn.classList.toggle('snap-active', anySnap);
+  }
+  if (snapBadge) {
+    snapBadge.textContent = anySnap ? '스냅 ON' : '스냅';
   }
 }
 
@@ -7733,14 +7815,28 @@ async function persistGridConfig() {
   }
 }
 
-document.getElementById('toggleGridBtn')?.addEventListener('click', () => {
-  canvasViewport.classList.remove(...GRID_MODES);
-  currentGridIdx = (currentGridIdx + 1) % GRID_MODES.length;
-  canvasViewport.classList.add(GRID_MODES[currentGridIdx]);
-  const labels = ['도트', '격자', '무지'];
-  const lbl = document.getElementById('toggleGridLabel');
-  if (lbl) lbl.textContent = labels[currentGridIdx];
+function setGridBackgroundMode(mode, notify = true) {
+  if (!GRID_MODES.includes(mode)) return;
+  gridConfig.mode = mode;
+  syncGridSettingsUI();
   applyViewportTransform();
+  persistGridConfig();
+  if (notify) {
+    showToast(`캔버스 배경: ${GRID_MODE_LABELS[mode]}`);
+  }
+}
+
+document.getElementById('toggleGridBtn')?.addEventListener('click', () => {
+  const curIdx = Math.max(0, GRID_MODES.indexOf(gridConfig.mode || 'grid-dots'));
+  const nextMode = GRID_MODES[(curIdx + 1) % GRID_MODES.length];
+  setGridBackgroundMode(nextMode, true);
+});
+
+document.getElementById('toggleGridBtn')?.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  syncGridSettingsUI();
+  gridSettingsPopover?.classList.remove('hidden');
 });
 
 const gridSettingsPopover = document.getElementById('gridSettingsPopover');
@@ -7749,59 +7845,99 @@ document.getElementById('openGridSettingsBtn')?.addEventListener('click', (e) =>
   syncGridSettingsUI();
   gridSettingsPopover?.classList.toggle('hidden');
 });
-document.getElementById('closeGridSettingsBtn')?.addEventListener('click', () => {
+document.getElementById('closeGridPopoverBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
   gridSettingsPopover?.classList.add('hidden');
+});
+document.getElementById('closeGridSettingsBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  gridSettingsPopover?.classList.add('hidden');
+});
+gridSettingsPopover?.addEventListener('pointerdown', (e) => {
+  e.stopPropagation();
 });
 window.addEventListener('pointerdown', (e) => {
   if (
     gridSettingsPopover &&
     !gridSettingsPopover.classList.contains('hidden') &&
     !gridSettingsPopover.contains(e.target) &&
-    !e.target.closest('#openGridSettingsBtn')
+    !e.target.closest('#openGridSettingsBtn') &&
+    !e.target.closest('#toggleGridBtn')
   ) {
     gridSettingsPopover.classList.add('hidden');
   }
 });
 
-document.getElementById('snapObjGridToggle')?.addEventListener('change', (e) => {
-  gridConfig.snapObjects = Boolean(e.target.checked);
-  syncGridSettingsUI();
-  persistGridConfig();
-  showToast(gridConfig.snapObjects ? '🧲 객체 격자/도트 물림 ON' : '객체 격자/도트 물림 OFF');
+// Background style pill buttons inside #gridSettingsPopover
+document.querySelectorAll('.grid-style-pill[data-grid-mode]').forEach((btn) => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const mode = btn.dataset.gridMode;
+    if (mode) setGridBackgroundMode(mode, true);
+  });
 });
 
-document.getElementById('snapDrawGridToggle')?.addEventListener('change', (e) => {
-  gridConfig.snapDrawing = Boolean(e.target.checked);
-  syncGridSettingsUI();
-  persistGridConfig();
-  showToast(gridConfig.snapDrawing ? '✏️ 펜/도형 그리기 격자/도트 물림 ON' : '그리기 격자/도트 물림 OFF');
+// Spacing unit pill buttons (px / cm / m) inside #gridSettingsPopover
+document.querySelectorAll('.grid-unit-pill[data-grid-unit]').forEach((btn) => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const nextUnit = btn.dataset.gridUnit || 'px';
+    const prevUnit = gridConfig.unit || 'px';
+    if (prevUnit === nextUnit) return;
+    const prevPx = getGridSpacingWorldPx();
+    gridConfig.unit = nextUnit;
+    if (nextUnit === 'px') {
+      gridConfig.spacingValue = Math.max(8, Math.min(500, Math.round(prevPx)));
+    } else if (nextUnit === 'cm') {
+      gridConfig.spacingValue = Math.max(0.2, Math.min(30, Number((prevPx / PX_PER_CM).toFixed(1))));
+    } else if (nextUnit === 'm') {
+      gridConfig.spacingValue = Math.max(0.01, Math.min(1, Number((prevPx / PX_PER_M).toFixed(2))));
+    }
+    syncGridSettingsUI();
+    applyViewportTransform();
+    persistGridConfig();
+    showToast(`격자/도트 단위: ${nextUnit} (${gridConfig.spacingValue}${nextUnit})`);
+  });
 });
 
-document.getElementById('gridSpacingInput')?.addEventListener('input', (e) => {
+// Spacing range slider & number input
+document.getElementById('gridSpacingRange')?.addEventListener('input', (e) => {
   const val = Number(e.target.value);
   if (!Number.isFinite(val) || val <= 0) return;
   gridConfig.spacingValue = val;
+  const numEl = document.getElementById('gridSpacingNumber');
+  if (numEl) numEl.value = String(val);
   applyViewportTransform();
   persistGridConfig();
 });
 
-document.getElementById('gridUnitSelect')?.addEventListener('change', (e) => {
-  const prevUnit = gridConfig.spacingUnit || 'px';
-  const nextUnit = e.target.value || 'px';
-  const prevPx = getGridSpacingWorldPx();
-  gridConfig.spacingUnit = nextUnit;
-  if (prevUnit !== nextUnit) {
-    if (nextUnit === 'px') {
-      gridConfig.spacingValue = Math.max(8, Math.round(prevPx));
-    } else if (nextUnit === 'cm') {
-      gridConfig.spacingValue = Math.max(0.2, Number((prevPx / 37.79527559).toFixed(1)));
-    } else if (nextUnit === 'm') {
-      gridConfig.spacingValue = Math.max(0.01, Number((prevPx / 3779.527559).toFixed(2)));
-    }
+document.getElementById('gridSpacingNumber')?.addEventListener('input', (e) => {
+  const val = Number(e.target.value);
+  if (!Number.isFinite(val) || val <= 0) return;
+  gridConfig.spacingValue = val;
+  const rangeEl = document.getElementById('gridSpacingRange');
+  if (rangeEl) {
+    const rMin = Number(rangeEl.min) || 0;
+    const rMax = Number(rangeEl.max) || 500;
+    rangeEl.value = String(Math.min(rMax, Math.max(rMin, val)));
   }
-  syncGridSettingsUI();
   applyViewportTransform();
   persistGridConfig();
+});
+
+// Snap checkboxes
+document.getElementById('snapObjectsCheckbox')?.addEventListener('change', (e) => {
+  gridConfig.snapObjects = Boolean(e.target.checked);
+  syncGridSettingsUI();
+  persistGridConfig();
+  showToast(gridConfig.snapObjects ? '🧲 객체 이동·크기 조절 격자/도트 물림 ON' : '객체 격자/도트 물림 OFF');
+});
+
+document.getElementById('snapDrawingCheckbox')?.addEventListener('change', (e) => {
+  gridConfig.snapDrawing = Boolean(e.target.checked);
+  syncGridSettingsUI();
+  persistGridConfig();
+  showToast(gridConfig.snapDrawing ? '✏️ 펜·도형 그리기 격자/도트 물림 ON' : '그리기 격자/도트 물림 OFF');
 });
 
 document.getElementById('toggleThemeBtn')?.addEventListener('click', () => {
