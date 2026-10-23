@@ -236,6 +236,41 @@ let shapeToolConfig = {
 };
 let saveDebounceTimer = null;
 let lastFocusedTableCell = null; // { obj, rIdx, cIdx }
+let activeTableCellSelection = {
+  objId: null,
+  anchor: null, // { rIdx, cIdx }
+  cells: new Set() // Set of "${rIdx}_${cIdx}"
+};
+let tableCellDragState = null; // { obj, tableEl, startR, startC, isMultiDrag }
+
+function clearTableCellSelection(exceptObjId = null) {
+  if (exceptObjId && activeTableCellSelection.objId === exceptObjId) return;
+  activeTableCellSelection.objId = null;
+  activeTableCellSelection.anchor = null;
+  activeTableCellSelection.cells.clear();
+  document.querySelectorAll('.ff-table td.ff-cell-selected').forEach((td) => td.classList.remove('ff-cell-selected'));
+  document.querySelectorAll('.ff-table.is-selecting-cells').forEach((tb) => tb.classList.remove('is-selecting-cells'));
+  document.querySelectorAll('.ff-table-sel-badge').forEach((b) => b.classList.add('hidden'));
+}
+
+function updateTableCellSelectionDOM(objId) {
+  const domEl = objectLayer?.querySelector(`.ff-object[data-id="${objId}"]`);
+  if (!domEl) return;
+  const isTargetObj = activeTableCellSelection.objId === objId;
+  const selSet = isTargetObj ? activeTableCellSelection.cells : new Set();
+  domEl.querySelectorAll('.ff-table td[data-cell-key]').forEach((td) => {
+    td.classList.toggle('ff-cell-selected', selSet.size > 1 && selSet.has(td.dataset.cellKey));
+  });
+  const badge = domEl.querySelector('.ff-table-sel-badge');
+  if (badge) {
+    if (selSet.size > 1) {
+      badge.textContent = `${selSet.size}셀 선택됨`;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+}
 
 // DOM Elements
 const canvasViewport = document.getElementById('canvasViewport');
@@ -506,6 +541,20 @@ function getObjectTextStyle(obj) {
   };
 }
 
+function getCellEffectiveTextStyle(obj, cellKey) {
+  const base = getObjectTextStyle(obj);
+  const cs = obj?.cellStyles?.[cellKey];
+  if (!cs || typeof cs !== 'object') return base;
+  return {
+    fontFamily: cs.fontFamily && FONT_FAMILY_STACKS[cs.fontFamily] ? cs.fontFamily : base.fontFamily,
+    fontSize: Number(cs.fontSize) || base.fontSize,
+    bold: cs.bold !== undefined ? Boolean(cs.bold) : base.bold,
+    italic: cs.italic !== undefined ? Boolean(cs.italic) : base.italic,
+    underline: cs.underline !== undefined ? Boolean(cs.underline) : base.underline,
+    textAlign: obj?.cellAligns?.[cellKey] || base.textAlign
+  };
+}
+
 const ART_STYLE_LIST = [
   { id: 'none', label: '기본 텍스트' },
   { id: 'game', label: '게임 타이틀' },
@@ -581,6 +630,22 @@ function applyObjectTypography(el, obj) {
   el.querySelectorAll(
     '.ff-sticky-textarea, .ff-note-memo-area, .ff-table th, .ff-table td, .ff-label-editor, .ff-link-title, .ff-link-desc, .ff-file-name'
   ).forEach((node) => {
+    if (node.tagName === 'TD' && node.dataset.cellKey) {
+      const ck = node.dataset.cellKey;
+      const cts = getCellEffectiveTextStyle(obj, ck);
+      const cFam = FONT_FAMILY_STACKS[cts.fontFamily] || familyStack;
+      const hasCustomBold = obj?.cellStyles?.[ck]?.bold !== undefined;
+      const isHeaderRow = node.dataset.rIdx === '0';
+      const cWeight = cts.bold ? '800' : !hasCustomBold && isHeaderRow ? '700' : '400';
+      node.style.fontFamily = cFam;
+      node.style.fontSize = `${cts.fontSize}px`;
+      node.style.fontWeight = cWeight;
+      node.style.fontStyle = cts.italic ? 'italic' : 'normal';
+      if (!node.querySelector('[contenteditable="true"]')) {
+        node.style.textDecoration = cts.underline ? 'underline' : 'none';
+      }
+      return;
+    }
     node.style.fontFamily = familyStack;
     node.style.fontSize = sizePx;
     node.style.fontWeight = obj.type === 'label' && (obj.artStyle || 'none') !== 'none' ? '900' : weight;
@@ -597,6 +662,26 @@ function applyObjectTypography(el, obj) {
   });
 
   el.querySelectorAll('.ff-check-input, .ff-table td span[contenteditable="true"]').forEach((node) => {
+    const parentTd = node.closest('td[data-cell-key]');
+    if (parentTd) {
+      const ck = parentTd.dataset.cellKey;
+      const cts = getCellEffectiveTextStyle(obj, ck);
+      const hasCustomBold = obj?.cellStyles?.[ck]?.bold !== undefined;
+      const isHeaderRow = parentTd.dataset.rIdx === '0';
+      node.style.fontFamily = FONT_FAMILY_STACKS[cts.fontFamily] || familyStack;
+      node.style.fontSize = `${cts.fontSize}px`;
+      node.style.fontWeight = cts.bold ? '800' : !hasCustomBold && isHeaderRow ? '700' : '400';
+      node.style.fontStyle = cts.italic ? 'italic' : 'normal';
+      const isCheckedCell = Boolean(node.parentElement?.querySelector('.ff-chk-widget.checked'));
+      if (isCheckedCell && cts.underline) {
+        node.style.textDecoration = 'underline line-through';
+      } else if (isCheckedCell) {
+        node.style.textDecoration = 'line-through';
+      } else {
+        node.style.textDecoration = cts.underline ? 'underline' : 'none';
+      }
+      return;
+    }
     node.style.fontFamily = familyStack;
     node.style.fontSize = sizePx;
     node.style.fontWeight = weight;
@@ -1883,6 +1968,7 @@ function getPrimarySelectedObject() {
 
 function clearSelection() {
   selectedObjectIds.clear();
+  clearTableCellSelection();
   syncSelectionUI();
 }
 
@@ -1894,6 +1980,7 @@ function selectObject(objId, { additive = false, expandGroup = true } = {}) {
   selectedConnectorId = null;
   if (!additive) {
     selectedObjectIds.clear();
+    clearTableCellSelection(objId);
   }
   const target = currentBoard?.objects.find((o) => o.id === objId);
   if (!target) {
@@ -2050,8 +2137,20 @@ function syncSelectionUI() {
         groupLabel.textContent = allSameGroup ? '그룹 해제' : `그룹화 (${selected.length})`;
       }
 
-      // Sync Typography UI controls to primary selected object
-      const ts = getObjectTextStyle(primary);
+      // Sync Typography UI controls to primary selected object (or selected table cell(s))
+      const hasActiveTableCells =
+        primary.type === 'table' &&
+        activeTableCellSelection.objId === primary.id &&
+        activeTableCellSelection.cells.size > 0;
+      const activeCellKey = hasActiveTableCells
+        ? activeTableCellSelection.anchor
+          ? `${activeTableCellSelection.anchor.rIdx}_${activeTableCellSelection.anchor.cIdx}`
+          : Array.from(activeTableCellSelection.cells)[0]
+        : null;
+      const ts =
+        hasActiveTableCells && activeCellKey
+          ? getCellEffectiveTextStyle(primary, activeCellKey)
+          : getObjectTextStyle(primary);
       const famSel = document.getElementById('inspFontFamilySelect');
       const sizeSel = document.getElementById('inspFontSizeSelect');
       const artSel = document.getElementById('inspArtStyleSelect');
@@ -2078,7 +2177,9 @@ function syncSelectionUI() {
       document.getElementById('inspUnderlineBtn')?.classList.toggle('active-pill', ts.underline);
 
       let currentDisplayAlign = 'left';
-      if (lastActiveAlignTarget && selectedObjectIds.has(lastActiveAlignTarget.obj?.id)) {
+      if (hasActiveTableCells && activeCellKey) {
+        currentDisplayAlign = primary.cellAligns?.[activeCellKey] || 'left';
+      } else if (lastActiveAlignTarget && selectedObjectIds.has(lastActiveAlignTarget.obj?.id)) {
         if (lastActiveAlignTarget.kind === 'title') {
           currentDisplayAlign = lastActiveAlignTarget.obj.titleAlign || 'left';
         } else if (lastActiveAlignTarget.kind === 'check-row') {
@@ -3545,16 +3646,41 @@ function createObjectDOM(obj) {
       <button class="ff-table-btn" data-act="del-row">${SVG_ICONS.minus}<span>행</span></button>
       <button class="ff-table-btn" data-act="add-col">${SVG_ICONS.plus}<span>열</span></button>
       <button class="ff-table-btn" data-act="del-col">${SVG_ICONS.minus}<span>열</span></button>
+      <button class="ff-table-btn" data-act="sel-all" title="표의 모든 셀 일괄 선택 (드래그 또는 Shift+클릭으로도 범위 선택 가능)">${SVG_ICONS.check}<span>전체선택</span></button>
       <button class="ff-table-btn" data-act="chk-square" title="선택된 셀에 네모 체크박스 넣기">${SVG_ICONS.chkSquare}<span>네모</span></button>
       <button class="ff-table-btn" data-act="chk-circle" title="선택된 셀에 원형 체크박스 넣기">${SVG_ICONS.chkCircle}<span>원형</span></button>
       <button class="ff-table-btn" data-act="chk-toggle" title="선택된 셀에 슬라이드 버튼 넣기">${SVG_ICONS.chkToggle}<span>슬라이드</span></button>
       <button class="ff-table-btn" data-act="copy-tsv" title="구글 시트나 엑셀에 바로 붙여넣을 수 있도록 복사">${SVG_ICONS.copy}<span>시트복사</span></button>
       <button class="ff-table-btn" data-act="export-csv" title="엑셀 CSV 파일로 저장">${SVG_ICONS.download}<span>엑셀저장</span></button>
+      <span class="ff-table-sel-badge hidden"></span>
     `;
+    tBar.addEventListener('mousedown', (ev) => {
+      if (ev.target.closest('.ff-table-btn')) ev.preventDefault();
+    });
     el.appendChild(tBar);
 
     const wrap = document.createElement('div');
     wrap.className = 'ff-table-wrap';
+
+    const selectCellRange = (r1, c1, r2, c2, keepAnchor = true) => {
+      const minR = Math.max(0, Math.min(r1, r2));
+      const maxR = Math.min(obj.tableData.length - 1, Math.max(r1, r2));
+      const maxCols = (obj.tableData[0]?.length || 1) - 1;
+      const minC = Math.max(0, Math.min(c1, c2));
+      const maxC = Math.min(maxCols, Math.max(c1, c2));
+      activeTableCellSelection.objId = obj.id;
+      if (!keepAnchor || !activeTableCellSelection.anchor) {
+        activeTableCellSelection.anchor = { rIdx: r1, cIdx: c1 };
+      }
+      activeTableCellSelection.cells.clear();
+      for (let rr = minR; rr <= maxR; rr++) {
+        for (let cc = minC; cc <= maxC; cc++) {
+          activeTableCellSelection.cells.add(`${rr}_${cc}`);
+        }
+      }
+      updateTableCellSelectionDOM(obj.id);
+      syncSelectionUI();
+    };
 
     const renderTableGrid = () => {
       const table = document.createElement('table');
@@ -3564,12 +3690,15 @@ function createObjectDOM(obj) {
         row.forEach((cellVal, cIdx) => {
           const td = document.createElement('td');
           const cellKey = `${rIdx}_${cIdx}`;
+          td.dataset.cellKey = cellKey;
+          td.dataset.rIdx = String(rIdx);
+          td.dataset.cIdx = String(cIdx);
           const cellAlign = obj.cellAligns?.[cellKey] || 'left';
           td.style.textAlign = cellAlign;
           const rawStr = String(cellVal ?? '');
           const chkMatch = rawStr.match(/^\[(square|circle|toggle):(0|1)\]\s?(.*)$/);
 
-          const registerCellAlignTarget = () => {
+          const registerCellAlignTarget = (ev = null) => {
             lastFocusedTableCell = { obj, rIdx, cIdx, renderTableGrid };
             lastActiveAlignTarget = {
               kind: 'table-cell',
@@ -3578,7 +3707,119 @@ function createObjectDOM(obj) {
               cIdx,
               tdEl: td
             };
-            syncAlignButtonsUI(obj.cellAligns?.[cellKey] || 'left');
+            // Only reset to single-cell selection if we are not in the middle of a multi-cell drag or Shift/Alt selection
+            if (
+              !ev?.shiftKey &&
+              !ev?.altKey &&
+              !(tableCellDragState && tableCellDragState.isMultiDrag) &&
+              !(activeTableCellSelection.objId === obj.id && activeTableCellSelection.cells.size > 1 && activeTableCellSelection.cells.has(cellKey) && ev?.type === 'focus')
+            ) {
+              activeTableCellSelection.objId = obj.id;
+              activeTableCellSelection.anchor = { rIdx, cIdx };
+              activeTableCellSelection.cells.clear();
+              activeTableCellSelection.cells.add(cellKey);
+              updateTableCellSelectionDOM(obj.id);
+            }
+            syncSelectionUI();
+          };
+
+          // Multi-cell drag & Shift/Alt range selection
+          td.addEventListener('pointerdown', (ev) => {
+            if (ev.button !== 0 || ev.ctrlKey) return;
+            if (!selectedObjectIds.has(obj.id)) {
+              selectObject(obj.id, { additive: false });
+            }
+            if (ev.shiftKey) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              const anc =
+                activeTableCellSelection.objId === obj.id && activeTableCellSelection.anchor
+                  ? activeTableCellSelection.anchor
+                  : lastFocusedTableCell && lastFocusedTableCell.obj.id === obj.id
+                  ? { rIdx: lastFocusedTableCell.rIdx, cIdx: lastFocusedTableCell.cIdx }
+                  : { rIdx: 0, cIdx: 0 };
+              activeTableCellSelection.anchor = anc;
+              window.getSelection()?.removeAllRanges();
+              selectCellRange(anc.rIdx, anc.cIdx, rIdx, cIdx, true);
+              return;
+            }
+            if (ev.altKey) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              if (activeTableCellSelection.objId !== obj.id) {
+                activeTableCellSelection.objId = obj.id;
+                activeTableCellSelection.cells.clear();
+              }
+              activeTableCellSelection.anchor = { rIdx, cIdx };
+              if (activeTableCellSelection.cells.has(cellKey)) {
+                activeTableCellSelection.cells.delete(cellKey);
+              } else {
+                activeTableCellSelection.cells.add(cellKey);
+              }
+              window.getSelection()?.removeAllRanges();
+              updateTableCellSelectionDOM(obj.id);
+              syncSelectionUI();
+              return;
+            }
+            activeTableCellSelection.objId = obj.id;
+            activeTableCellSelection.anchor = { rIdx, cIdx };
+            activeTableCellSelection.cells.clear();
+            activeTableCellSelection.cells.add(cellKey);
+            updateTableCellSelectionDOM(obj.id);
+            tableCellDragState = {
+              obj,
+              tableEl: table,
+              startR: rIdx,
+              startC: cIdx,
+              isMultiDrag: false
+            };
+          });
+
+          td.addEventListener('pointerenter', () => {
+            if (!tableCellDragState || tableCellDragState.obj.id !== obj.id) return;
+            if (rIdx !== tableCellDragState.startR || cIdx !== tableCellDragState.startC) {
+              tableCellDragState.isMultiDrag = true;
+              table.classList.add('is-selecting-cells');
+              window.getSelection()?.removeAllRanges();
+            }
+            if (tableCellDragState.isMultiDrag) {
+              selectCellRange(tableCellDragState.startR, tableCellDragState.startC, rIdx, cIdx, true);
+            }
+          });
+
+          const handleCellKeydown = (ev) => {
+            // Ctrl+A inside table -> select all cells in this table!
+            if ((ev.ctrlKey || ev.metaKey) && (ev.code === 'KeyA' || (ev.key || '').toLowerCase() === 'a')) {
+              if (activeTableCellSelection.objId === obj.id && activeTableCellSelection.cells.size > 1) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                selectCellRange(0, 0, obj.tableData.length - 1, (obj.tableData[0]?.length || 1) - 1, false);
+                showToast(`📊 표 전체 셀(${activeTableCellSelection.cells.size}개)이 선택되었습니다`);
+                return;
+              }
+            }
+            // Delete or Backspace when multiple cells are selected -> clear all selected cells!
+            if (
+              (ev.key === 'Backspace' || ev.key === 'Delete') &&
+              activeTableCellSelection.objId === obj.id &&
+              activeTableCellSelection.cells.size > 1
+            ) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              pushUndoSnapshot(`표 선택 셀(${activeTableCellSelection.cells.size}개) 내용 지우기`);
+              activeTableCellSelection.cells.forEach((ck) => {
+                const [rr, cc] = ck.split('_').map(Number);
+                if (obj.tableData[rr] && obj.tableData[rr][cc] !== undefined) {
+                  obj.tableData[rr][cc] = '';
+                }
+              });
+              renderTableGrid();
+              scheduleSaveBoard();
+              return;
+            }
+            if (ev.key === 'Backspace' || ev.key === 'Delete' || ev.key === 'Enter' || ev.code === 'Space') {
+              ev.stopPropagation();
+            }
           };
 
           if (chkMatch) {
@@ -3611,18 +3852,14 @@ function createObjectDOM(obj) {
               txtSpan.style.textDecoration = 'line-through';
             }
             txtSpan.textContent = labelStr;
-            txtSpan.addEventListener('focus', registerCellAlignTarget);
-            txtSpan.addEventListener('mouseup', registerCellAlignTarget);
-            txtSpan.addEventListener('keyup', registerCellAlignTarget);
+            txtSpan.addEventListener('focus', (ev) => registerCellAlignTarget(ev));
+            txtSpan.addEventListener('mouseup', (ev) => registerCellAlignTarget(ev));
+            txtSpan.addEventListener('keyup', (ev) => registerCellAlignTarget(ev));
             txtSpan.addEventListener('input', () => {
               obj.tableData[rIdx][cIdx] = `[${cStyle}:${isChecked ? '1' : '0'}] ${txtSpan.textContent}`;
               scheduleSaveBoard();
             });
-            txtSpan.addEventListener('keydown', (ev) => {
-              if (ev.key === 'Backspace' || ev.key === 'Delete' || ev.key === 'Enter' || ev.code === 'Space') {
-                ev.stopPropagation();
-              }
-            });
+            txtSpan.addEventListener('keydown', handleCellKeydown);
 
             cellFlex.appendChild(w);
             cellFlex.appendChild(txtSpan);
@@ -3630,18 +3867,14 @@ function createObjectDOM(obj) {
           } else {
             td.contentEditable = 'true';
             td.textContent = rawStr;
-            td.addEventListener('focus', registerCellAlignTarget);
-            td.addEventListener('mouseup', registerCellAlignTarget);
-            td.addEventListener('keyup', registerCellAlignTarget);
+            td.addEventListener('focus', (ev) => registerCellAlignTarget(ev));
+            td.addEventListener('mouseup', (ev) => registerCellAlignTarget(ev));
+            td.addEventListener('keyup', (ev) => registerCellAlignTarget(ev));
             td.addEventListener('input', () => {
               obj.tableData[rIdx][cIdx] = td.textContent;
               scheduleSaveBoard();
             });
-            td.addEventListener('keydown', (ev) => {
-              if (ev.key === 'Backspace' || ev.key === 'Delete' || ev.key === 'Enter' || ev.code === 'Space') {
-                ev.stopPropagation();
-              }
-            });
+            td.addEventListener('keydown', handleCellKeydown);
           }
           tr.appendChild(td);
         });
@@ -3650,6 +3883,7 @@ function createObjectDOM(obj) {
       wrap.innerHTML = '';
       wrap.appendChild(table);
       applyObjectTypography(el, obj);
+      updateTableCellSelectionDOM(obj.id);
     };
     renderTableGrid();
 
@@ -3659,7 +3893,20 @@ function createObjectDOM(obj) {
       e.stopPropagation();
       const act = btn.dataset.act;
       const cols = obj.tableData[0]?.length || 3;
-      if (act === 'add-row') {
+      if (act === 'sel-all') {
+        if (!selectedObjectIds.has(obj.id)) selectObject(obj.id, { additive: false });
+        const totalR = obj.tableData.length;
+        const totalC = obj.tableData[0]?.length || 1;
+        const allSelected =
+          activeTableCellSelection.objId === obj.id && activeTableCellSelection.cells.size === totalR * totalC;
+        if (allSelected) {
+          clearTableCellSelection();
+          showToast('표 셀 전체선택이 해제되었습니다');
+        } else {
+          selectCellRange(0, 0, totalR - 1, totalC - 1, false);
+          showToast(`📊 표의 모든 셀(${activeTableCellSelection.cells.size}개)이 선택되었습니다 — 상단 툴바에서 정렬·폰트를 한 번에 변경하세요!`);
+        }
+      } else if (act === 'add-row') {
         pushUndoSnapshot('표 행 추가');
         obj.tableData.push(new Array(cols).fill(''));
         renderTableGrid();
@@ -3682,10 +3929,20 @@ function createObjectDOM(obj) {
       } else if (act === 'chk-square' || act === 'chk-circle' || act === 'chk-toggle') {
         pushUndoSnapshot('표 체크박스 설정');
         const styleName = act.replace('chk-', '');
-        const targetR = lastFocusedTableCell && lastFocusedTableCell.obj.id === obj.id ? lastFocusedTableCell.rIdx : Math.min(1, obj.tableData.length - 1);
-        const targetC = lastFocusedTableCell && lastFocusedTableCell.obj.id === obj.id ? lastFocusedTableCell.cIdx : 0;
-        const curVal = String(obj.tableData[targetR]?.[targetC] ?? '').replace(/^\[(square|circle|toggle):(0|1)\]\s?/, '');
-        obj.tableData[targetR][targetC] = `[${styleName}:0] ${curVal}`;
+        if (activeTableCellSelection.objId === obj.id && activeTableCellSelection.cells.size > 0) {
+          activeTableCellSelection.cells.forEach((ck) => {
+            const [rr, cc] = ck.split('_').map(Number);
+            if (obj.tableData[rr] && obj.tableData[rr][cc] !== undefined) {
+              const curVal = String(obj.tableData[rr][cc] ?? '').replace(/^\[(square|circle|toggle):(0|1)\]\s?/, '');
+              obj.tableData[rr][cc] = `[${styleName}:0] ${curVal}`;
+            }
+          });
+        } else {
+          const targetR = lastFocusedTableCell && lastFocusedTableCell.obj.id === obj.id ? lastFocusedTableCell.rIdx : Math.min(1, obj.tableData.length - 1);
+          const targetC = lastFocusedTableCell && lastFocusedTableCell.obj.id === obj.id ? lastFocusedTableCell.cIdx : 0;
+          const curVal = String(obj.tableData[targetR]?.[targetC] ?? '').replace(/^\[(square|circle|toggle):(0|1)\]\s?/, '');
+          obj.tableData[targetR][targetC] = `[${styleName}:0] ${curVal}`;
+        }
         renderTableGrid();
         scheduleSaveBoard();
       } else if (act === 'copy-tsv') {
@@ -4166,10 +4423,13 @@ function createObjectDOM(obj) {
     }
     e.stopPropagation();
     selectedConnectorId = null;
-    if (e.shiftKey) {
+    if (e.shiftKey && !(obj.type === 'table' && selectedObjectIds.has(obj.id) && e.target.closest('.ff-table td'))) {
       selectObject(obj.id, { additive: true });
     } else if (!selectedObjectIds.has(obj.id)) {
       selectObject(obj.id, { additive: false });
+    }
+    if (!e.target.closest('.ff-table, .ff-table-toolbar')) {
+      clearTableCellSelection();
     }
     renderAllConnectors();
   });
@@ -4889,6 +5149,7 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
     lineAligns: Array.isArray(partial.lineAligns) ? [...partial.lineAligns] : undefined,
     memoLineAligns: Array.isArray(partial.memoLineAligns) ? [...partial.memoLineAligns] : undefined,
     cellAligns: partial.cellAligns ? { ...partial.cellAligns } : undefined,
+    cellStyles: partial.cellStyles ? JSON.parse(JSON.stringify(partial.cellStyles)) : undefined,
     checkAutoWrap: partial.checkAutoWrap !== undefined ? Boolean(partial.checkAutoWrap) : undefined,
     keepAspect: partial.keepAspect !== undefined ? Boolean(partial.keepAspect) : undefined,
     imageAspect: partial.imageAspect || undefined,
@@ -5442,6 +5703,11 @@ window.addEventListener('pointermove', (e) => {
 });
 
 window.addEventListener('pointerup', (e) => {
+  if (tableCellDragState) {
+    tableCellDragState.tableEl?.classList.remove('is-selecting-cells');
+    tableCellDragState = null;
+  }
+
   if (draggingConnectorEndpoint) {
     if (draggingConnectorEndpoint.snapshotBefore) {
       pushUndoSnapshot('화살표 연결 위치 변경', draggingConnectorEndpoint.snapshotBefore);
@@ -7167,9 +7433,47 @@ function updateSelectedObjectsTextStyle(mutator, actionLabel = '텍스트 서식
   if (!selected.length) return;
   pushUndoSnapshot(actionLabel);
   selected.forEach((obj) => {
-    const cur = getObjectTextStyle(obj);
-    const next = mutator({ ...cur }, obj);
-    obj.textStyle = next;
+    if (
+      obj.type === 'table' &&
+      activeTableCellSelection.objId === obj.id &&
+      activeTableCellSelection.cells.size > 0
+    ) {
+      if (!obj.cellStyles || typeof obj.cellStyles !== 'object') obj.cellStyles = {};
+      const totalCells = (obj.tableData?.length || 0) * (obj.tableData?.[0]?.length || 0);
+      if (activeTableCellSelection.cells.size >= totalCells && totalCells > 0) {
+        const curBase = getObjectTextStyle(obj);
+        obj.textStyle = mutator({ ...curBase }, obj);
+      }
+      activeTableCellSelection.cells.forEach((ck) => {
+        const curCell = getCellEffectiveTextStyle(obj, ck);
+        const nextCell = mutator({ ...curCell }, obj);
+        obj.cellStyles[ck] = {
+          fontFamily: nextCell.fontFamily,
+          fontSize: nextCell.fontSize,
+          bold: nextCell.bold,
+          italic: nextCell.italic,
+          underline: nextCell.underline
+        };
+      });
+    } else {
+      const cur = getObjectTextStyle(obj);
+      const next = mutator({ ...cur }, obj);
+      obj.textStyle = next;
+      if (obj.type === 'table' && obj.cellStyles) {
+        // When updating the entire table with no specific cell selected, propagate to any customized cells too
+        Object.keys(obj.cellStyles).forEach((ck) => {
+          const curCell = getCellEffectiveTextStyle(obj, ck);
+          const nextCell = mutator({ ...curCell }, obj);
+          obj.cellStyles[ck] = {
+            fontFamily: nextCell.fontFamily,
+            fontSize: nextCell.fontSize,
+            bold: nextCell.bold,
+            italic: nextCell.italic,
+            underline: nextCell.underline
+          };
+        });
+      }
+    }
     const domEl = objectLayer.querySelector(`.ff-object[data-id="${obj.id}"]`);
     if (domEl) applyObjectTypography(domEl, obj);
   });
@@ -7289,24 +7593,39 @@ document.getElementById('inspStrokeArrowBtn')?.addEventListener('click', () => {
   scheduleSaveBoard();
 });
 
+function getActiveSelectionBaseTextStyle(obj) {
+  if (
+    obj &&
+    obj.type === 'table' &&
+    activeTableCellSelection.objId === obj.id &&
+    activeTableCellSelection.cells.size > 0
+  ) {
+    const anchorKey = activeTableCellSelection.anchor
+      ? `${activeTableCellSelection.anchor.rIdx}_${activeTableCellSelection.anchor.cIdx}`
+      : Array.from(activeTableCellSelection.cells)[0];
+    return getCellEffectiveTextStyle(obj, anchorKey);
+  }
+  return getObjectTextStyle(obj);
+}
+
 function toggleSelectedObjectsBold() {
   const selected = getSelectedObjects();
   if (!selected.length) return;
-  const nextVal = !getObjectTextStyle(selected[0]).bold;
+  const nextVal = !getActiveSelectionBaseTextStyle(selected[0]).bold;
   updateSelectedObjectsTextStyle((st) => ({ ...st, bold: nextVal }), '굵게 서식 변경', true);
 }
 
 function toggleSelectedObjectsItalic() {
   const selected = getSelectedObjects();
   if (!selected.length) return;
-  const nextVal = !getObjectTextStyle(selected[0]).italic;
+  const nextVal = !getActiveSelectionBaseTextStyle(selected[0]).italic;
   updateSelectedObjectsTextStyle((st) => ({ ...st, italic: nextVal }), '기울임 서식 변경', true);
 }
 
 function toggleSelectedObjectsUnderline() {
   const selected = getSelectedObjects();
   if (!selected.length) return;
-  const nextVal = !getObjectTextStyle(selected[0]).underline;
+  const nextVal = !getActiveSelectionBaseTextStyle(selected[0]).underline;
   updateSelectedObjectsTextStyle((st) => ({ ...st, underline: nextVal }), '밑줄 서식 변경', true);
 }
 
@@ -7326,6 +7645,36 @@ document.getElementById('inspUnderlineBtn')?.addEventListener('click', toggleSel
 function setSelectedObjectsTextAlign(align) {
   if (!['left', 'center', 'right'].includes(align)) return;
   const labelMap = { left: '좌측 정렬', center: '중앙 정렬', right: '우측 정렬' };
+
+  // 0. If 1 or more cells are selected in a table, align ALL selected cells at once!
+  if (
+    activeTableCellSelection.objId &&
+    selectedObjectIds.has(activeTableCellSelection.objId) &&
+    activeTableCellSelection.cells.size > 0
+  ) {
+    const tObj = currentBoard?.objects.find((o) => o.id === activeTableCellSelection.objId);
+    if (tObj && tObj.type === 'table') {
+      pushUndoSnapshot(`표 선택 셀(${activeTableCellSelection.cells.size}개) ${labelMap[align]}`);
+      if (!tObj.cellAligns) tObj.cellAligns = {};
+      const domEl = objectLayer?.querySelector(`.ff-object[data-id="${tObj.id}"]`);
+      activeTableCellSelection.cells.forEach((ck) => {
+        tObj.cellAligns[ck] = align;
+        const td = domEl?.querySelector(`.ff-table td[data-cell-key="${ck}"]`);
+        if (td) {
+          td.style.textAlign = align;
+          const sp = td.querySelector('span[contenteditable="true"]');
+          if (sp) sp.style.textAlign = align;
+        }
+      });
+      if (tObj.vectorized) {
+        const vecWrap = domEl?.querySelector('.ff-universal-vector-wrap');
+        if (vecWrap) renderUniversalVectorizedObjectInto(vecWrap, tObj);
+      }
+      syncAlignButtonsUI(align);
+      scheduleSaveBoard();
+      return;
+    }
+  }
 
   // 1. If a specific title / line / checklist row / table cell is focused inside a selected object, align ONLY that target!
   if (lastActiveAlignTarget && lastActiveAlignTarget.obj && selectedObjectIds.has(lastActiveAlignTarget.obj.id)) {
