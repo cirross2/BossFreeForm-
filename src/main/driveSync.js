@@ -175,8 +175,14 @@ class DriveSyncManager {
       if (fs.existsSync(CONFIG_PATH)) {
         const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
         const merged = { ...defaults, ...raw };
-        if (!raw.hotkey) {
+        if (
+          !raw.hotkey ||
+          /^(Shift\+Alt\+F|Alt\+Shift\+F|Ctrl\+Shift\+F|CommandOrControl\+Shift\+F)$/i.test(String(raw.hotkey).trim())
+        ) {
           merged.hotkey = 'Ctrl+Shift+Space';
+          try {
+            fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf-8');
+          } catch (_) {}
         }
         merged.googleDesktopDetectedPath = detected;
         // Unify any legacy FreeformDrive path or default local path to BossFreeForm

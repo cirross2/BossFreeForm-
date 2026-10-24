@@ -38,6 +38,7 @@
 
 | 단축키 | 도구 / 객체 | 설명 |
 | :---: | :--- | :--- |
+| **`Ctrl + Shift + Space`** | **글로벌 보드 호출 / 숨기기** | PC 작업 중 언제든 보스프리폼 창을 즉시 호출하거나 숨김 (사용자 커스텀 가능) |
 | **`A`** (보조 `V`) | **선택 도구** | 객체 선택, 이동, `Shift + 드래그` 다중 선택 박스(Marquee) |
 | **`D`** (보조 `P`) | **스마트 펜** | 자유 곡선, 직선(`Ctrl`/`Shift`), 화살표 및 도형 자동 보정 드로잉 |
 | **`B`** | **도형 그리기** | 사각형, 원형, 삼각형, 마름모, 화살표 등 벡터 도형 및 배경 잠금 |
@@ -104,6 +105,7 @@ Switch tools or spawn new objects instantly with a single left-hand keystroke wh
 
 | Shortcut | Tool / Object | Description |
 | :---: | :--- | :--- |
+| **`Ctrl + Shift + Space`** | **Global Summon / Hide** | Instantly summon or hide the BossFreeForm window from anywhere on Windows (customizable) |
 | **`A`** (`V`) | **Select Tool** | Select, move, or `Shift + Drag` marquee multi-select objects |
 | **`D`** (`P`) | **Smart Pen** | Freehand ink, straight lines (`Ctrl`/`Shift`), arrows, and auto-shape recognition |
 | **`B`** | **Shape Tool** | Draw rectangles, circles, triangles, diamonds, arrows, or lock shapes as background |
