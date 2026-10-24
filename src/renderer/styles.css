@@ -4084,8 +4084,10 @@ mark.ff-search-hl {
   left: 0;
   transform-origin: top left;
   background: #ffffff;
-  color: #1d1d1f;
+  color: #111113;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+  -webkit-font-smoothing: subpixel-antialiased;
+  text-rendering: geometricPrecision;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -4172,8 +4174,11 @@ mark.ff-search-hl {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 11.5px;
-  color: #1d1d1f;
+  font-size: 12px;
+  font-weight: 500;
+  color: #111113;
+  -webkit-font-smoothing: subpixel-antialiased;
+  text-rendering: geometricPrecision;
 }
 
 .ff-office-sheet-table th,
@@ -4473,14 +4478,20 @@ mark.ff-search-hl {
 .connector-scroll-link-badge {
   cursor: pointer;
   pointer-events: all;
-  transition: transform 0.14s ease, opacity 0.14s ease;
+  transform: none !important;
+  transition: filter 0.14s ease, opacity 0.14s ease;
 }
 .connector-scroll-link-badge:hover {
-  transform: scale(1.06);
+  transform: none !important;
+  filter: brightness(1.22) drop-shadow(0 0 6px rgba(48, 209, 88, 0.55));
 }
-.connector-scroll-link-badge text {
-  user-select: none;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+.connector-scroll-link-badge.is-active circle {
+  filter: drop-shadow(0 0 6px rgba(48, 209, 88, 0.42));
+}
+.ff-pdf-btn.is-active {
+  background: rgba(10, 132, 255, 0.28) !important;
+  border-color: rgba(10, 132, 255, 0.72) !important;
+  color: #64d2ff !important;
 }
 
 .ff-conn-link-mode-popover {
