@@ -3,7 +3,7 @@
 # 🎨 BossFreeForm
 
 **Infinite Canvas Whiteboard & Visual Workspace for Windows & Web (Synced with Google Drive)**  
-**Apple Freeform 감성을 담은 Windows & 웹 겸용 무한 캔버스 화이트보드 · 시각적 워크스페이스**
+**Windows 데스크톱 & 웹 겸용 오픈소스 무한 캔버스 화이트보드 · 시각적 워크스페이스**
 
 [![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=cirross2%40gmail.com&item_name=BossFreeForm+Open+Source+Support&currency_code=USD)
 [![Web Demo](https://img.shields.io/badge/Web_App-boss--freeform--web.vercel.app-0071e3?style=for-the-badge&logo=vercel&logoColor=white)](https://boss-freeform-web.vercel.app)
@@ -20,7 +20,7 @@
 
 ## 🇰🇷 한국어 가이드 (Korean)
 
-**BossFreeForm**은 Apple의 **Freeform(프리폼)** 디자인 철학을 Windows 데스크톱과 웹 브라우저 환경으로 확장한 **오픈소스 무한 캔버스(Infinite Canvas) 화이트보드 및 지식 관리 앱**입니다.  
+**BossFreeForm**은 Windows 데스크톱과 웹 브라우저 환경에서 자유롭게 아이디어를 정리하고 시각화할 수 있는 **오픈소스 무한 캔버스(Infinite Canvas) 화이트보드 및 지식 관리 앱**입니다.  
 노트, 체크리스트, 엑셀 호환 표, 벡터 스티커, 스마트 펜/도형, 내장 PDF 문서 뷰어를 하나의 끝없는 캔버스 위에 자유롭게 배치하고 **Google Drive**를 통해 PC와 웹(`https://boss-freeform-web.vercel.app`) 어디서든 이어서 작업할 수 있습니다.
 
 ### ✨ 주요 기능 (Key Features)
@@ -87,7 +87,7 @@ npm run build:setup
 
 ## 🇺🇸 English Guide
 
-**BossFreeForm** is an open-source **Infinite Canvas Whiteboard & Visual Workspace** for Windows Desktop and the Web, inspired by Apple's **Freeform** design philosophy.  
+**BossFreeForm** is a modern, open-source **Infinite Canvas Whiteboard & Visual Workspace** built for Windows Desktop and the Web.  
 Combine sticky notes, checklists, Excel-compatible tables, vector stickers, smart pen strokes, and interactive PDF viewers on a boundless canvas—seamlessly synced via **Google Drive** across Desktop and Web (`https://boss-freeform-web.vercel.app`).
 
 ### ✨ Key Features
