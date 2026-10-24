@@ -5271,11 +5271,20 @@ function createObjectDOM(obj) {
           <button class="ff-pdf-btn" data-pdf-act="next" title="다음 페이지로 이동">▶</button>
         </div>
         <div class="ff-pdf-nav-group">
+          <button class="ff-pdf-btn" data-pdf-act="toggle-doc-search" title="이 문서 안에서만 단어 검색">🔍<span>검색</span></button>
           <button class="ff-pdf-btn" data-pdf-act="zoom-out" title="축소 (Ctrl + 마우스 휠 아래로)">${SVG_ICONS.minus}</button>
           <button class="ff-pdf-btn" data-pdf-act="zoom-reset" data-pdf-zoom title="클릭 시 창크기에 맞춤 (100%)">${Math.round(currentPdfZoom * 100)}%</button>
           <button class="ff-pdf-btn" data-pdf-act="zoom-in" title="확대 (Ctrl + 마우스 휠 위로)">${SVG_ICONS.plus}</button>
           ${isSpreadsheetDoc ? `<button class="ff-pdf-btn" data-pdf-act="extract-table" title="이 시트를 편집 가능한 프리폼 표(Table) 객체로 추출"><span>📊 표 추출</span></button>` : ''}
           <button class="ff-pdf-btn" data-pdf-act="open-default" title="윈도우에 설정된 기본 프로그램으로 열기">${SVG_ICONS.externalLink}<span>열기</span></button>
+        </div>
+        <div class="ff-doc-local-search-bar hidden" data-doc-search-bar>
+          <span class="ff-doc-local-search-icon">🔍</span>
+          <input type="text" class="ff-doc-local-search-input" data-doc-search-input placeholder="이 문서 내 검색 (Enter: 다음)" />
+          <span class="ff-doc-local-search-count" data-doc-search-count>0 / 0</span>
+          <button class="ff-pdf-btn" data-pdf-act="doc-search-prev" title="이전 일치 항목 (Shift+Enter)">▲</button>
+          <button class="ff-pdf-btn" data-pdf-act="doc-search-next" title="다음 일치 항목 (Enter)">▼</button>
+          <button class="ff-pdf-btn" data-pdf-act="doc-search-close" title="문서 내 검색 닫기 (Esc)">✕</button>
         </div>
       `;
 
@@ -5289,11 +5298,131 @@ function createObjectDOM(obj) {
 
       const pageIndicatorEl = pdfBar.querySelector('[data-pdf-pages]');
       const zoomIndicatorEl = pdfBar.querySelector('[data-pdf-zoom]');
+      const localSearchBarEl = pdfBar.querySelector('[data-doc-search-bar]');
+      const localSearchInputEl = pdfBar.querySelector('[data-doc-search-input]');
+      const localSearchCountEl = pdfBar.querySelector('[data-doc-search-count]');
 
       let loadedDocEntry = null;
       let totalDocPages = 1;
       let currentVisiblePage = 1;
       let renderTicket = 0;
+      let localDocMatches = [];
+      let localDocActiveIdx = -1;
+
+      const renderLocalDocSearchHighlights = () => {
+        pagesContainer.querySelectorAll('.ff-doc-local-hl-box').forEach((n) => n.remove());
+        if (!localDocMatches.length) return;
+        const activeMatch = localDocMatches[localDocActiveIdx] || null;
+        pagesContainer.querySelectorAll('.ff-pdf-page-card').forEach((card) => {
+          const pNum = Number(card.dataset.pageNumber) || 1;
+          const pHits = localDocMatches.filter((m) => m.pageNum === pNum);
+          pHits.forEach((m) => {
+            const box = document.createElement('div');
+            box.className = `ff-pdf-search-hl-box ff-doc-local-hl-box ${activeMatch === m ? 'is-active' : ''}`;
+            box.style.left = `${(m.xRatio * 100).toFixed(2)}%`;
+            box.style.top = `${(m.yRatio * 100).toFixed(2)}%`;
+            box.style.width = `${(m.wRatio * 100).toFixed(2)}%`;
+            box.style.height = `${(m.hRatio * 100).toFixed(2)}%`;
+            card.appendChild(box);
+          });
+        });
+      };
+
+      const jumpToLocalDocMatch = (m) => {
+        if (!m) return;
+        const card = pagesContainer.querySelector(`.ff-pdf-page-card[data-page-number="${m.pageNum}"]`);
+        if (card) {
+          const offsetInsidePage = Math.max(0, (m.yRatio - 0.25) * card.offsetHeight);
+          pagesContainer.scrollTo({
+            top: Math.max(0, card.offsetTop + offsetInsidePage),
+            behavior: 'smooth'
+          });
+        }
+      };
+
+      const runLocalDocSearch = (rawQuery, moveDelta = 0) => {
+        const q = String(rawQuery || '').trim().toLowerCase();
+        if (!q || !loadedDocEntry || !Array.isArray(loadedDocEntry.pageTextItems)) {
+          localDocMatches = [];
+          localDocActiveIdx = -1;
+          if (localSearchCountEl) localSearchCountEl.textContent = '0 / 0';
+          renderLocalDocSearchHighlights();
+          return;
+        }
+        const hits = [];
+        loadedDocEntry.pageTextItems.forEach((items, pIdx) => {
+          const pageNum = pIdx + 1;
+          if (!Array.isArray(items)) return;
+          items.forEach((item) => {
+            const occs = findSubstringOccurrences(item.str || '', q);
+            occs.forEach((h) => {
+              const len = Math.max(1, (item.str || '').length);
+              const xSubRatio = item.xRatio + (h.start / len) * item.wRatio;
+              const wSubRatio = Math.max(0.018, ((h.end - h.start) / len) * item.wRatio);
+              hits.push({
+                pageNum,
+                xRatio: xSubRatio,
+                yRatio: item.yRatio,
+                wRatio: wSubRatio,
+                hRatio: item.hRatio
+              });
+            });
+          });
+        });
+        localDocMatches = hits;
+        if (!hits.length) {
+          localDocActiveIdx = -1;
+          if (localSearchCountEl) localSearchCountEl.textContent = '0 / 0';
+          renderLocalDocSearchHighlights();
+          return;
+        }
+        if (moveDelta === 0 || localDocActiveIdx < 0) {
+          localDocActiveIdx = 0;
+        } else {
+          localDocActiveIdx = (localDocActiveIdx + moveDelta + hits.length) % hits.length;
+        }
+        if (localSearchCountEl) {
+          localSearchCountEl.textContent = `${localDocActiveIdx + 1} / ${hits.length}`;
+        }
+        renderLocalDocSearchHighlights();
+        jumpToLocalDocMatch(localDocMatches[localDocActiveIdx]);
+      };
+
+      const toggleLocalDocSearch = (forceOpen) => {
+        if (!localSearchBarEl) return;
+        const willOpen = forceOpen !== undefined ? forceOpen : localSearchBarEl.classList.contains('hidden');
+        localSearchBarEl.classList.toggle('hidden', !willOpen);
+        el.classList.toggle('has-doc-search-open', willOpen);
+        if (willOpen) {
+          requestAnimationFrame(() => {
+            localSearchInputEl?.focus();
+            localSearchInputEl?.select();
+          });
+          if (localSearchInputEl?.value) {
+            runLocalDocSearch(localSearchInputEl.value, 0);
+          }
+        } else {
+          localDocMatches = [];
+          localDocActiveIdx = -1;
+          renderLocalDocSearchHighlights();
+        }
+      };
+
+      localSearchInputEl?.addEventListener('pointerdown', (e) => e.stopPropagation());
+      localSearchInputEl?.addEventListener('click', (e) => e.stopPropagation());
+      localSearchInputEl?.addEventListener('input', (e) => {
+        runLocalDocSearch(e.target.value, 0);
+      });
+      localSearchInputEl?.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          runLocalDocSearch(localSearchInputEl.value, e.shiftKey ? -1 : 1);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          toggleLocalDocSearch(false);
+        }
+      });
 
       const renderPdfPages = async () => {
         const myTicket = ++renderTicket;
@@ -5432,6 +5561,7 @@ function createObjectDOM(obj) {
           if (prevScrollRatio > 0 && pagesContainer.scrollHeight > 0) {
             pagesContainer.scrollTop = Math.round(prevScrollRatio * pagesContainer.scrollHeight);
           }
+          renderLocalDocSearchHighlights();
         } catch (err) {
           console.error('Document inline render error:', err);
           pagesContainer.innerHTML = `<div class="ff-pdf-loading">문서 렌더링 오류: ${escapeHtml(err.message)}</div>`;
@@ -5478,7 +5608,15 @@ function createObjectDOM(obj) {
         if (!btn) return;
         e.stopPropagation();
         const act = btn.dataset.pdfAct;
-        if (act === 'prev' && loadedDocEntry) {
+        if (act === 'toggle-doc-search') {
+          toggleLocalDocSearch();
+        } else if (act === 'doc-search-prev') {
+          runLocalDocSearch(localSearchInputEl?.value || '', -1);
+        } else if (act === 'doc-search-next') {
+          runLocalDocSearch(localSearchInputEl?.value || '', 1);
+        } else if (act === 'doc-search-close') {
+          toggleLocalDocSearch(false);
+        } else if (act === 'prev' && loadedDocEntry) {
           const targetP = Math.max(1, currentVisiblePage - 1);
           const card = pagesContainer.querySelector(`.ff-pdf-page-card[data-page-number="${targetP}"]`);
           if (card) {
