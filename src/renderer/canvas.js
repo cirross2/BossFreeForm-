@@ -3707,18 +3707,16 @@ function createObjectDOM(obj) {
               cIdx,
               tdEl: td
             };
-            // Only reset to single-cell selection if we are not in the middle of a multi-cell drag or Shift/Alt selection
-            if (
-              !ev?.shiftKey &&
-              !ev?.altKey &&
-              !(tableCellDragState && tableCellDragState.isMultiDrag) &&
-              !(activeTableCellSelection.objId === obj.id && activeTableCellSelection.cells.size > 1 && activeTableCellSelection.cells.has(cellKey) && ev?.type === 'focus')
-            ) {
-              activeTableCellSelection.objId = obj.id;
-              activeTableCellSelection.anchor = { rIdx, cIdx };
-              activeTableCellSelection.cells.clear();
-              activeTableCellSelection.cells.add(cellKey);
-              updateTableCellSelectionDOM(obj.id);
+            // Never wipe out an active multi-cell selection on mouseup/focus/keyup!
+            // Single-cell click reset is already handled in pointerdown.
+            if (activeTableCellSelection.objId !== obj.id || activeTableCellSelection.cells.size <= 1) {
+              if (!ev?.shiftKey && !ev?.altKey && !(tableCellDragState && tableCellDragState.isMultiDrag)) {
+                activeTableCellSelection.objId = obj.id;
+                activeTableCellSelection.anchor = { rIdx, cIdx };
+                activeTableCellSelection.cells.clear();
+                activeTableCellSelection.cells.add(cellKey);
+                updateTableCellSelectionDOM(obj.id);
+              }
             }
             syncSelectionUI();
           };
@@ -3771,7 +3769,8 @@ function createObjectDOM(obj) {
               tableEl: table,
               startR: rIdx,
               startC: cIdx,
-              isMultiDrag: false
+              isMultiDrag: false,
+              selectCellRange
             };
           });
 
@@ -5485,6 +5484,26 @@ window.addEventListener('pointermove', (e) => {
   lastCanvasMousePos = { x: e.clientX, y: e.clientY };
   document.body.classList.toggle('ctrl-move-mode', Boolean(e.ctrlKey && activeTool === 'select'));
 
+  if (tableCellDragState) {
+    const hoverEl = document.elementFromPoint(e.clientX, e.clientY);
+    const hoverTd = hoverEl?.closest?.('td[data-cell-key]');
+    if (hoverTd && tableCellDragState.tableEl?.contains(hoverTd)) {
+      const rIdx = Number(hoverTd.dataset.rIdx);
+      const cIdx = Number(hoverTd.dataset.cIdx);
+      if (Number.isFinite(rIdx) && Number.isFinite(cIdx)) {
+        if (rIdx !== tableCellDragState.startR || cIdx !== tableCellDragState.startC) {
+          tableCellDragState.isMultiDrag = true;
+          tableCellDragState.tableEl.classList.add('is-selecting-cells');
+          window.getSelection()?.removeAllRanges();
+        }
+        if (tableCellDragState.isMultiDrag) {
+          tableCellDragState.selectCellRange?.(tableCellDragState.startR, tableCellDragState.startC, rIdx, cIdx, true);
+        }
+      }
+    }
+    return;
+  }
+
   if (draggingConnectorEndpoint) {
     const cur = screenToWorld(e.clientX, e.clientY);
     const conn = draggingConnectorEndpoint.conn;
@@ -5704,8 +5723,12 @@ window.addEventListener('pointermove', (e) => {
 
 window.addEventListener('pointerup', (e) => {
   if (tableCellDragState) {
+    const wasMulti = tableCellDragState.isMultiDrag;
     tableCellDragState.tableEl?.classList.remove('is-selecting-cells');
     tableCellDragState = null;
+    if (wasMulti) {
+      window.getSelection()?.removeAllRanges();
+    }
   }
 
   if (draggingConnectorEndpoint) {
