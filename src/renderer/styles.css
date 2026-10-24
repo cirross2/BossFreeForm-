@@ -4079,7 +4079,7 @@ mark.ff-search-hl {
 }
 
 .ff-office-page-surface {
-  position: absolute;
+  position: relative;
   top: 0;
   left: 0;
   transform-origin: top left;
@@ -4089,12 +4089,13 @@ mark.ff-search-hl {
   -webkit-font-smoothing: subpixel-antialiased;
   text-rendering: geometricPrecision;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .ff-office-page-inner {
   width: 100%;
-  height: 100%;
+  min-height: 100%;
+  height: auto;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -4163,7 +4164,7 @@ mark.ff-search-hl {
 .ff-office-sheet-table-wrap {
   flex: 1;
   padding: 8px 10px 0 10px;
-  overflow: hidden;
+  overflow: visible;
   background: #ffffff;
 }
 .ff-office-page-inner.is-spreadsheet.is-continuation-page .ff-office-sheet-table-wrap {

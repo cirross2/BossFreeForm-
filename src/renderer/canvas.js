@@ -669,22 +669,43 @@ function computeSpreadsheetAutoColWidths(sheets, displayCols, normalizeInitial =
         if (!val) continue;
         const needed = Math.round(estimateCellVisualUnits(val) * 6.8 + 18);
         if (needed > widths[c]) {
-          widths[c] = Math.min(220, Math.max(52, needed));
+          widths[c] = Math.min(220, Math.max(56, needed));
         }
       }
     });
   });
   if (normalizeInitial) {
     const sumW = widths.reduce((a, b) => a + b, 0);
-    const maxInitialColsW = 720;
+    const maxInitialColsW = 1080;
     if (sumW > maxInitialColsW) {
       const ratio = maxInitialColsW / sumW;
       for (let c = 0; c < displayCols; c++) {
-        widths[c] = Math.max(44, Math.round(widths[c] * ratio));
+        widths[c] = Math.max(54, Math.round(widths[c] * ratio));
       }
     }
   }
   return widths;
+}
+
+function estimateSpreadsheetRowVisualHeight(rowArr, colWidths, displayCols, customRowH, baseRowHeight) {
+  const minH = Number.isFinite(customRowH) && customRowH >= 18 ? Math.round(customRowH) : baseRowHeight;
+  if (Number.isFinite(customRowH) && customRowH >= 18) return minH;
+  let maxLines = 1;
+  for (let c = 0; c < displayCols; c++) {
+    const val = String(rowArr?.[c] ?? '').trim();
+    if (!val) continue;
+    const availW = Math.max(32, (colWidths[c] || 64) - 12);
+    const explicitLines = val.split('\n');
+    let cellLines = 0;
+    for (const ln of explicitLines) {
+      const px = estimateCellVisualUnits(ln) * 6.8 + 4;
+      cellLines += Math.max(1, Math.ceil(px / availW));
+    }
+    if (cellLines > maxLines) {
+      maxLines = Math.min(6, cellLines);
+    }
+  }
+  return Math.max(minH, maxLines * 16 + 8);
 }
 
 function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX', customSizing = null) {
@@ -714,10 +735,15 @@ function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX', customSi
   const totalColsW = colWidths.reduce((acc, w) => acc + w, 0);
   const baseW = Math.max(420, rowNumColW + totalColsW + 20);
 
+  const firstSheetRows = sheets[0]?.rows || [];
   let firstPageRowsH = 0;
-  for (let r = 1; r <= rowsPerPage; r++) {
+  const firstSliceLen = Math.min(rowsPerPage, Math.max(1, firstSheetRows.length));
+  for (let r = 1; r <= firstSliceLen; r++) {
     const customRH = Number(rowHeightsMap[r]);
-    firstPageRowsH += Number.isFinite(customRH) && customRH >= 18 ? customRH : baseRowHeight;
+    firstPageRowsH += estimateSpreadsheetRowVisualHeight(firstSheetRows[r - 1], colWidths, displayCols, customRH, baseRowHeight);
+  }
+  if (firstSliceLen < rowsPerPage) {
+    firstPageRowsH += (rowsPerPage - firstSliceLen) * baseRowHeight;
   }
   const baseH = Math.max(320, 38 + 25 + firstPageRowsH + 18);
   const pageAspect = Number((baseW / baseH).toFixed(4));
@@ -748,15 +774,18 @@ function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX', customSi
 
       let rowsHtml = '';
       let pageRowsSumH = 0;
-      const itemsForSearch = [];
+      const rawItemsForSearch = [];
       const textLines = [];
 
       sliceRows.forEach((r, rIdx) => {
         const absRowNum = startRow + rIdx + 1;
         const isHeaderRow = absRowNum === 1;
         const customRH = Number(rowHeightsMap[absRowNum]);
-        const rowH = Number.isFinite(customRH) && customRH >= 18 ? Math.round(customRH) : baseRowHeight;
-        pageRowsSumH += rowH;
+        const hasExplicitRowH = Number.isFinite(customRH) && customRH >= 18;
+        const rowH = hasExplicitRowH ? Math.round(customRH) : baseRowHeight;
+        const visualRowH = estimateSpreadsheetRowVisualHeight(r, colWidths, displayCols, customRH, baseRowHeight);
+        const rowTopY = (isFirstPage ? 63 : 4) + pageRowsSumH;
+        pageRowsSumH += visualRowH;
 
         let cellsHtml = `<td class="ff-office-sheet-rownum" data-abs-row="${absRowNum}" style="height:${rowH}px"><span>${absRowNum}</span><span class="ff-xlsx-row-resizer" data-abs-row="${absRowNum}" title="드래그하여 행 높이 조절 (Shift+드래그: 전체 행 높이 일괄 조절)"></span></td>`;
         const rowStrParts = [];
@@ -766,12 +795,12 @@ function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX', customSi
           const cw = colWidths[c];
           if (val) {
             rowStrParts.push(val);
-            itemsForSearch.push({
+            rawItemsForSearch.push({
               str: val,
-              xRatio: Math.min(0.95, (accColX + 10) / baseW),
-              yRatio: Math.min(0.95, ((isFirstPage ? 63 : 8) + rIdx * baseRowHeight) / baseH),
-              wRatio: Math.max(0.03, cw / baseW),
-              hRatio: Math.max(0.025, rowH / baseH)
+              xPx: accColX + 10,
+              yPx: rowTopY,
+              wPx: cw,
+              hPx: visualRowH
             });
           }
           accColX += cw;
@@ -783,8 +812,15 @@ function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX', customSi
 
       const thisPageBaseH = isFirstPage
         ? Math.max(320, 38 + 25 + pageRowsSumH + 18)
-        : Math.max(220, pageRowsSumH + 12);
+        : Math.max(180, pageRowsSumH + 10);
       const thisPageAspect = Number((baseW / thisPageBaseH).toFixed(4));
+      const itemsForSearch = rawItemsForSearch.map((it) => ({
+        str: it.str,
+        xRatio: Math.min(0.95, it.xPx / baseW),
+        yRatio: Math.min(0.96, it.yPx / thisPageBaseH),
+        wRatio: Math.max(0.03, it.wPx / baseW),
+        hRatio: Math.max(0.025, it.hPx / thisPageBaseH)
+      }));
 
       const docBarHtml = isFirstPage
         ? `
@@ -5849,17 +5885,20 @@ function createObjectDOM(obj) {
               pageCard.className = 'ff-pdf-page-card';
               pageCard.dataset.pageNumber = String(pageNum);
 
+              const isAutoFlowPage = Boolean(entry.isSpreadsheet || entry.docKind === 'docx');
               const viewportBox = document.createElement('div');
               viewportBox.className = 'ff-pdf-page-canvas ff-office-page-viewport';
               viewportBox.dataset.pageAspect = String(pageAspect);
+              viewportBox.dataset.autoFlowHeight = isAutoFlowPage ? '1' : '0';
               viewportBox.style.width = `${dispW}px`;
-              viewportBox.style.height = `${dispH}px`;
+              viewportBox.style.height = isAutoFlowPage ? 'auto' : `${dispH}px`;
 
               const surface = document.createElement('div');
               surface.className = 'ff-office-page-surface';
               surface.dataset.baseWidth = String(baseW);
               surface.style.width = `${baseW}px`;
-              surface.style.height = `${baseH}px`;
+              surface.style.height = isAutoFlowPage ? 'auto' : `${baseH}px`;
+              surface.style.minHeight = `${baseH}px`;
               surface.style.zoom = scale.toFixed(4);
               surface.style.transform = 'none';
               surface.innerHTML = pInfo.html;
@@ -5980,7 +6019,7 @@ function createObjectDOM(obj) {
               const dH = Math.round((liveInnerW / pAsp) * currentPdfZoom);
               vpBox.dataset.pageAspect = String(pAsp);
               vpBox.style.width = `${dW}px`;
-              vpBox.style.height = `${dH}px`;
+              vpBox.style.height = vpBox.dataset.autoFlowHeight === '1' ? 'auto' : `${dH}px`;
               if (sEl) {
                 sEl.dataset.baseWidth = String(newBaseW);
                 sEl.style.width = `${newBaseW}px`;
@@ -8022,7 +8061,7 @@ window.addEventListener('pointermove', (e) => {
         const targetW = Math.round(nextPageW * zoomFactor);
         const targetH = Math.round((nextPageW / Math.max(0.15, cvAspect)) * zoomFactor);
         cv.style.width = `${targetW}px`;
-        cv.style.height = `${targetH}px`;
+        cv.style.height = cv.dataset.autoFlowHeight === '1' ? 'auto' : `${targetH}px`;
         const officeSurface = cv.querySelector('.ff-office-page-surface');
         if (officeSurface) {
           const baseW = Number(officeSurface.dataset.baseWidth) || 620;
