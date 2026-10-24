@@ -456,6 +456,14 @@ const SVG_ICONS = {
   table: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>`,
   fit: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>`,
   resetWin: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 12h6"></path><path d="M12 9v6"></path></svg>`,
+  search: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="16.5" y1="16.5" x2="21" y2="21"></line></svg>`,
+  chevLeft: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>`,
+  chevRight: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`,
+  chevUp: `<svg class="ui-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>`,
+  chevDown: `<svg class="ui-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`,
+  close: `<svg class="ui-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
+  linkSync: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>`,
+  colFit: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path><polyline points="8 9 5 12 8 15"></polyline><polyline points="16 9 19 12 16 15"></polyline></svg>`,
   copyUnchecked: `<span class="ff-chk-copy-combo"><svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect></svg><svg class="ui-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></span>`,
   copyChecked: `<span class="ff-chk-copy-combo"><svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect><path d="m7.5 12 3 3 6-6.5"></path></svg><svg class="ui-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></span>`
 };
@@ -639,17 +647,67 @@ function parseCsvOrTsvRows(rawText, isTsv = false) {
   return rows;
 }
 
-function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX') {
+function estimateCellVisualUnits(str) {
+  const s = String(str ?? '').trim();
+  if (!s) return 2;
+  let units = 0;
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    units += code > 0x7f ? 1.72 : 0.96;
+  }
+  return units;
+}
+
+function computeSpreadsheetAutoColWidths(sheets, displayCols) {
+  const widths = new Array(displayCols).fill(64);
+  sheets.forEach((sh) => {
+    sh.rows.slice(0, 80).forEach((r) => {
+      for (let c = 0; c < displayCols; c++) {
+        const val = String(r[c] ?? '').trim();
+        if (!val) continue;
+        const needed = Math.round(estimateCellVisualUnits(val) * 6.8 + 18);
+        if (needed > widths[c]) {
+          widths[c] = Math.min(230, Math.max(54, needed));
+        }
+      }
+    });
+  });
+  return widths;
+}
+
+function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX', customSizing = null) {
   let maxColsOverall = 1;
   sheets.forEach((sh) => {
     sh.rows.forEach((r) => {
       if (r.length > maxColsOverall) maxColsOverall = r.length;
     });
   });
-  const displayCols = Math.min(14, Math.max(3, maxColsOverall));
+  const displayCols = Math.min(16, Math.max(3, maxColsOverall));
   const isLandscape = displayCols >= 5;
-  const pageAspect = isLandscape ? 841.89 / 595.28 : 595.28 / 841.89;
   const rowsPerPage = isLandscape ? 20 : 28;
+
+  const defaultColWidths = computeSpreadsheetAutoColWidths(sheets, displayCols);
+  const colWidths = Array.from({ length: displayCols }, (_, c) => {
+    const customW = Number(customSizing?.colWidths?.[c]);
+    return Number.isFinite(customW) && customW >= 36 ? Math.round(customW) : defaultColWidths[c];
+  });
+  const baseRowHeight =
+    Number.isFinite(Number(customSizing?.baseRowHeight)) && Number(customSizing.baseRowHeight) >= 20
+      ? Math.round(Number(customSizing.baseRowHeight))
+      : 26;
+  const rowHeightsMap = customSizing?.rowHeights && typeof customSizing.rowHeights === 'object' ? customSizing.rowHeights : {};
+
+  const rowNumColW = 36;
+  const totalColsW = colWidths.reduce((acc, w) => acc + w, 0);
+  const baseW = Math.max(420, rowNumColW + totalColsW + 20);
+
+  let firstPageRowsH = 0;
+  for (let r = 1; r <= rowsPerPage; r++) {
+    const customRH = Number(rowHeightsMap[r]);
+    firstPageRowsH += Number.isFinite(customRH) && customRH >= 18 ? customRH : baseRowHeight;
+  }
+  const baseH = Math.max(320, 38 + 25 + firstPageRowsH + 18);
+  const pageAspect = Number((baseW / baseH).toFixed(4));
 
   const pages = [];
   const pageTexts = [];
@@ -663,49 +721,77 @@ function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX') {
       const startRow = sp * rowsPerPage;
       const sliceRows = sh.rows.slice(startRow, startRow + rowsPerPage);
       const pageNum = pages.length + 1;
+      const isFirstPage = pageNum === 1;
+
+      let colGroupHtml = `<col style="width:${rowNumColW}px" />`;
+      for (let c = 0; c < displayCols; c++) {
+        colGroupHtml += `<col data-col-idx="${c}" style="width:${colWidths[c]}px" />`;
+      }
 
       let colHeadersHtml = `<th class="ff-office-sheet-rownum">#</th>`;
       for (let c = 0; c < displayCols; c++) {
-        colHeadersHtml += `<th>${indexToColLetters(c)}</th>`;
+        colHeadersHtml += `<th data-col-idx="${c}"><span>${indexToColLetters(c)}</span><span class="ff-xlsx-col-resizer" data-col-idx="${c}" title="드래그하여 열 너비 조절 (더블클릭: 자동 맞춤)"></span></th>`;
       }
 
       let rowsHtml = '';
+      let pageRowsSumH = 0;
       const itemsForSearch = [];
       const textLines = [];
 
       sliceRows.forEach((r, rIdx) => {
         const absRowNum = startRow + rIdx + 1;
         const isHeaderRow = absRowNum === 1;
-        let cellsHtml = `<td class="ff-office-sheet-rownum">${absRowNum}</td>`;
+        const customRH = Number(rowHeightsMap[absRowNum]);
+        const rowH = Number.isFinite(customRH) && customRH >= 18 ? Math.round(customRH) : baseRowHeight;
+        pageRowsSumH += rowH;
+
+        let cellsHtml = `<td class="ff-office-sheet-rownum" data-abs-row="${absRowNum}" style="height:${rowH}px"><span>${absRowNum}</span><span class="ff-xlsx-row-resizer" data-abs-row="${absRowNum}" title="드래그하여 행 높이 조절 (Shift+드래그: 전체 행 높이 일괄 조절)"></span></td>`;
         const rowStrParts = [];
+        let accColX = rowNumColW;
         for (let c = 0; c < displayCols; c++) {
           const val = String(r[c] ?? '').trim();
+          const cw = colWidths[c];
           if (val) {
             rowStrParts.push(val);
             itemsForSearch.push({
               str: val,
-              xRatio: Math.min(0.92, (c + 0.5) / (displayCols + 1)),
-              yRatio: Math.min(0.94, 0.12 + ((rIdx + 0.5) / rowsPerPage) * 0.82),
-              wRatio: Math.max(0.06, 0.85 / displayCols),
-              hRatio: Math.max(0.025, 0.75 / rowsPerPage)
+              xRatio: Math.min(0.95, (accColX + 10) / baseW),
+              yRatio: Math.min(0.95, ((isFirstPage ? 63 : 8) + rIdx * baseRowHeight) / baseH),
+              wRatio: Math.max(0.03, cw / baseW),
+              hRatio: Math.max(0.025, rowH / baseH)
             });
           }
-          cellsHtml += `<td class="${isHeaderRow ? 'is-sheet-header-cell' : ''}">${escapeHtml(val)}</td>`;
+          accColX += cw;
+          cellsHtml += `<td class="${isHeaderRow ? 'is-sheet-header-cell' : ''}" data-col-idx="${c}" style="height:${rowH}px"><div class="ff-xlsx-cell-inner">${escapeHtml(val)}</div><span class="ff-xlsx-col-resizer" data-col-idx="${c}" title="드래그하여 열 너비 조절 (더블클릭: 자동 맞춤)"></span></td>`;
         }
         if (rowStrParts.length) textLines.push(rowStrParts.join('\t'));
-        rowsHtml += `<tr>${cellsHtml}</tr>`;
+        rowsHtml += `<tr data-abs-row="${absRowNum}" style="height:${rowH}px">${cellsHtml}</tr>`;
       });
 
-      const html = `
-        <div class="ff-office-page-inner is-spreadsheet">
+      const thisPageBaseH = isFirstPage
+        ? Math.max(320, 38 + 25 + pageRowsSumH + 18)
+        : Math.max(220, pageRowsSumH + 12);
+      const thisPageAspect = Number((baseW / thisPageBaseH).toFixed(4));
+
+      const docBarHtml = isFirstPage
+        ? `
           <div class="ff-office-page-docbar">
             <span class="ff-office-badge excel">${escapeHtml(docKindLabel)}</span>
             <span class="ff-office-sheet-title">${escapeHtml(sh.name || 'Sheet1')}</span>
-            <span class="ff-office-page-meta">행 ${startRow + 1}–${startRow + sliceRows.length} / 총 ${sh.rows.length}행</span>
+            <span class="ff-office-page-meta">총 ${sh.rows.length}행 · ${displayCols}열 (열·행 경계선 드래그로 간격 조절)</span>
           </div>
+        `
+        : '';
+
+      const theadHtml = isFirstPage ? `<thead><tr>${colHeadersHtml}</tr></thead>` : '';
+
+      const html = `
+        <div class="ff-office-page-inner is-spreadsheet ${isFirstPage ? 'is-first-page' : 'is-continuation-page'}">
+          ${docBarHtml}
           <div class="ff-office-sheet-table-wrap">
             <table class="ff-office-sheet-table">
-              <thead><tr>${colHeadersHtml}</tr></thead>
+              <colgroup>${colGroupHtml}</colgroup>
+              ${theadHtml}
               <tbody>${rowsHtml}</tbody>
             </table>
           </div>
@@ -713,7 +799,13 @@ function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX') {
       `;
 
       const pageStr = `[${sh.name || 'Sheet1'} - ${pageNum}p]\n` + textLines.join('\n');
-      pages.push({ pageNumber: pageNum, aspect: pageAspect, html });
+      pages.push({
+        pageNumber: pageNum,
+        aspect: thisPageAspect,
+        baseW,
+        baseH: thisPageBaseH,
+        html
+      });
       pageTexts.push(pageStr);
       pageTextsByPage[pageNum] = pageStr;
       pageTextItems[pageNum - 1] = itemsForSearch;
@@ -722,6 +814,15 @@ function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX') {
 
   return {
     isOfficeDoc: true,
+    isSpreadsheet: true,
+    sheets,
+    docKindLabel,
+    displayCols,
+    defaultColWidths,
+    colWidths,
+    baseRowHeight,
+    baseW,
+    baseH,
     numPages: pages.length,
     pageAspect,
     pages,
@@ -979,13 +1080,20 @@ function parseDocxFromZip(zipMap) {
       }
     });
 
-    const html = `
-      <div class="ff-office-page-inner is-word-doc">
+    const isFirstPage = pageNum === 1;
+    const docBarHtml = isFirstPage
+      ? `
         <div class="ff-office-page-docbar">
           <span class="ff-office-badge word">DOCX</span>
-          <span class="ff-office-sheet-title">Word 문서 페이지</span>
-          <span class="ff-office-page-meta">${pageNum} / ${pageGroups.length} p</span>
+          <span class="ff-office-sheet-title">Word 문서</span>
+          <span class="ff-office-page-meta">총 ${pageGroups.length} p</span>
         </div>
+      `
+      : '';
+
+    const html = `
+      <div class="ff-office-page-inner is-word-doc ${isFirstPage ? 'is-first-page' : 'is-continuation-page'}">
+        ${docBarHtml}
         <div class="ff-office-word-content">${bodyHtml}</div>
       </div>
     `;
@@ -1137,13 +1245,20 @@ function parsePptxFromZip(zipMap) {
       })
       .join('');
 
-    const html = `
-      <div class="ff-office-page-inner is-ppt-slide">
+    const isFirstSlide = slideNum === 1;
+    const docBarHtml = isFirstSlide
+      ? `
         <div class="ff-office-page-docbar">
           <span class="ff-office-badge ppt">PPTX</span>
-          <span class="ff-office-sheet-title">Slide ${slideNum} / ${slideFiles.length}</span>
-          <span class="ff-office-page-meta">16:9 프레젠테이션 뷰</span>
+          <span class="ff-office-sheet-title">프레젠테이션 슬라이드</span>
+          <span class="ff-office-page-meta">총 ${slideFiles.length} 슬라이드</span>
         </div>
+      `
+      : '';
+
+    const html = `
+      <div class="ff-office-page-inner is-ppt-slide ${isFirstSlide ? 'is-first-page' : 'is-continuation-page'}">
+        ${docBarHtml}
         <div class="ff-office-ppt-body ${slideImages.length > 0 ? 'has-media' : ''}">
           <div class="ff-office-ppt-text-col">
             <div class="ff-office-ppt-title">${escapeHtml(slideTitle || `Slide ${slideNum}`)}</div>
@@ -4755,6 +4870,7 @@ function createObjectDOM(obj) {
       <button class="ff-table-btn" data-act="del-row">${SVG_ICONS.minus}<span>행</span></button>
       <button class="ff-table-btn" data-act="add-col">${SVG_ICONS.plus}<span>열</span></button>
       <button class="ff-table-btn" data-act="del-col">${SVG_ICONS.minus}<span>열</span></button>
+      <button class="ff-table-btn" data-act="autofit-cols" title="모든 열 너비와 행 높이를 글자 길이에 맞춰 자동 조절 (열·행 경계선 드래그로도 조절 가능)">${SVG_ICONS.colFit}<span>간격맞춤</span></button>
       <button class="ff-table-btn" data-act="sel-all" title="표의 모든 셀 일괄 선택 (드래그 또는 Shift+클릭으로도 범위 선택 가능)">${SVG_ICONS.check}<span>전체선택</span></button>
       <button class="ff-table-btn" data-act="chk-square" title="선택된 셀에 네모 체크박스 넣기">${SVG_ICONS.chkSquare}<span>네모</span></button>
       <button class="ff-table-btn" data-act="chk-circle" title="선택된 셀에 원형 체크박스 넣기">${SVG_ICONS.chkCircle}<span>원형</span></button>
@@ -4794,14 +4910,35 @@ function createObjectDOM(obj) {
     const renderTableGrid = () => {
       const table = document.createElement('table');
       table.className = 'ff-table';
+      const colCount = obj.tableData[0]?.length || 1;
+      if (Array.isArray(obj.colWidths) && obj.colWidths.length > 0) {
+        table.style.tableLayout = 'fixed';
+        const colgroup = document.createElement('colgroup');
+        for (let c = 0; c < colCount; c++) {
+          const col = document.createElement('col');
+          col.dataset.colIdx = String(c);
+          const cw = Number(obj.colWidths[c]) || 100;
+          col.style.width = `${Math.max(40, Math.round(cw))}px`;
+          colgroup.appendChild(col);
+        }
+        table.appendChild(colgroup);
+      }
+
       obj.tableData.forEach((row, rIdx) => {
         const tr = document.createElement('tr');
+        tr.dataset.rowIdx = String(rIdx);
+        if (Array.isArray(obj.rowHeights) && Number(obj.rowHeights[rIdx]) >= 24) {
+          tr.style.height = `${Math.round(Number(obj.rowHeights[rIdx]))}px`;
+        }
         row.forEach((cellVal, cIdx) => {
           const td = document.createElement('td');
           const cellKey = `${rIdx}_${cIdx}`;
           td.dataset.cellKey = cellKey;
           td.dataset.rIdx = String(rIdx);
           td.dataset.cIdx = String(cIdx);
+          if (Array.isArray(obj.rowHeights) && Number(obj.rowHeights[rIdx]) >= 24) {
+            td.style.height = `${Math.round(Number(obj.rowHeights[rIdx]))}px`;
+          }
           const cellAlign = obj.cellAligns?.[cellKey] || 'left';
           td.style.textAlign = cellAlign;
           const rawStr = String(cellVal ?? '');
@@ -4832,6 +4969,7 @@ function createObjectDOM(obj) {
 
           // Multi-cell drag & Shift/Alt range selection
           td.addEventListener('pointerdown', (ev) => {
+            if (ev.target.closest('.ff-table-col-resizer, .ff-table-row-resizer')) return;
             if (ev.button !== 0 || ev.ctrlKey) return;
             if (!selectedObjectIds.has(obj.id)) {
               selectObject(obj.id, { additive: false });
@@ -4902,7 +5040,7 @@ function createObjectDOM(obj) {
                 ev.preventDefault();
                 ev.stopPropagation();
                 selectCellRange(0, 0, obj.tableData.length - 1, (obj.tableData[0]?.length || 1) - 1, false);
-                showToast(`📊 표 전체 셀(${activeTableCellSelection.cells.size}개)이 선택되었습니다`);
+                showToast(`표 전체 셀(${activeTableCellSelection.cells.size}개)이 선택되었습니다`);
                 return;
               }
             }
@@ -4973,17 +5111,34 @@ function createObjectDOM(obj) {
             cellFlex.appendChild(txtSpan);
             td.appendChild(cellFlex);
           } else {
-            td.contentEditable = 'true';
-            td.textContent = rawStr;
-            td.addEventListener('focus', (ev) => registerCellAlignTarget(ev));
-            td.addEventListener('mouseup', (ev) => registerCellAlignTarget(ev));
-            td.addEventListener('keyup', (ev) => registerCellAlignTarget(ev));
-            td.addEventListener('input', () => {
-              obj.tableData[rIdx][cIdx] = td.textContent;
+            const cellEditor = document.createElement('div');
+            cellEditor.className = 'ff-table-cell-editor';
+            cellEditor.contentEditable = 'true';
+            cellEditor.textContent = rawStr;
+            cellEditor.addEventListener('focus', (ev) => registerCellAlignTarget(ev));
+            cellEditor.addEventListener('mouseup', (ev) => registerCellAlignTarget(ev));
+            cellEditor.addEventListener('keyup', (ev) => registerCellAlignTarget(ev));
+            cellEditor.addEventListener('input', () => {
+              obj.tableData[rIdx][cIdx] = cellEditor.textContent;
               scheduleSaveBoard();
             });
-            td.addEventListener('keydown', handleCellKeydown);
+            cellEditor.addEventListener('keydown', handleCellKeydown);
+            td.appendChild(cellEditor);
           }
+
+          // Column & Row Resize Handles on every cell
+          const colResizer = document.createElement('span');
+          colResizer.className = 'ff-table-col-resizer';
+          colResizer.dataset.colIdx = String(cIdx);
+          colResizer.title = '드래그하여 열 너비 조절 (더블클릭: 자동 맞춤)';
+          td.appendChild(colResizer);
+
+          const rowResizer = document.createElement('span');
+          rowResizer.className = 'ff-table-row-resizer';
+          rowResizer.dataset.rowIdx = String(rIdx);
+          rowResizer.title = '드래그하여 행 높이 조절';
+          td.appendChild(rowResizer);
+
           tr.appendChild(td);
         });
         table.appendChild(tr);
@@ -4995,13 +5150,141 @@ function createObjectDOM(obj) {
     };
     renderTableGrid();
 
+    // Interactive Column & Row Resize Dragging for Table Object
+    wrap.addEventListener('pointerdown', (ev) => {
+      const colRes = ev.target.closest('.ff-table-col-resizer');
+      const rowRes = ev.target.closest('.ff-table-row-resizer');
+      if (!colRes && !rowRes) return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      const tableEl = wrap.querySelector('.ff-table');
+      if (!tableEl) return;
+      const cols = obj.tableData[0]?.length || 1;
+      const rows = obj.tableData.length;
+
+      if (colRes) {
+        const cIdx = Number(colRes.dataset.colIdx);
+        if (!Array.isArray(obj.colWidths) || obj.colWidths.length < cols) {
+          const firstRowTds = Array.from(tableEl.querySelectorAll('tr:first-child td'));
+          obj.colWidths = firstRowTds.map((tdEl) => Math.max(44, Math.round(tdEl.offsetWidth || 90)));
+        }
+        const startX = ev.clientX;
+        const startColW = Number(obj.colWidths[cIdx]) || 90;
+        const snapBefore = createBoardSnapshot('표 열 너비 조절');
+        renderTableGrid();
+        const activeTable = wrap.querySelector('.ff-table');
+
+        const onMove = (me) => {
+          const dx = (me.clientX - startX) / Math.max(0.15, zoom);
+          const nextW = Math.max(40, Math.min(800, Math.round(startColW + dx)));
+          obj.colWidths[cIdx] = nextW;
+          const colEl = activeTable?.querySelector(`col[data-col-idx="${cIdx}"]`);
+          if (colEl) colEl.style.width = `${nextW}px`;
+          const totalW = obj.colWidths.slice(0, cols).reduce((a, b) => a + (Number(b) || 80), 0);
+          obj.width = Math.max(180, Math.round(totalW + 2));
+          el.style.width = `${obj.width}px`;
+          renderAllConnectors();
+        };
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+          pushUndoSnapshot('표 열 너비 조절', snapBefore);
+          scheduleSaveBoard();
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+      } else if (rowRes) {
+        const rIdx = Number(rowRes.dataset.rowIdx);
+        if (!Array.isArray(obj.rowHeights) || obj.rowHeights.length < rows) {
+          const allTrs = Array.from(tableEl.querySelectorAll('tr'));
+          obj.rowHeights = allTrs.map((trEl) => Math.max(26, Math.round(trEl.offsetHeight || 32)));
+        }
+        const startY = ev.clientY;
+        const startRowH = Number(obj.rowHeights[rIdx]) || 32;
+        const snapBefore = createBoardSnapshot('표 행 높이 조절');
+
+        const onMove = (me) => {
+          const dy = (me.clientY - startY) / Math.max(0.15, zoom);
+          const nextH = Math.max(24, Math.min(500, Math.round(startRowH + dy)));
+          obj.rowHeights[rIdx] = nextH;
+          const trEl = wrap.querySelector(`.ff-table tr[data-row-idx="${rIdx}"]`);
+          if (trEl) {
+            trEl.style.height = `${nextH}px`;
+            trEl.querySelectorAll('td').forEach((tdEl) => {
+              tdEl.style.height = `${nextH}px`;
+            });
+          }
+          const totalRowsH = obj.rowHeights.slice(0, rows).reduce((a, b) => a + (Number(b) || 32), 0);
+          const chromeH = (el.querySelector('.ff-obj-header')?.offsetHeight || 34) + (tBar.offsetHeight || 32) + 8;
+          obj.height = Math.max(120, Math.round(totalRowsH + chromeH));
+          el.style.height = `${obj.height}px`;
+          renderAllConnectors();
+        };
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+          pushUndoSnapshot('표 행 높이 조절', snapBefore);
+          scheduleSaveBoard();
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+      }
+    });
+
+    wrap.addEventListener('dblclick', (ev) => {
+      const colRes = ev.target.closest('.ff-table-col-resizer');
+      if (!colRes) return;
+      ev.stopPropagation();
+      const cIdx = Number(colRes.dataset.colIdx);
+      const cols = obj.tableData[0]?.length || 1;
+      if (!Array.isArray(obj.colWidths) || obj.colWidths.length < cols) {
+        const firstRowTds = Array.from(wrap.querySelectorAll('.ff-table tr:first-child td'));
+        obj.colWidths = firstRowTds.map((tdEl) => Math.max(44, Math.round(tdEl.offsetWidth || 90)));
+      }
+      let maxW = 56;
+      obj.tableData.forEach((r) => {
+        const clean = String(r[cIdx] ?? '').replace(/^\[(square|circle|toggle):(0|1)\]\s?/, '');
+        const w = Math.round(estimateCellVisualUnits(clean) * 8.2 + 24);
+        if (w > maxW) maxW = Math.min(420, w);
+      });
+      obj.colWidths[cIdx] = maxW;
+      const totalW = obj.colWidths.slice(0, cols).reduce((a, b) => a + (Number(b) || 80), 0);
+      obj.width = Math.max(180, Math.round(totalW + 2));
+      el.style.width = `${obj.width}px`;
+      renderTableGrid();
+      renderAllConnectors();
+      scheduleSaveBoard();
+    });
+
+    if (typeof bindScrollLinkSync === 'function') {
+      bindScrollLinkSync(obj.id, wrap);
+    }
+
     tBar.addEventListener('click', async (e) => {
       const btn = e.target.closest('.ff-table-btn');
       if (!btn) return;
       e.stopPropagation();
       const act = btn.dataset.act;
       const cols = obj.tableData[0]?.length || 3;
-      if (act === 'sel-all') {
+      if (act === 'autofit-cols') {
+        pushUndoSnapshot('표 열·행 간격 자동 맞춤');
+        const newColW = new Array(cols).fill(64);
+        obj.tableData.forEach((r) => {
+          for (let c = 0; c < cols; c++) {
+            const clean = String(r[c] ?? '').replace(/^\[(square|circle|toggle):(0|1)\]\s?/, '');
+            const w = Math.round(estimateCellVisualUnits(clean) * 8.2 + 24);
+            if (w > newColW[c]) newColW[c] = Math.min(420, Math.max(56, w));
+          }
+        });
+        obj.colWidths = newColW;
+        const totalW = newColW.reduce((a, b) => a + b, 0);
+        obj.width = Math.max(180, Math.round(totalW + 2));
+        el.style.width = `${obj.width}px`;
+        renderTableGrid();
+        renderAllConnectors();
+        scheduleSaveBoard();
+        showToast('표의 모든 열 너비가 글자 길이에 맞춰 자동으로 조절되었습니다');
+      } else if (act === 'sel-all') {
         if (!selectedObjectIds.has(obj.id)) selectObject(obj.id, { additive: false });
         const totalR = obj.tableData.length;
         const totalC = obj.tableData[0]?.length || 1;
@@ -5012,7 +5295,7 @@ function createObjectDOM(obj) {
           showToast('표 셀 전체선택이 해제되었습니다');
         } else {
           selectCellRange(0, 0, totalR - 1, totalC - 1, false);
-          showToast(`📊 표의 모든 셀(${activeTableCellSelection.cells.size}개)이 선택되었습니다 — 상단 툴바에서 정렬·폰트를 한 번에 변경하세요!`);
+          showToast(`표의 모든 셀(${activeTableCellSelection.cells.size}개)이 선택되었습니다 — 상단 툴바에서 정렬·폰트를 한 번에 변경하세요!`);
         }
       } else if (act === 'add-row') {
         pushUndoSnapshot('표 행 추가');
@@ -5022,16 +5305,19 @@ function createObjectDOM(obj) {
       } else if (act === 'del-row' && obj.tableData.length > 1) {
         pushUndoSnapshot('표 행 삭제');
         obj.tableData.pop();
+        if (Array.isArray(obj.rowHeights)) obj.rowHeights.pop();
         renderTableGrid();
         scheduleSaveBoard();
       } else if (act === 'add-col') {
         pushUndoSnapshot('표 열 추가');
         obj.tableData.forEach((r) => r.push(''));
+        if (Array.isArray(obj.colWidths)) obj.colWidths.push(90);
         renderTableGrid();
         scheduleSaveBoard();
       } else if (act === 'del-col' && cols > 1) {
         pushUndoSnapshot('표 열 삭제');
         obj.tableData.forEach((r) => r.pop());
+        if (Array.isArray(obj.colWidths)) obj.colWidths.pop();
         renderTableGrid();
         scheduleSaveBoard();
       } else if (act === 'chk-square' || act === 'chk-circle' || act === 'chk-toggle') {
@@ -5266,25 +5552,26 @@ function createObjectDOM(obj) {
       pdfBar.className = 'ff-pdf-toolbar';
       pdfBar.innerHTML = `
         <div class="ff-pdf-nav-group">
-          <button class="ff-pdf-btn" data-pdf-act="prev" title="이전 페이지로 이동">◀</button>
+          <button class="ff-pdf-btn" data-pdf-act="prev" title="이전 페이지로 이동">${SVG_ICONS.chevLeft}</button>
           <span class="ff-pdf-page-indicator" data-pdf-pages>로딩 중...</span>
-          <button class="ff-pdf-btn" data-pdf-act="next" title="다음 페이지로 이동">▶</button>
+          <button class="ff-pdf-btn" data-pdf-act="next" title="다음 페이지로 이동">${SVG_ICONS.chevRight}</button>
         </div>
         <div class="ff-pdf-nav-group">
-          <button class="ff-pdf-btn" data-pdf-act="toggle-doc-search" title="이 문서 안에서만 단어 검색">🔍<span>검색</span></button>
+          <button class="ff-pdf-btn" data-pdf-act="toggle-doc-search" title="이 문서 안에서만 단어 검색">${SVG_ICONS.search}<span>검색</span></button>
           <button class="ff-pdf-btn" data-pdf-act="zoom-out" title="축소 (Ctrl + 마우스 휠 아래로)">${SVG_ICONS.minus}</button>
           <button class="ff-pdf-btn" data-pdf-act="zoom-reset" data-pdf-zoom title="클릭 시 창크기에 맞춤 (100%)">${Math.round(currentPdfZoom * 100)}%</button>
           <button class="ff-pdf-btn" data-pdf-act="zoom-in" title="확대 (Ctrl + 마우스 휠 위로)">${SVG_ICONS.plus}</button>
-          ${isSpreadsheetDoc ? `<button class="ff-pdf-btn" data-pdf-act="extract-table" title="이 시트를 편집 가능한 프리폼 표(Table) 객체로 추출"><span>📊 표 추출</span></button>` : ''}
+          ${isSpreadsheetDoc ? `<button class="ff-pdf-btn" data-pdf-act="xlsx-autofit" title="열과 행 간격을 내용에 맞춰 자동 최적화">${SVG_ICONS.colFit}<span>간격맞춤</span></button>` : ''}
+          ${isSpreadsheetDoc ? `<button class="ff-pdf-btn" data-pdf-act="extract-table" title="이 시트를 편집 가능한 프리폼 표(Table) 객체로 추출">${SVG_ICONS.table}<span>표 추출</span></button>` : ''}
           <button class="ff-pdf-btn" data-pdf-act="open-default" title="윈도우에 설정된 기본 프로그램으로 열기">${SVG_ICONS.externalLink}<span>열기</span></button>
         </div>
         <div class="ff-doc-local-search-bar hidden" data-doc-search-bar>
-          <span class="ff-doc-local-search-icon">🔍</span>
+          <span class="ff-doc-local-search-icon">${SVG_ICONS.search}</span>
           <input type="text" class="ff-doc-local-search-input" data-doc-search-input placeholder="이 문서 내 검색 (Enter: 다음)" />
           <span class="ff-doc-local-search-count" data-doc-search-count>0 / 0</span>
-          <button class="ff-pdf-btn" data-pdf-act="doc-search-prev" title="이전 일치 항목 (Shift+Enter)">▲</button>
-          <button class="ff-pdf-btn" data-pdf-act="doc-search-next" title="다음 일치 항목 (Enter)">▼</button>
-          <button class="ff-pdf-btn" data-pdf-act="doc-search-close" title="문서 내 검색 닫기 (Esc)">✕</button>
+          <button class="ff-pdf-btn" data-pdf-act="doc-search-prev" title="이전 일치 항목 (Shift+Enter)">${SVG_ICONS.chevUp}</button>
+          <button class="ff-pdf-btn" data-pdf-act="doc-search-next" title="다음 일치 항목 (Enter)">${SVG_ICONS.chevDown}</button>
+          <button class="ff-pdf-btn" data-pdf-act="doc-search-close" title="문서 내 검색 닫기 (Esc)">${SVG_ICONS.close}</button>
         </div>
       `;
 
@@ -5431,20 +5718,34 @@ function createObjectDOM(obj) {
           return;
         }
         try {
-          const entry = await getOrLoadPdfDocument(obj.resolvedFilePath);
+          const rawEntry = await getOrLoadPdfDocument(obj.resolvedFilePath);
           if (myTicket !== renderTicket) return;
-          if (!entry || (!entry.pdfDoc && !entry.isOfficeDoc)) {
+          if (!rawEntry || (!rawEntry.pdfDoc && !rawEntry.isOfficeDoc)) {
             pagesContainer.innerHTML = `<div class="ff-pdf-loading">${escapeHtml(badgeInfo.name)}를 불러올 수 없습니다.</div>`;
             return;
           }
+
+          const entry =
+            rawEntry.isSpreadsheet &&
+            Array.isArray(rawEntry.sheets) &&
+            (Array.isArray(obj.xlsxColWidths) || obj.xlsxRowHeights || obj.xlsxRowHeight)
+              ? buildSpreadsheetPagesFromSheets(rawEntry.sheets, rawEntry.docKindLabel || 'XLSX', {
+                  colWidths: obj.xlsxColWidths,
+                  rowHeights: obj.xlsxRowHeights,
+                  baseRowHeight: obj.xlsxRowHeight
+                })
+              : rawEntry;
+
           loadedDocEntry = entry;
+          pagesContainer.classList.toggle('is-office-continuous', Boolean(entry.isOfficeDoc));
+
           const total = entry.isOfficeDoc ? Math.max(1, entry.numPages || entry.pages?.length || 1) : entry.pdfDoc.numPages;
           totalDocPages = total;
           if (pageIndicatorEl) pageIndicatorEl.textContent = `${currentVisiblePage} / ${total} p`;
           if (zoomIndicatorEl) zoomIndicatorEl.textContent = `${Math.round(currentPdfZoom * 100)}%`;
 
           // Ensure deterministic scrollbar state before measuring single-page container geometry
-          pagesContainer.style.overflowY = total > 1 || currentPdfZoom > 1 ? 'scroll' : 'hidden';
+          pagesContainer.style.overflowY = total > 1 || currentPdfZoom > 1 ? 'auto' : 'hidden';
           pagesContainer.style.overflowX = currentPdfZoom > 1 ? 'auto' : 'hidden';
 
           let docAspect = entry.pageAspect || 595.28 / 841.89;
@@ -5469,8 +5770,10 @@ function createObjectDOM(obj) {
             scheduleSaveBoard();
           }
 
-          const prevScrollRatio =
+          const prevScrollRatioY =
             pagesContainer.scrollHeight > 0 ? pagesContainer.scrollTop / pagesContainer.scrollHeight : 0;
+          const prevScrollRatioX =
+            pagesContainer.scrollWidth > 0 ? pagesContainer.scrollLeft / pagesContainer.scrollWidth : 0;
 
           pagesContainer.innerHTML = '';
           const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -5484,8 +5787,8 @@ function createObjectDOM(obj) {
               const pInfo = entry.pages[pIdx];
               const pageNum = pInfo.pageNumber || pIdx + 1;
               const pageAspect = Number(pInfo.aspect) || docAspect;
-              const baseW = pageAspect > 1.02 ? 800 : 620;
-              const baseH = Math.round(baseW / Math.max(0.15, pageAspect));
+              const baseW = Number(pInfo.baseW) || Number(entry.baseW) || (pageAspect > 1.02 ? 800 : 620);
+              const baseH = Number(pInfo.baseH) || Math.round(baseW / Math.max(0.15, pageAspect));
               const dispW = Math.round(targetContainerWidth * currentPdfZoom);
               const dispH = Math.round((targetContainerWidth / Math.max(0.15, pageAspect)) * currentPdfZoom);
               const scale = dispW / baseW;
@@ -5558,8 +5861,11 @@ function createObjectDOM(obj) {
             }
           }
 
-          if (prevScrollRatio > 0 && pagesContainer.scrollHeight > 0) {
-            pagesContainer.scrollTop = Math.round(prevScrollRatio * pagesContainer.scrollHeight);
+          if (prevScrollRatioY > 0 && pagesContainer.scrollHeight > 0) {
+            pagesContainer.scrollTop = Math.round(prevScrollRatioY * pagesContainer.scrollHeight);
+          }
+          if (prevScrollRatioX > 0 && pagesContainer.scrollWidth > 0) {
+            pagesContainer.scrollLeft = Math.round(prevScrollRatioX * pagesContainer.scrollWidth);
           }
           renderLocalDocSearchHighlights();
         } catch (err) {
@@ -5570,7 +5876,151 @@ function createObjectDOM(obj) {
 
       requestAnimationFrame(() => renderPdfPages());
 
-      // Natural Wheel Scroll for Pages & Ctrl+Wheel for Document Zoom
+      // Interactive Excel (.xlsx / .csv) Column Width & Row Height Resizer + Proportional Aspect & Size Sync
+      pagesContainer.addEventListener('pointerdown', (e) => {
+        const colRes = e.target.closest('.ff-xlsx-col-resizer');
+        const rowRes = e.target.closest('.ff-xlsx-row-resizer');
+        if (!colRes && !rowRes) return;
+        if (!loadedDocEntry || !loadedDocEntry.isSpreadsheet) return;
+        e.stopPropagation();
+        e.preventDefault();
+
+        const snapBefore = createBoardSnapshot('엑셀 열·행 간격 조절');
+        const firstSurface = pagesContainer.querySelector('.ff-office-page-surface');
+        const baseW0 = Number(loadedDocEntry.baseW) || 800;
+        const baseH0 = Number(loadedDocEntry.baseH) || 560;
+        const dispW0 = (pagesContainer.clientWidth || obj.width || 480) * currentPdfZoom;
+        const surfaceScale = Math.max(0.15, (dispW0 / baseW0) * zoom);
+        const origObjW = obj.width || 560;
+
+        if (colRes) {
+          const cIdx = Number(colRes.dataset.colIdx);
+          if (!Array.isArray(obj.xlsxColWidths)) {
+            obj.xlsxColWidths = [...(loadedDocEntry.colWidths || loadedDocEntry.defaultColWidths || [])];
+          }
+          const startX = e.clientX;
+          const startColW = Number(obj.xlsxColWidths[cIdx]) || 80;
+
+          const onMove = (me) => {
+            const dx = (me.clientX - startX) / surfaceScale;
+            const nextColW = Math.max(36, Math.min(640, Math.round(startColW + dx)));
+            const deltaW = nextColW - startColW;
+            obj.xlsxColWidths[cIdx] = nextColW;
+
+            pagesContainer.querySelectorAll(`col[data-col-idx="${cIdx}"]`).forEach((colEl) => {
+              colEl.style.width = `${nextColW}px`;
+            });
+
+            const newBaseW = Math.max(360, baseW0 + deltaW);
+            const newAspect = Number((newBaseW / baseH0).toFixed(4));
+            obj.width = Math.max(240, Math.round(origObjW * (newBaseW / baseW0)));
+            syncPdfViewerAspectSize(obj, newAspect, { width: obj.width });
+            el.style.width = `${obj.width}px`;
+            el.style.height = `${obj.height}px`;
+
+            const liveInnerW = pagesContainer.clientWidth || obj.width;
+            pagesContainer.querySelectorAll('.ff-office-page-viewport').forEach((vpBox, idx) => {
+              const sEl = vpBox.querySelector('.ff-office-page-surface');
+              const pH = idx === 0 ? baseH0 : Number(loadedDocEntry.pages?.[idx]?.baseH) || baseH0;
+              const pAsp = newBaseW / Math.max(120, pH);
+              const dW = Math.round(liveInnerW * currentPdfZoom);
+              const dH = Math.round((liveInnerW / pAsp) * currentPdfZoom);
+              vpBox.dataset.pageAspect = String(pAsp);
+              vpBox.style.width = `${dW}px`;
+              vpBox.style.height = `${dH}px`;
+              if (sEl) {
+                sEl.dataset.baseWidth = String(newBaseW);
+                sEl.style.width = `${newBaseW}px`;
+                sEl.style.transform = `scale(${(dW / newBaseW).toFixed(4)})`;
+              }
+            });
+            renderAllConnectors();
+          };
+
+          const onUp = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            pushUndoSnapshot('엑셀 열 너비 조절', snapBefore);
+            renderPdfPages();
+            renderAllConnectors();
+            scheduleSaveBoard();
+          };
+          window.addEventListener('pointermove', onMove);
+          window.addEventListener('pointerup', onUp);
+        } else if (rowRes) {
+          const absRow = Number(rowRes.dataset.absRow);
+          if (!obj.xlsxRowHeights || typeof obj.xlsxRowHeights !== 'object') {
+            obj.xlsxRowHeights = {};
+          }
+          const startY = e.clientY;
+          const startRowH = Number(obj.xlsxRowHeights[absRow]) || Number(obj.xlsxRowHeight) || loadedDocEntry.baseRowHeight || 26;
+
+          const onMove = (me) => {
+            const dy = (me.clientY - startY) / surfaceScale;
+            const nextRowH = Math.max(18, Math.min(280, Math.round(startRowH + dy)));
+            if (me.shiftKey) {
+              obj.xlsxRowHeight = nextRowH;
+              pagesContainer.querySelectorAll('.ff-office-sheet-table tbody tr, .ff-office-sheet-table tbody td').forEach((trOrTd) => {
+                trOrTd.style.height = `${nextRowH}px`;
+              });
+            } else {
+              obj.xlsxRowHeights[absRow] = nextRowH;
+              pagesContainer.querySelectorAll(`tr[data-abs-row="${absRow}"], tr[data-abs-row="${absRow}"] td`).forEach((trOrTd) => {
+                trOrTd.style.height = `${nextRowH}px`;
+              });
+            }
+
+            const rowCountFactor = me.shiftKey ? 20 : 1;
+            const deltaH = (nextRowH - startRowH) * rowCountFactor;
+            const newBaseH = Math.max(260, baseH0 + deltaH);
+            const newAspect = Number((baseW0 / newBaseH).toFixed(4));
+            syncPdfViewerAspectSize(obj, newAspect, { width: obj.width });
+            el.style.width = `${obj.width}px`;
+            el.style.height = `${obj.height}px`;
+            if (firstSurface) {
+              firstSurface.style.height = `${newBaseH}px`;
+            }
+            renderAllConnectors();
+          };
+
+          const onUp = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            pushUndoSnapshot('엑셀 행 높이 조절', snapBefore);
+            renderPdfPages();
+            renderAllConnectors();
+            scheduleSaveBoard();
+          };
+          window.addEventListener('pointermove', onMove);
+          window.addEventListener('pointerup', onUp);
+        }
+      });
+
+      pagesContainer.addEventListener('dblclick', (e) => {
+        const colRes = e.target.closest('.ff-xlsx-col-resizer');
+        if (!colRes || !loadedDocEntry || !loadedDocEntry.isSpreadsheet) return;
+        e.stopPropagation();
+        const cIdx = Number(colRes.dataset.colIdx);
+        pushUndoSnapshot('엑셀 열 자동 맞춤');
+        if (!Array.isArray(obj.xlsxColWidths)) {
+          obj.xlsxColWidths = [...(loadedDocEntry.colWidths || loadedDocEntry.defaultColWidths || [])];
+        }
+        const oldBaseW = Number(loadedDocEntry.baseW) || 800;
+        const autoW = loadedDocEntry.defaultColWidths?.[cIdx] || 90;
+        const deltaW = autoW - (Number(obj.xlsxColWidths[cIdx]) || autoW);
+        obj.xlsxColWidths[cIdx] = autoW;
+        const newBaseW = Math.max(360, oldBaseW + deltaW);
+        obj.width = Math.max(240, Math.round((obj.width || 560) * (newBaseW / oldBaseW)));
+        renderPdfPages();
+        renderAllConnectors();
+        scheduleSaveBoard();
+      });
+
+      if (typeof bindScrollLinkSync === 'function') {
+        bindScrollLinkSync(obj.id, pagesContainer);
+      }
+
+      // Natural Wheel Scroll for Pages, Shift+Wheel for Horizontal Scroll & Ctrl+Wheel for Document Zoom
       pagesContainer.addEventListener(
         'wheel',
         (e) => {
@@ -5583,6 +6033,9 @@ function createObjectDOM(obj) {
             if (zoomIndicatorEl) zoomIndicatorEl.textContent = `${Math.round(currentPdfZoom * 100)}%`;
             renderPdfPages();
             scheduleSaveBoard();
+          } else if (e.shiftKey && Math.abs(e.deltaY) > 0 && Math.abs(e.deltaX) === 0) {
+            e.preventDefault();
+            pagesContainer.scrollLeft += e.deltaY;
           }
         },
         { passive: false }
@@ -5644,6 +6097,24 @@ function createObjectDOM(obj) {
           renderPdfPages();
           scheduleSaveBoard();
           showToast('문서 배율이 창크기에 맞춤(100%)으로 설정되었습니다');
+        } else if (act === 'xlsx-autofit' && loadedDocEntry?.isSpreadsheet) {
+          pushUndoSnapshot('엑셀 열·행 간격 자동 맞춤');
+          const oldBaseW = Number(loadedDocEntry.baseW) || 800;
+          delete obj.xlsxColWidths;
+          delete obj.xlsxRowHeights;
+          delete obj.xlsxRowHeight;
+          const freshEntry = buildSpreadsheetPagesFromSheets(
+            loadedDocEntry.sheets,
+            loadedDocEntry.docKindLabel || 'XLSX',
+            null
+          );
+          const newBaseW = Number(freshEntry.baseW) || oldBaseW;
+          obj.width = Math.max(280, Math.round((obj.width || 560) * (newBaseW / oldBaseW)));
+          syncPdfViewerAspectSize(obj, freshEntry.pageAspect, { width: obj.width });
+          renderPdfPages();
+          renderAllConnectors();
+          scheduleSaveBoard();
+          showToast('엑셀 시트의 모든 열과 행 간격이 내용 길이에 맞춰 자동 최적화되었습니다');
         } else if (act === 'extract-table' && loadedDocEntry?.rawTableData?.length) {
           addObjectToBoard({
             type: 'table',
@@ -5655,7 +6126,7 @@ function createObjectDOM(obj) {
             color: 'blue',
             tableData: loadedDocEntry.rawTableData.slice(0, 80)
           });
-          showToast('📊 시트 데이터가 편집 가능한 프리폼 표(Table) 객체로 추출되었습니다!');
+          showToast('시트 데이터가 편집 가능한 프리폼 표(Table) 객체로 추출되었습니다');
         } else if (act === 'open-default') {
           if (obj.resolvedFilePath) {
             window.freeformAPI.openPath(obj.resolvedFilePath);
@@ -6025,6 +6496,171 @@ function computeBezierPath(x1, y1, x2, y2, vertical = false) {
   );
 }
 
+function isScrollLinkCapableObject(obj) {
+  return Boolean(obj && (isPdfObject(obj) || obj.type === 'table'));
+}
+
+function getScrollLinkConnectedObjectIds(sourceObjId) {
+  if (!currentBoard || !Array.isArray(currentBoard.connectors)) return [];
+  const visited = new Set([sourceObjId]);
+  const queue = [sourceObjId];
+  const result = [];
+  while (queue.length > 0) {
+    const curId = queue.shift();
+    currentBoard.connectors.forEach((conn) => {
+      if (!conn.scrollLink) return;
+      let nextId = null;
+      if (conn.fromId === curId) nextId = conn.toId;
+      else if (conn.toId === curId) nextId = conn.fromId;
+      if (nextId && !visited.has(nextId)) {
+        visited.add(nextId);
+        result.push(nextId);
+        queue.push(nextId);
+      }
+    });
+  }
+  return result;
+}
+
+function bindScrollLinkSync(objId, scrollEl) {
+  if (!scrollEl || scrollEl._scrollLinkBound) return;
+  scrollEl._scrollLinkBound = true;
+  scrollEl._lastSyncTop = scrollEl.scrollTop || 0;
+  scrollEl._lastSyncLeft = scrollEl.scrollLeft || 0;
+
+  scrollEl.addEventListener('scroll', () => {
+    if (scrollEl._suppressSyncScroll) return;
+    const prevTop = scrollEl._lastSyncTop ?? 0;
+    const prevLeft = scrollEl._lastSyncLeft ?? 0;
+    const curTop = scrollEl.scrollTop;
+    const curLeft = scrollEl.scrollLeft;
+    const dTop = curTop - prevTop;
+    const dLeft = curLeft - prevLeft;
+    scrollEl._lastSyncTop = curTop;
+    scrollEl._lastSyncLeft = curLeft;
+
+    if (Math.abs(dTop) < 0.5 && Math.abs(dLeft) < 0.5) return;
+
+    const linkedIds = getScrollLinkConnectedObjectIds(objId);
+    if (!linkedIds.length) return;
+
+    const maxTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+    const maxLeft = Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);
+    const ratioTop = maxTop > 0 ? curTop / maxTop : 0;
+    const ratioLeft = maxLeft > 0 ? curLeft / maxLeft : 0;
+
+    linkedIds.forEach((targetId) => {
+      const targetDom = objectLayer?.querySelector(`.ff-object[data-id="${targetId}"]`);
+      const targetScroll = targetDom?.querySelector('.ff-pdf-pages-container, .ff-table-wrap');
+      if (!targetScroll || targetScroll === scrollEl) return;
+
+      targetScroll._suppressSyncScroll = true;
+
+      if (Math.abs(dTop) >= 0.5) {
+        const tMaxTop = Math.max(0, targetScroll.scrollHeight - targetScroll.clientHeight);
+        if (tMaxTop > 0) {
+          if (maxTop > 0 && Math.abs(tMaxTop - maxTop) <= Math.max(60, maxTop * 0.25)) {
+            targetScroll.scrollTop = Math.max(0, Math.min(tMaxTop, curTop));
+          } else if (maxTop > 0) {
+            targetScroll.scrollTop = Math.round(ratioTop * tMaxTop);
+          } else {
+            targetScroll.scrollTop = Math.max(0, Math.min(tMaxTop, (targetScroll.scrollTop || 0) + dTop));
+          }
+          targetScroll._lastSyncTop = targetScroll.scrollTop;
+        }
+      }
+
+      if (Math.abs(dLeft) >= 0.5) {
+        const tMaxLeft = Math.max(0, targetScroll.scrollWidth - targetScroll.clientWidth);
+        if (tMaxLeft > 0) {
+          if (maxLeft > 0 && Math.abs(tMaxLeft - maxLeft) <= Math.max(60, maxLeft * 0.25)) {
+            targetScroll.scrollLeft = Math.max(0, Math.min(tMaxLeft, curLeft));
+          } else if (maxLeft > 0) {
+            targetScroll.scrollLeft = Math.round(ratioLeft * tMaxLeft);
+          } else {
+            targetScroll.scrollLeft = Math.max(0, Math.min(tMaxLeft, (targetScroll.scrollLeft || 0) + dLeft));
+          }
+          targetScroll._lastSyncLeft = targetScroll.scrollLeft;
+        }
+      }
+
+      requestAnimationFrame(() => {
+        targetScroll._suppressSyncScroll = false;
+      });
+    });
+  });
+}
+
+function computeSideBezierMidpoint(p1, p2) {
+  const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  const ctrl = Math.min(180, Math.max(42, dist * 0.44));
+  const c1x = Math.round(p1.x + (p1.nx ?? 1) * ctrl);
+  const c1y = Math.round(p1.y + (p1.ny ?? 0) * ctrl);
+  const c2x = Math.round(p2.x + (p2.nx ?? -1) * ctrl);
+  const c2y = Math.round(p2.y + (p2.ny ?? 0) * ctrl);
+  return {
+    x: Math.round(0.125 * p1.x + 0.375 * c1x + 0.375 * c2x + 0.125 * p2.x),
+    y: Math.round(0.125 * p1.y + 0.375 * c1y + 0.375 * c2y + 0.125 * p2.y)
+  };
+}
+
+let activeConnPopoverEl = null;
+function closeConnectorLinkModePopover() {
+  if (activeConnPopoverEl) {
+    activeConnPopoverEl.remove();
+    activeConnPopoverEl = null;
+  }
+}
+
+function showConnectorLinkModePopover(conn, clientX, clientY) {
+  closeConnectorLinkModePopover();
+  const pop = document.createElement('div');
+  pop.className = 'ff-conn-link-mode-popover';
+  const left = Math.max(16, Math.min(window.innerWidth - 270, clientX - 120));
+  const top = Math.max(16, Math.min(window.innerHeight - 130, clientY - 24));
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+  pop.innerHTML = `
+    <div class="ff-conn-pop-title">문서 연결 방식 선택</div>
+    <button class="ff-conn-pop-btn is-scroll-link" data-mode="scroll-link">
+      ${SVG_ICONS.linkSync}
+      <span>스크롤 링크 연결 (가로·세로 동시 스크롤)</span>
+    </button>
+    <button class="ff-conn-pop-btn" data-mode="normal">
+      ${SVG_ICONS.externalLink}
+      <span>일반 화살표 연결</span>
+    </button>
+  `;
+  pop.addEventListener('pointerdown', (e) => e.stopPropagation());
+  pop.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-mode]');
+    if (!btn) return;
+    e.stopPropagation();
+    const isScroll = btn.dataset.mode === 'scroll-link';
+    conn.scrollLink = isScroll;
+    conn.color = isScroll ? '#30d158' : '#0a84ff';
+    closeConnectorLinkModePopover();
+    renderAllConnectors();
+    scheduleSaveBoard();
+    showToast(
+      isScroll
+        ? '스크롤 링크 ON — 한쪽 문서를 가로·세로 스크롤하면 연결된 문서도 동시에 스크롤됩니다'
+        : '일반 화살표 연결로 설정되었습니다 (연결선 중앙 배지를 클릭해 언제든 전환 가능)'
+    );
+  });
+  document.body.appendChild(pop);
+  activeConnPopoverEl = pop;
+  setTimeout(() => {
+    const onDocDown = (ev) => {
+      if (activeConnPopoverEl && !activeConnPopoverEl.contains(ev.target)) {
+        closeConnectorLinkModePopover();
+        window.removeEventListener('pointerdown', onDocDown, true);
+      }
+    };
+    window.addEventListener('pointerdown', onDocDown, true);
+  }, 60);
+}
+
 function renderAllConnectors() {
   if (!connectorsGroup || !currentBoard) return;
   connectorsGroup.innerHTML = '';
@@ -6044,11 +6680,12 @@ function renderAllConnectors() {
     const p1 = getAnchorWorldPoint(fromObj, fromSide, fromOffset);
     const p2 = getAnchorWorldPoint(toObj, toSide, toOffset);
     const dPath = computeSideBezierPath(p1, p2);
-    const strokeColor = conn.color || '#0a84ff';
+    const isScrollLink = Boolean(conn.scrollLink);
+    const strokeColor = isScrollLink ? '#30d158' : conn.color || '#0a84ff';
     const isSelected = selectedConnectorId === conn.id || (draggingConnectorEndpoint && draggingConnectorEndpoint.conn.id === conn.id);
 
     const itemGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    itemGroup.setAttribute('class', `connector-item-group ${isSelected ? 'selected' : ''}`);
+    itemGroup.setAttribute('class', `connector-item-group ${isSelected ? 'selected' : ''} ${isScrollLink ? 'is-scroll-linked' : ''}`);
     itemGroup.dataset.connId = conn.id;
 
     // 1. Wide invisible hit path for easy clicking / hovering
@@ -6061,8 +6698,8 @@ function renderAllConnectors() {
     path.setAttribute('class', 'connector-path');
     path.setAttribute('d', dPath);
     path.setAttribute('stroke', strokeColor);
-    if (conn.style === 'dashed') {
-      path.setAttribute('stroke-dasharray', '7 5');
+    if (conn.style === 'dashed' || isScrollLink) {
+      path.setAttribute('stroke-dasharray', isScrollLink ? '6 4' : '7 5');
     }
     path.setAttribute('marker-end', getOrCreateArrowMarkerUrl(strokeColor, 'connArrow'));
 
@@ -6151,6 +6788,77 @@ function renderAllConnectors() {
 
     itemGroup.appendChild(startHandle);
     itemGroup.appendChild(endHandle);
+
+    // 5. Midpoint Scroll-Link Toggle Badge for Document / Table Connectors
+    if (isScrollLinkCapableObject(fromObj) && isScrollLinkCapableObject(toObj)) {
+      const mid = computeSideBezierMidpoint(p1, p2);
+      const badgeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      badgeGroup.setAttribute('class', `connector-scroll-link-badge ${isScrollLink ? 'is-active' : ''}`);
+      badgeGroup.setAttribute('transform', `translate(${mid.x}, ${mid.y})`);
+
+      const pillW = isScrollLink ? 96 : 98;
+      const pillH = 22;
+      const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      bgRect.setAttribute('x', String(-pillW / 2));
+      bgRect.setAttribute('y', String(-pillH / 2));
+      bgRect.setAttribute('width', String(pillW));
+      bgRect.setAttribute('height', String(pillH));
+      bgRect.setAttribute('rx', '11');
+      bgRect.setAttribute('fill', isScrollLink ? '#193824' : '#1c1d24');
+      bgRect.setAttribute('stroke', isScrollLink ? '#30d158' : 'rgba(255,255,255,0.28)');
+      bgRect.setAttribute('stroke-width', '1.4');
+
+      const iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      iconSvg.setAttribute('x', String(-pillW / 2 + 8));
+      iconSvg.setAttribute('y', '-6');
+      iconSvg.setAttribute('width', '12');
+      iconSvg.setAttribute('height', '12');
+      iconSvg.setAttribute('viewBox', '0 0 24 24');
+      iconSvg.setAttribute('fill', 'none');
+      iconSvg.setAttribute('stroke', isScrollLink ? '#30d158' : '#a1a1aa');
+      iconSvg.setAttribute('stroke-width', '2.2');
+      iconSvg.setAttribute('stroke-linecap', 'round');
+      iconSvg.setAttribute('stroke-linejoin', 'round');
+      iconSvg.innerHTML = `<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>`;
+
+      const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      txt.setAttribute('x', '7');
+      txt.setAttribute('y', '1');
+      txt.setAttribute('text-anchor', 'middle');
+      txt.setAttribute('dominant-baseline', 'central');
+      txt.setAttribute('fill', isScrollLink ? '#30d158' : '#e5e5ea');
+      txt.setAttribute('font-size', '10.5');
+      txt.setAttribute('font-weight', '700');
+      txt.textContent = isScrollLink ? '스크롤 링크 ON' : '스크롤 링크 OFF';
+
+      const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      titleEl.textContent = '클릭하여 두 문서의 가로·세로 동시 스크롤 링크를 켜거나 끕니다';
+
+      badgeGroup.appendChild(titleEl);
+      badgeGroup.appendChild(bgRect);
+      badgeGroup.appendChild(iconSvg);
+      badgeGroup.appendChild(txt);
+
+      badgeGroup.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        pushUndoSnapshot('문서 스크롤 링크 전환');
+        conn.scrollLink = !conn.scrollLink;
+        conn.color = conn.scrollLink ? '#30d158' : '#0a84ff';
+        selectedConnectorId = conn.id;
+        renderAllConnectors();
+        scheduleSaveBoard();
+        showToast(
+          conn.scrollLink
+            ? '스크롤 링크 ON — 한쪽 문서를 가로·세로 스크롤하면 연결된 문서도 동시에 스크롤됩니다'
+            : '스크롤 링크가 해제되었습니다'
+        );
+      });
+
+      itemGroup.appendChild(badgeGroup);
+    }
+
     connectorsGroup.appendChild(itemGroup);
   });
 
@@ -7412,7 +8120,10 @@ window.addEventListener('pointerup', (e) => {
     if (snap && snap.objId && snap.objId !== connectingState.fromId) {
       pushUndoSnapshot('화살표 연결선 추가');
       const newConnId = `conn_${Date.now()}`;
-      currentBoard.connectors.push({
+      const fromObj = currentBoard.objects.find((o) => o.id === connectingState.fromId);
+      const toObj = currentBoard.objects.find((o) => o.id === snap.objId);
+      const canScrollLink = isScrollLinkCapableObject(fromObj) && isScrollLinkCapableObject(toObj);
+      const newConn = {
         id: newConnId,
         fromId: connectingState.fromId,
         fromSide: connectingState.fromSide || 'right',
@@ -7421,11 +8132,17 @@ window.addEventListener('pointerup', (e) => {
         toSide: snap.side,
         toOffset: snap.offset,
         color: '#0a84ff',
-        style: 'solid'
-      });
+        style: 'solid',
+        scrollLink: false
+      };
+      currentBoard.connectors.push(newConn);
       selectedConnectorId = newConnId;
       scheduleSaveBoard();
-      showToast('두 객체가 화살표로 연결되었습니다 (시작점/끝점을 잡고 4면 원하는 위치로 이동 가능)');
+      if (canScrollLink) {
+        showConnectorLinkModePopover(newConn, e.clientX, e.clientY);
+      } else {
+        showToast('두 객체가 화살표로 연결되었습니다 (시작점/끝점을 잡고 4면 원하는 위치로 이동 가능)');
+      }
     }
     connectingState = null;
     if (tempConnectorPath) tempConnectorPath.classList.add('hidden');
@@ -7440,12 +8157,22 @@ canvasViewport.addEventListener(
     lastCanvasMousePos = { x: e.clientX, y: e.clientY };
     if (!e.ctrlKey && !e.metaKey) {
       const scrollEl = e.target.closest('.ff-pdf-pages-container, .ff-table-wrap, .ff-obj-body');
-      if (scrollEl && scrollEl.scrollHeight > scrollEl.clientHeight + 2) {
-        const canScrollUp = e.deltaY < 0 && scrollEl.scrollTop > 0;
-        const canScrollDown =
-          e.deltaY > 0 && scrollEl.scrollTop + scrollEl.clientHeight < scrollEl.scrollHeight - 1;
-        if (canScrollUp || canScrollDown) {
+      if (scrollEl) {
+        if (e.shiftKey && scrollEl.scrollWidth > scrollEl.clientWidth + 2 && Math.abs(e.deltaY) > 0) {
+          e.preventDefault();
+          scrollEl.scrollLeft += e.deltaY;
           return;
+        }
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && scrollEl.scrollWidth > scrollEl.clientWidth + 2) {
+          return;
+        }
+        if (scrollEl.scrollHeight > scrollEl.clientHeight + 2) {
+          const canScrollUp = e.deltaY < 0 && scrollEl.scrollTop > 0;
+          const canScrollDown =
+            e.deltaY > 0 && scrollEl.scrollTop + scrollEl.clientHeight < scrollEl.scrollHeight - 1;
+          if (canScrollUp || canScrollDown) {
+            return;
+          }
         }
       }
     }
