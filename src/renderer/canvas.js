@@ -349,14 +349,6 @@ function screenToWorld(clientX, clientY) {
   };
 }
 
-function worldToScreen(worldX, worldY) {
-  const rect = canvasViewport.getBoundingClientRect();
-  return {
-    x: rect.left + panX + worldX * zoom,
-    y: rect.top + panY + worldY * zoom
-  };
-}
-
 function getViewportCenterWorld() {
   const rect = canvasViewport.getBoundingClientRect();
   return {
@@ -436,7 +428,6 @@ const SVG_ICONS = {
   paste: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path></svg>`,
   download: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`,
   externalLink: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`,
-  play: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" stroke="none"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>`,
   fileDoc: `<svg class="ui-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="13" y2="17"></line></svg>`,
   bookOpen: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>`,
   fileIconMode: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -1450,15 +1441,10 @@ async function getOrLoadPdfDocument(filePath) {
   return entry;
 }
 
-const PDF_DEFAULT_CHROME_W = 0;
-const PDF_DEFAULT_CHROME_H = 0;
-
 function syncPdfViewerAspectSize(obj, pageAspectInput = null, options = {}) {
   if (!isPdfObject(obj)) return false;
   const aspect = Number(pageAspectInput || obj.pdfPageAspect) || (595.28 / 841.89);
   obj.pdfPageAspect = aspect;
-  obj.pdfChromeW = 0;
-  obj.pdfChromeH = 0;
   if (!obj.docFitMode) obj.docFitMode = 'page';
   const fitMode = obj.docFitMode;
   const isLandscape = aspect > 1.02;
@@ -2710,7 +2696,7 @@ function toggleObjectVectorized(obj) {
     }
   }
 
-  renderAllObjects();
+  rerenderSingleObjectDOM(obj);
   renderAllConnectors();
   selectObject(obj.id, { expandGroup: false });
   syncSelectionUI();
@@ -2723,10 +2709,6 @@ function toggleObjectVectorized(obj) {
     nextEd?.focus();
     showToast('📝 일반 편집 모드로 전환되었습니다');
   }
-}
-
-function toggleLabelVectorized(obj) {
-  return toggleObjectVectorized(obj);
 }
 
 function getOrCreateArrowMarkerUrl(colorStr = '#0a84ff', prefix = 'dynArrow') {
@@ -2782,7 +2764,7 @@ function togglePdfObjectViewMode(obj) {
   }
   obj.x = fixedX;
   obj.y = fixedY;
-  renderAllObjects();
+  rerenderSingleObjectDOM(obj);
   renderAllConnectors();
   scheduleSaveBoard();
 }
@@ -4131,6 +4113,48 @@ function renderAllObjects() {
   }
 }
 
+function rerenderSingleObjectDOM(obj, skipPostPass = false) {
+  if (!objectLayer || !currentBoard || !obj) return;
+  try {
+    const oldEl = objectLayer.querySelector(`.ff-object[data-id="${obj.id}"]`);
+    const newEl = createObjectDOM(obj);
+    if (oldEl) {
+      oldEl.replaceWith(newEl);
+    } else {
+      objectLayer.appendChild(newEl);
+    }
+    if (obj.opaque) applyOpaqueModeToElement(newEl);
+    if (!skipPostPass) {
+      renderGroupFrames();
+      if (typeof isCanvasSearchOpen === 'function' && isCanvasSearchOpen()) {
+        applyCanvasSearchHighlights();
+      }
+    }
+  } catch (err) {
+    console.error('Failed to rerender single object:', obj?.id, err);
+    renderAllObjects();
+  }
+}
+
+function rerenderObjectsDOM(objs) {
+  if (!objectLayer || !currentBoard || !Array.isArray(objs) || !objs.length) return;
+  objs.forEach((o) => rerenderSingleObjectDOM(o, true));
+  renderGroupFrames();
+  if (typeof isCanvasSearchOpen === 'function' && isCanvasSearchOpen()) {
+    applyCanvasSearchHighlights();
+  }
+}
+
+function syncObjectZIndicesDOM() {
+  if (!objectLayer || !currentBoard) return;
+  currentBoard.objects.forEach((o) => {
+    const el = objectLayer.querySelector(`.ff-object[data-id="${o.id}"]`);
+    if (el) {
+      el.style.zIndex = String(o.type === 'shape' && o.shapeBackground ? 0 : o.zIndex || 1);
+    }
+  });
+}
+
 // Converts every translucent rgba() in the card's computed background into a solid rgb() (alpha=1).
 // Fully transparent layers (alpha≈0) are left untouched so borderless objects never turn black.
 function toOpaqueColorString(str) {
@@ -4162,7 +4186,7 @@ function toggleSelectedObjectsOpacity() {
   selected.forEach((o) => {
     o.opaque = next;
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   syncSelectionUI();
   scheduleSaveBoard();
   showToast(next ? '◼ 선택 객체를 불투명으로 전환했습니다' : '◻ 선택 객체를 기본 투명도로 되돌렸습니다');
@@ -4301,7 +4325,7 @@ function createObjectDOM(obj) {
       const curIdx = ART_STYLE_LIST.findIndex((a) => a.id === (obj.artStyle || 'none'));
       const nextArt = ART_STYLE_LIST[(curIdx + 1) % ART_STYLE_LIST.length];
       obj.artStyle = nextArt.id;
-      renderAllObjects();
+      rerenderSingleObjectDOM(obj);
       syncSelectionUI();
       scheduleSaveBoard();
       showToast(`✨ 텍스트 그래픽 스타일: ${nextArt.label}`);
@@ -4338,7 +4362,7 @@ function createObjectDOM(obj) {
       if (obj.keepAspect && obj.imageAspect) {
         obj.height = Math.max(48, Math.round(obj.width / obj.imageAspect));
       }
-      renderAllObjects();
+      rerenderSingleObjectDOM(obj);
       renderAllConnectors();
       syncSelectionUI();
       scheduleSaveBoard();
@@ -4359,7 +4383,7 @@ function createObjectDOM(obj) {
       if (obj.borderEnabled && !obj.borderColor) {
         obj.borderColor = obj.customColor || '#0a84ff';
       }
-      renderAllObjects();
+      rerenderSingleObjectDOM(obj);
       syncSelectionUI();
       scheduleSaveBoard();
       showToast(obj.borderEnabled ? '🖼️ 외곽선(테두리) ON' : '외곽선(테두리) OFF');
@@ -4388,7 +4412,7 @@ function createObjectDOM(obj) {
         if (obj.docFitMode === 'page') {
           syncPdfViewerAspectSize(obj, obj.pdfPageAspect, { width: obj.width, forcePageFit: true });
         }
-        renderAllObjects();
+        rerenderSingleObjectDOM(obj);
         renderAllConnectors();
         syncSelectionUI();
         scheduleSaveBoard();
@@ -5608,7 +5632,7 @@ function createObjectDOM(obj) {
             }
           });
           if (changed) {
-            renderAllObjects();
+            rerenderSingleObjectDOM(obj);
             scheduleSaveBoard();
           }
         })
@@ -5812,16 +5836,29 @@ function createObjectDOM(obj) {
             return;
           }
 
-          const entry =
+          let entry = rawEntry;
+          if (
             rawEntry.isSpreadsheet &&
             Array.isArray(rawEntry.sheets) &&
             (Array.isArray(obj.xlsxColWidths) || obj.xlsxRowHeights || obj.xlsxRowHeight)
-              ? buildSpreadsheetPagesFromSheets(rawEntry.sheets, rawEntry.docKindLabel || 'XLSX', {
-                  colWidths: obj.xlsxColWidths,
-                  rowHeights: obj.xlsxRowHeights,
-                  baseRowHeight: obj.xlsxRowHeight
-                })
-              : rawEntry;
+          ) {
+            const cacheKey = JSON.stringify({
+              w: obj.xlsxColWidths || null,
+              rh: obj.xlsxRowHeights || null,
+              bh: obj.xlsxRowHeight || null
+            });
+            if (obj._xlsxEntryCacheKey === cacheKey && obj._xlsxEntryCacheVal) {
+              entry = obj._xlsxEntryCacheVal;
+            } else {
+              entry = buildSpreadsheetPagesFromSheets(rawEntry.sheets, rawEntry.docKindLabel || 'XLSX', {
+                colWidths: obj.xlsxColWidths,
+                rowHeights: obj.xlsxRowHeights,
+                baseRowHeight: obj.xlsxRowHeight
+              });
+              Object.defineProperty(obj, '_xlsxEntryCacheKey', { value: cacheKey, writable: true, configurable: true });
+              Object.defineProperty(obj, '_xlsxEntryCacheVal', { value: entry, writable: true, configurable: true });
+            }
+          }
 
           loadedDocEntry = entry;
           pagesContainer.classList.toggle('is-office-continuous', Boolean(entry.isOfficeDoc));
@@ -5848,8 +5885,6 @@ function createObjectDOM(obj) {
           }
           entry.pageAspect = docAspect;
 
-          obj.pdfChromeW = 0;
-          obj.pdfChromeH = 0;
           const sizeChanged = syncPdfViewerAspectSize(obj, docAspect, { width: obj.width });
           el.style.width = `${obj.width}px`;
           el.style.height = `${obj.height}px`;
@@ -6134,19 +6169,24 @@ function createObjectDOM(obj) {
         { passive: false }
       );
 
+      let scrollPageTickRaf = 0;
       pagesContainer.addEventListener('scroll', () => {
-        if (!loadedDocEntry) return;
-        const cards = Array.from(pagesContainer.querySelectorAll('.ff-pdf-page-card'));
-        const scrollMid = pagesContainer.scrollTop + pagesContainer.clientHeight / 3;
-        for (const c of cards) {
-          if (c.offsetTop + c.offsetHeight >= scrollMid) {
-            currentVisiblePage = Number(c.dataset.pageNumber) || 1;
-            break;
+        if (!loadedDocEntry || scrollPageTickRaf) return;
+        scrollPageTickRaf = requestAnimationFrame(() => {
+          scrollPageTickRaf = 0;
+          const cards = pagesContainer.querySelectorAll('.ff-pdf-page-card');
+          const scrollMid = pagesContainer.scrollTop + pagesContainer.clientHeight / 3;
+          for (let i = 0; i < cards.length; i++) {
+            const c = cards[i];
+            if (c.offsetTop + c.offsetHeight >= scrollMid) {
+              currentVisiblePage = Number(c.dataset.pageNumber) || 1;
+              break;
+            }
           }
-        }
-        if (pageIndicatorEl) {
-          pageIndicatorEl.textContent = `${currentVisiblePage} / ${totalDocPages} p`;
-        }
+          if (pageIndicatorEl) {
+            pageIndicatorEl.textContent = `${currentVisiblePage} / ${totalDocPages} p`;
+          }
+        });
       });
 
       pdfBar.addEventListener('click', (e) => {
@@ -6160,7 +6200,7 @@ function createObjectDOM(obj) {
           if (obj.docFitMode === 'page') {
             syncPdfViewerAspectSize(obj, obj.pdfPageAspect, { width: obj.width, forcePageFit: true });
           }
-          renderAllObjects();
+          rerenderSingleObjectDOM(obj);
           renderAllConnectors();
           syncSelectionUI();
           scheduleSaveBoard();
@@ -6591,19 +6631,6 @@ function computeSideBezierPath(p1, p2) {
   return `M ${p1.x} ${p1.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`;
 }
 
-function computeBezierPath(x1, y1, x2, y2, vertical = false) {
-  if (vertical) {
-    return computeSideBezierPath(
-      { x: x1, y: y1, nx: 0, ny: y2 >= y1 ? 1 : -1 },
-      { x: x2, y: y2, nx: 0, ny: y2 >= y1 ? -1 : 1 }
-    );
-  }
-  return computeSideBezierPath(
-    { x: x1, y: y1, nx: x2 >= x1 ? 1 : -1, ny: 0 },
-    { x: x2, y: y2, nx: x2 >= x1 ? -1 : 1, ny: 0 }
-  );
-}
-
 function isScrollLinkCapableObject(obj) {
   return Boolean(obj && (isPdfObject(obj) || obj.type === 'table'));
 }
@@ -6769,8 +6796,24 @@ function showConnectorLinkModePopover(conn, clientX, clientY) {
   }, 60);
 }
 
+let _dragFrameSyncRaf = 0;
+function scheduleDragFrameSync() {
+  if (_dragFrameSyncRaf) return;
+  _dragFrameSyncRaf = requestAnimationFrame(() => {
+    _dragFrameSyncRaf = 0;
+    updateGroupFramesDOM();
+    renderAllConnectors();
+  });
+}
+
 function renderAllConnectors() {
   if (!connectorsGroup || !currentBoard) return;
+  const hasConnectors = Array.isArray(currentBoard.connectors) && currentBoard.connectors.length > 0;
+  const hasSnapPreview = Boolean(connectingState?.snapTarget || draggingConnectorEndpoint?.snapPreview);
+  if (!hasConnectors && !hasSnapPreview) {
+    if (connectorsGroup.firstChild) connectorsGroup.innerHTML = '';
+    return;
+  }
   connectorsGroup.innerHTML = '';
   const objMap = new Map(currentBoard.objects.map((o) => [o.id, o]));
 
@@ -7320,7 +7363,7 @@ function sendSelectedObjectsToBack() {
     .forEach((o) => {
       o.zIndex = z++;
     });
-  renderAllObjects();
+  syncObjectZIndicesDOM();
   scheduleSaveBoard();
   showToast('선택 객체를 맨 뒤로 보냈습니다');
 }
@@ -7450,7 +7493,7 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
     panY = Math.round(rect.height / 2 - (newObj.y + newObj.height / 2) * zoom);
     applyViewportTransform();
   }
-  renderAllObjects();
+  rerenderSingleObjectDOM(newObj);
   selectObject(newObj.id, { expandGroup: false });
   scheduleSaveBoard();
   return newObj;
@@ -7813,9 +7856,18 @@ canvasViewport.addEventListener(
   true
 );
 
+let _lastCtrlMoveMode = false;
+function syncCtrlMoveModeClass(active) {
+  const next = Boolean(active);
+  if (next !== _lastCtrlMoveMode) {
+    _lastCtrlMoveMode = next;
+    document.body.classList.toggle('ctrl-move-mode', next);
+  }
+}
+
 window.addEventListener('pointermove', (e) => {
   lastCanvasMousePos = { x: e.clientX, y: e.clientY };
-  document.body.classList.toggle('ctrl-move-mode', Boolean(e.ctrlKey && activeTool === 'select'));
+  syncCtrlMoveModeClass(e.ctrlKey && activeTool === 'select');
 
   // Left + Right simultaneous click + drag ((e.buttons & 3) === 3) -> immediately switch to canvas panning!
   if (!isPanning && (e.buttons & 3) === 3 && (pointerDownInViewport || canvasViewport?.contains(e.target))) {
@@ -7959,8 +8011,7 @@ window.addEventListener('pointermove', (e) => {
         item.el.style.top = `${item.obj.y}px`;
       }
     });
-    updateGroupFramesDOM();
-    renderAllConnectors();
+    scheduleDragFrameSync();
     return;
   }
 
@@ -8015,20 +8066,18 @@ window.addEventListener('pointermove', (e) => {
       // - 'width' (좌우 비율고정): horizontal drag scales document width proportionally left-to-right, while vertical drag freely reveals more pages/content below
       const aspect = Number(rObj.pdfPageAspect) || 595.28 / 841.89;
       const fitMode = rObj.docFitMode || 'page';
-      const chromeW = 0;
-      const chromeH = 0;
       const isLandscape = aspect > 1.02;
       const minPageW = isLandscape ? 260 : 200;
 
-      const origPageW = Math.max(minPageW, resizingObjState.origW - chromeW);
+      const origPageW = Math.max(minPageW, resizingObjState.origW);
       let nextW;
       let nextPageW;
       let nextH;
 
       if (fitMode === 'width') {
-        const rawNextW = Math.round(origPageW + dw + chromeW);
-        nextW = Math.max(minPageW + chromeW, snapWorldVal(rawNextW, gridConfig.snapObjects));
-        nextPageW = Math.max(minPageW, nextW - chromeW);
+        const rawNextW = Math.round(origPageW + dw);
+        nextW = Math.max(minPageW, snapWorldVal(rawNextW, gridConfig.snapObjects));
+        nextPageW = nextW;
         const rawNextH = Math.round(resizingObjState.origH + dh);
         nextH = Math.max(160, snapWorldVal(rawNextH, gridConfig.snapObjects));
         const pagesContainerEl = resizingObjState.el.querySelector('.ff-pdf-pages-container');
@@ -8041,11 +8090,10 @@ window.addEventListener('pointermove', (e) => {
         const scaleY = (origPageH + dh) / origPageH;
         const scale = Math.abs(dw) >= Math.abs(dh) ? scaleX : scaleY;
 
-        const rawNextW = Math.round(origPageW * scale + chromeW);
-        nextW = Math.max(minPageW + chromeW, snapWorldVal(rawNextW, gridConfig.snapObjects));
-        nextPageW = Math.max(minPageW, nextW - chromeW);
-        const nextPageH = Math.round(nextPageW / Math.max(0.15, aspect));
-        nextH = nextPageH + chromeH;
+        const rawNextW = Math.round(origPageW * scale);
+        nextW = Math.max(minPageW, snapWorldVal(rawNextW, gridConfig.snapObjects));
+        nextPageW = nextW;
+        nextH = Math.round(nextPageW / Math.max(0.15, aspect));
       }
 
       rObj.width = nextW;
@@ -8092,8 +8140,7 @@ window.addEventListener('pointermove', (e) => {
       const sWrap = resizingObjState.el.querySelector('.ff-shape-wrap');
       if (sWrap) renderShapeObjectInto(sWrap, rObj);
     }
-    updateGroupFramesDOM();
-    renderAllConnectors();
+    scheduleDragFrameSync();
     return;
   }
 
@@ -8168,7 +8215,7 @@ window.addEventListener('pointerup', (e) => {
     if (strokeObj && currentBoard) {
       pushUndoSnapshot(`펜 드로잉 (${strokeObj.title || '선/도형'})`);
       currentBoard.objects.push(strokeObj);
-      renderAllObjects();
+      rerenderSingleObjectDOM(strokeObj);
       scheduleSaveBoard();
     }
   }
@@ -8213,6 +8260,8 @@ window.addEventListener('pointerup', (e) => {
       pushUndoSnapshot('객체 이동', draggingObjState.snapshotBefore);
     }
     draggingObjState = null;
+    updateGroupFramesDOM();
+    renderAllConnectors();
     scheduleSaveBoard();
   }
   if (resizingObjState) {
@@ -8225,8 +8274,13 @@ window.addEventListener('pointerup', (e) => {
     }
     resizingObjState = null;
     if (resized && isPdfObject(resizedObj) && (resizedObj.pdfViewMode || 'viewer') === 'viewer') {
-      renderAllObjects();
+      const docKind = getDocumentViewerKind(resizedObj) || 'pdf';
+      if (docKind === 'pdf') {
+        rerenderSingleObjectDOM(resizedObj);
+      }
     }
+    updateGroupFramesDOM();
+    renderAllConnectors();
     scheduleSaveBoard();
   }
   if (connectingState) {
@@ -9673,7 +9727,7 @@ function applyPickedColorToTarget(hex, recordUndo = false) {
           if (!o.borderStyle) o.borderStyle = 'solid';
         }
       });
-      renderAllObjects();
+      rerenderObjectsDOM(selectedObjs);
       syncSelectionUI();
       scheduleSaveBoard();
     }
@@ -9744,7 +9798,7 @@ document.querySelectorAll('#inspectorColors .swatch:not(.random-swatch)').forEac
         if (!o.borderStyle) o.borderStyle = 'solid';
       }
     });
-    renderAllObjects();
+    rerenderObjectsDOM(selected);
     syncSelectionUI();
     scheduleSaveBoard();
   });
@@ -9783,7 +9837,7 @@ document.getElementById('inspRandomColorBtn')?.addEventListener('click', () => {
       if (!o.borderStyle) o.borderStyle = 'solid';
     }
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   syncSelectionUI();
   scheduleSaveBoard();
   showToast(`🎲 고유 랜덤 컬러 적용: ${randomHex.toUpperCase()}`);
@@ -9801,7 +9855,7 @@ document.getElementById('inspImgAspectBtn')?.addEventListener('click', () => {
       o.height = Math.max(48, Math.round(o.width / o.imageAspect));
     }
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   renderAllConnectors();
   syncSelectionUI();
   scheduleSaveBoard();
@@ -9823,7 +9877,7 @@ document.getElementById('inspImgBorderToggleBtn')?.addEventListener('click', () 
       }
     }
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   syncSelectionUI();
   scheduleSaveBoard();
   showToast(nextBorder ? '🖼️ 외곽선(테두리) ON' : '외곽선(테두리) OFF');
@@ -9838,7 +9892,7 @@ document.getElementById('inspImgBorderWidthSelect')?.addEventListener('change', 
     o.borderEnabled = true;
     o.borderWidth = bw;
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   syncSelectionUI();
   scheduleSaveBoard();
 });
@@ -9852,7 +9906,7 @@ document.getElementById('inspImgBorderStyleSelect')?.addEventListener('change', 
     o.borderEnabled = true;
     o.borderStyle = bs;
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   syncSelectionUI();
   scheduleSaveBoard();
 });
@@ -9960,7 +10014,7 @@ document.getElementById('inspArtStyleSelect')?.addEventListener('change', (e) =>
   selected.forEach((o) => {
     o.artStyle = styleId;
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   syncSelectionUI();
   scheduleSaveBoard();
   const found = ART_STYLE_LIST.find((a) => a.id === styleId);
@@ -9997,7 +10051,7 @@ document.getElementById('inspVectorizeBtn')?.addEventListener('click', () => {
       }
     }
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   renderAllConnectors();
   syncSelectionUI();
   scheduleSaveBoard();
@@ -10018,7 +10072,7 @@ document.getElementById('inspStrokeWidthSelect')?.addEventListener('change', (e)
     if (!o.strokeData) o.strokeData = {};
     o.strokeData.strokeWidth = nextWidth;
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   syncSelectionUI();
   scheduleSaveBoard();
 });
@@ -10032,7 +10086,7 @@ document.getElementById('inspStrokeDashBtn')?.addEventListener('click', () => {
     if (!o.strokeData) o.strokeData = {};
     o.strokeData.dashed = nextDashed;
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   syncSelectionUI();
   scheduleSaveBoard();
 });
@@ -10046,7 +10100,7 @@ document.getElementById('inspStrokeArrowBtn')?.addEventListener('click', () => {
     if (!o.strokeData) o.strokeData = {};
     o.strokeData.hasArrow = nextArrow;
   });
-  renderAllObjects();
+  rerenderObjectsDOM(selected);
   syncSelectionUI();
   scheduleSaveBoard();
 });
@@ -10271,7 +10325,7 @@ document.getElementById('inspBringFrontBtn')?.addEventListener('click', () => {
   if (!selected.length) return;
   pushUndoSnapshot('맨 앞으로 가져오기');
   selected.forEach((o) => (o.zIndex = getNextZIndex()));
-  renderAllObjects();
+  syncObjectZIndicesDOM();
   scheduleSaveBoard();
   showToast('선택한 객체를 맨 앞으로 가져왔습니다');
 });
@@ -10330,7 +10384,13 @@ function deleteSelectedObjects() {
   currentBoard.objects = currentBoard.objects.filter((o) => !delIds.has(o.id));
   currentBoard.connectors = currentBoard.connectors.filter((c) => !delIds.has(c.fromId) && !delIds.has(c.toId));
   clearSelection();
-  renderAllObjects();
+  delIds.forEach((id) => {
+    objectLayer?.querySelector(`.ff-object[data-id="${id}"]`)?.remove();
+  });
+  renderGroupFrames();
+  if (typeof isCanvasSearchOpen === 'function' && isCanvasSearchOpen()) {
+    applyCanvasSearchHighlights();
+  }
   renderAllConnectors();
   scheduleSaveBoard();
   showToast(`${count}개 객체가 삭제되었습니다 (Ctrl+Z로 즉시 복구 가능)`);
@@ -10342,7 +10402,7 @@ document.getElementById('pasteClipboardBtn')?.addEventListener('click', () => ha
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Control' || e.ctrlKey) {
-    document.body.classList.add('ctrl-move-mode');
+    syncCtrlMoveModeClass(activeTool === 'select');
   }
 
   const isEditingText = Boolean(
@@ -10516,12 +10576,12 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('keyup', (e) => {
   if (e.key === 'Control' || !e.ctrlKey) {
-    document.body.classList.remove('ctrl-move-mode');
+    syncCtrlMoveModeClass(false);
   }
 });
 
 window.addEventListener('blur', () => {
-  document.body.classList.remove('ctrl-move-mode');
+  syncCtrlMoveModeClass(false);
 });
 
 document.getElementById('lightboxModal')?.addEventListener('click', () => {

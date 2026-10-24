@@ -31,7 +31,6 @@ contextBridge.exposeInMainWorld('freeformAPI', {
   writeClipboardText: (text) => ipcRenderer.invoke('clipboard:write-text', text),
   writeClipboardImage: (payload) => ipcRenderer.invoke('clipboard:write-image', payload),
   readPdfBase64: (filePath) => ipcRenderer.invoke('pdf:read-base64', filePath),
-  openInBossPdf: (filePath) => ipcRenderer.invoke('pdf:open-bosspdf', filePath),
   captureScreenToAsset: () => ipcRenderer.invoke('screen:capture-asset'),
 
   // URL Metadata & External Links

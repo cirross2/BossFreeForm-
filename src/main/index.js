@@ -713,25 +713,6 @@ function setupIpc() {
     }
   });
 
-  ipcMain.handle('pdf:open-bosspdf', (_, filePath) => {
-    if (!filePath || !fs.existsSync(filePath)) {
-      return { ok: false, error: 'PDF 파일을 찾을 수 없습니다' };
-    }
-    const candidatePaths = [
-      path.resolve(__dirname, '../../../BossPDF/dist/BossPDF/BossPDF.exe'),
-      'E:\\코딩\\BossPDF\\dist\\BossPDF\\BossPDF.exe',
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'BossPDF', 'BossPDF.exe'),
-      'C:\\Program Files\\BossPDF\\BossPDF.exe'
-    ];
-    const bossPdfExe = candidatePaths.find((p) => p && fs.existsSync(p));
-    if (bossPdfExe) {
-      exec(`"${bossPdfExe}" "${filePath}"`);
-      return { ok: true, usedBossPdf: true };
-    }
-    shell.openPath(filePath);
-    return { ok: true, usedBossPdf: false };
-  });
-
   ipcMain.handle('screen:capture-asset', async () => {
     const wasVisible = mainWindow && mainWindow.isVisible();
     if (wasVisible) mainWindow.hide();
@@ -948,15 +929,17 @@ function deleteBoardFromVercelCloudRelay(boardId) {
   } catch (_) {}
 }
 
-function pushAssetToVercelCloudRelay(assetFileName) {
+async function pushAssetToVercelCloudRelay(assetFileName) {
   if (!assetFileName) return;
   try {
-    const assetPath = path.join(driveSync.getAssetsDir(), path.basename(assetFileName));
-    if (!fs.existsSync(assetPath) || !fs.statSync(assetPath).isFile()) return;
-    const buf = fs.readFileSync(assetPath);
+    const safeName = path.basename(assetFileName);
+    const assetPath = path.join(driveSync.getAssetsDir(), safeName);
+    const stat = await fs.promises.stat(assetPath).catch(() => null);
+    if (!stat || !stat.isFile()) return;
+    const buf = await fs.promises.readFile(assetPath);
     const payload = JSON.stringify({
       asset: {
-        assetFileName: path.basename(assetFileName),
+        assetFileName: safeName,
         base64: buf.toString('base64')
       }
     });

@@ -243,8 +243,16 @@ class DriveSyncManager {
   }
 
   ensureStorageDirectories() {
-    const boardsDir = this.getBoardsDir();
-    const assetsDir = this.getAssetsDir();
+    const activeRoot = this.getActiveStorageRoot();
+    const boardsDir = path.join(activeRoot, 'boards');
+    const assetsDir = path.join(activeRoot, 'assets');
+    if (
+      this._ensuredStorageRoot === activeRoot &&
+      fs.existsSync(boardsDir) &&
+      fs.existsSync(assetsDir)
+    ) {
+      return;
+    }
     if (!fs.existsSync(boardsDir)) fs.mkdirSync(boardsDir, { recursive: true });
     if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
 
@@ -255,6 +263,7 @@ class DriveSyncManager {
       const welcomePath = path.join(boardsDir, `${welcomeBoard.id}.json`);
       fs.writeFileSync(welcomePath, JSON.stringify(welcomeBoard, null, 2), 'utf-8');
     }
+    this._ensuredStorageRoot = activeRoot;
   }
 
   createWelcomeBoard() {
