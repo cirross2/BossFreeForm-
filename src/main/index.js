@@ -235,6 +235,7 @@ function showMainWindow() {
   }
   mainWindow.show();
   mainWindow.focus();
+  triggerEventDrivenCloudSync();
 }
 
 function createMainWindow() {
@@ -292,6 +293,7 @@ function createMainWindow() {
   mainWindow.on('resized', saveCurrentWindowBounds);
   mainWindow.on('maximize', saveCurrentWindowBounds);
   mainWindow.on('unmaximize', saveCurrentWindowBounds);
+  mainWindow.on('focus', () => triggerEventDrivenCloudSync());
 
   mainWindow.on('close', (e) => {
     if (!app.isQuitting) {
@@ -575,17 +577,32 @@ function setupIpc() {
 
   ipcMain.handle('board:list', () => driveSync.listBoards());
   ipcMain.handle('board:get', (_, boardId) => driveSync.getBoard(boardId));
-  ipcMain.handle('board:save', (_, board) => driveSync.saveBoard(board));
-  ipcMain.handle('board:create', (_, opts) => driveSync.createNewBoard(opts));
-  ipcMain.handle('board:delete', (_, boardId) => driveSync.deleteBoard(boardId));
+  ipcMain.handle('board:save', (_, board) => {
+    const res = driveSync.saveBoard(board);
+    pushBoardToVercelCloudRelay(board);
+    return res;
+  });
+  ipcMain.handle('board:create', (_, opts) => {
+    const res = driveSync.createNewBoard(opts);
+    pushBoardToVercelCloudRelay(res);
+    return res;
+  });
+  ipcMain.handle('board:delete', (_, boardId) => {
+    const res = driveSync.deleteBoard(boardId);
+    deleteBoardFromVercelCloudRelay(boardId);
+    return res;
+  });
 
   ipcMain.handle('asset:save-path', (_, { filePath, name }) => {
-    return driveSync.saveAssetFromPath(filePath, name);
+    const saved = driveSync.saveAssetFromPath(filePath, name);
+    if (saved?.assetFileName) pushAssetToVercelCloudRelay(saved.assetFileName);
+    return saved;
   });
 
   ipcMain.handle('asset:save-buffer', (_, { buffer, ext, name }) => {
     const buf = Buffer.from(buffer);
     const saved = driveSync.saveAssetFromBuffer(buf, ext || '.bin', name || 'dropped_file');
+    if (saved?.assetFileName) pushAssetToVercelCloudRelay(saved.assetFileName);
     return {
       ...saved,
       size: buf.length
@@ -601,7 +618,11 @@ function setupIpc() {
       filters
     });
     if (res.canceled || !res.filePaths.length) return [];
-    return res.filePaths.map((fp) => driveSync.saveAssetFromPath(fp));
+    return res.filePaths.map((fp) => {
+      const saved = driveSync.saveAssetFromPath(fp);
+      if (saved?.assetFileName) pushAssetToVercelCloudRelay(saved.assetFileName);
+      return saved;
+    });
   });
 
   ipcMain.handle('clipboard:read-smart', () => {
@@ -610,6 +631,7 @@ function setupIpc() {
       const pngBuf = img.toPNG();
       const size = img.getSize();
       const saved = driveSync.saveAssetFromBuffer(pngBuf, '.png', 'clipboard_img');
+      if (saved?.assetFileName) pushAssetToVercelCloudRelay(saved.assetFileName);
       return {
         kind: 'image',
         asset: saved,
@@ -734,6 +756,9 @@ function setupIpc() {
       mainWindow.show();
       mainWindow.focus();
     }
+    if (result?.asset?.assetFileName) {
+      pushAssetToVercelCloudRelay(result.asset.assetFileName);
+    }
     return result;
   });
 
@@ -818,6 +843,7 @@ function setupIpc() {
   });
 
   ipcMain.handle('sync:cloud-now', async () => {
+    syncWithVercelCloudRelay();
     return await driveSync.syncToGoogleCloud();
   });
 
@@ -835,6 +861,485 @@ function setupIpc() {
   ipcMain.handle('config:set-hotkey', (_, newHotkey) => {
     return registerAppGlobalHotkey(newHotkey);
   });
+}
+
+// ============================================================================
+// SpotlightAgent & Web Version <-> BossFreeForm Local HTTP Bridge (127.0.0.1:18089 / 18090)
+// + Vercel Cloud Relay Real-Time Sync
+// ============================================================================
+const BRIDGE_PORT = 18089;
+let bridgeServer = null;
+const VERCEL_CLOUD_SYNC_URL = 'https://boss-freeform-web.vercel.app/api/cloud-sync';
+let cloudRelaySyncInFlight = false;
+let lastEventCloudSyncAt = 0;
+
+function triggerEventDrivenCloudSync(force = false) {
+  const now = Date.now();
+  if (!force && now - lastEventCloudSyncAt < 10000) return;
+  lastEventCloudSyncAt = now;
+  syncWithVercelCloudRelay();
+}
+
+function readAllRawBoardsFromDisk() {
+  const boardsDir = driveSync.getBoardsDir();
+  const boards = [];
+  try {
+    if (fs.existsSync(boardsDir)) {
+      for (const f of fs.readdirSync(boardsDir).filter((x) => x.endsWith('.json'))) {
+        try {
+          const b = JSON.parse(fs.readFileSync(path.join(boardsDir, f), 'utf-8'));
+          if (b && b.id) boards.push(b);
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return boards;
+}
+
+function pushBoardToVercelCloudRelay(board) {
+  if (!board || !board.id) return;
+  try {
+    const payload = JSON.stringify({ board });
+    const urlObj = new URL(VERCEL_CLOUD_SYNC_URL);
+    const req = https.request(
+      {
+        hostname: urlObj.hostname,
+        path: urlObj.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        },
+        timeout: 4000
+      },
+      (res) => {
+        res.resume();
+      }
+    );
+    req.on('error', () => {});
+    req.write(payload);
+    req.end();
+  } catch (_) {}
+}
+
+function deleteBoardFromVercelCloudRelay(boardId) {
+  if (!boardId) return;
+  try {
+    const payload = JSON.stringify({ action: 'delete', boardId, deletedAt: Date.now() });
+    const urlObj = new URL(VERCEL_CLOUD_SYNC_URL);
+    const req = https.request(
+      {
+        hostname: urlObj.hostname,
+        path: urlObj.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        },
+        timeout: 4000
+      },
+      (res) => {
+        res.resume();
+      }
+    );
+    req.on('error', () => {});
+    req.write(payload);
+    req.end();
+  } catch (_) {}
+}
+
+function pushAssetToVercelCloudRelay(assetFileName) {
+  if (!assetFileName) return;
+  try {
+    const assetPath = path.join(driveSync.getAssetsDir(), path.basename(assetFileName));
+    if (!fs.existsSync(assetPath) || !fs.statSync(assetPath).isFile()) return;
+    const buf = fs.readFileSync(assetPath);
+    const payload = JSON.stringify({
+      asset: {
+        assetFileName: path.basename(assetFileName),
+        base64: buf.toString('base64')
+      }
+    });
+    const urlObj = new URL(VERCEL_CLOUD_SYNC_URL);
+    const req = https.request(
+      {
+        hostname: urlObj.hostname,
+        path: urlObj.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        },
+        timeout: 15000
+      },
+      (res) => {
+        res.resume();
+      }
+    );
+    req.on('error', () => {});
+    req.write(payload);
+    req.end();
+  } catch (_) {}
+}
+
+function downloadAssetFromVercelCloudRelay(assetFileName) {
+  if (!assetFileName) return;
+  try {
+    const safeName = path.basename(assetFileName);
+    const destPath = path.join(driveSync.getAssetsDir(), safeName);
+    if (fs.existsSync(destPath)) return;
+    const urlObj = new URL(`${VERCEL_CLOUD_SYNC_URL}?asset=${encodeURIComponent(safeName)}`);
+    const req = https.request(
+      {
+        hostname: urlObj.hostname,
+        path: urlObj.pathname + urlObj.search,
+        method: 'GET',
+        timeout: 15000
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          return;
+        }
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const buf = Buffer.concat(chunks);
+            if (buf.length > 0) {
+              fs.mkdirSync(driveSync.getAssetsDir(), { recursive: true });
+              fs.writeFileSync(destPath, buf);
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('board:external-update', driveSync.config.lastActiveBoardId);
+              }
+            }
+          } catch (_) {}
+        });
+      }
+    );
+    req.on('error', () => {});
+    req.end();
+  } catch (_) {}
+}
+
+function syncWithVercelCloudRelay() {
+  if (cloudRelaySyncInFlight) return;
+  cloudRelaySyncInFlight = true;
+  try {
+    const localBoards = readAllRawBoardsFromDisk();
+    const payload = JSON.stringify({ boards: localBoards });
+    const urlObj = new URL(VERCEL_CLOUD_SYNC_URL);
+    const req = https.request(
+      {
+        hostname: urlObj.hostname,
+        path: urlObj.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        },
+        timeout: 5000
+      },
+      (res) => {
+        let chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          cloudRelaySyncInFlight = false;
+          try {
+            const data = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
+            if (!data || !Array.isArray(data.boards)) return;
+            const localMap = new Map(localBoards.map((b) => [b.id, b]));
+            const boardsDir = driveSync.getBoardsDir();
+            for (const remoteBoard of data.boards) {
+              if (!remoteBoard || !remoteBoard.id) continue;
+              const localBoard = localMap.get(remoteBoard.id);
+              if (!localBoard || (remoteBoard.updatedAt || 0) > (localBoard.updatedAt || 0) + 500) {
+                fs.mkdirSync(boardsDir, { recursive: true });
+                fs.writeFileSync(
+                  path.join(boardsDir, `${remoteBoard.id}.json`),
+                  JSON.stringify(remoteBoard, null, 2),
+                  'utf-8'
+                );
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send('board:external-update', remoteBoard.id);
+                }
+              }
+            }
+
+            // Bidirectional Asset File Sync (G:\내 드라이브\BossFreeForm\assets <-> Cloud Relay)
+            const remoteAssetSet = new Set(Array.isArray(data.assetNames) ? data.assetNames : []);
+            const assetsDir = driveSync.getAssetsDir();
+            if (fs.existsSync(assetsDir)) {
+              const localAssetFiles = fs.readdirSync(assetsDir);
+              const localAssetSet = new Set(localAssetFiles);
+              // 1) Download any new assets created on Web into G:\내 드라이브\BossFreeForm\assets
+              for (const rName of remoteAssetSet) {
+                if (!localAssetSet.has(rName)) {
+                  downloadAssetFromVercelCloudRelay(rName);
+                }
+              }
+              // 2) Upload any local assets missing from Cloud Relay (up to 2 per cycle to avoid congestion)
+              let uploadedCount = 0;
+              for (const lName of localAssetFiles) {
+                if (!remoteAssetSet.has(lName) && uploadedCount < 2) {
+                  pushAssetToVercelCloudRelay(lName);
+                  uploadedCount++;
+                }
+              }
+            }
+          } catch (_) {}
+        });
+      }
+    );
+    req.on('error', () => {
+      cloudRelaySyncInFlight = false;
+    });
+    req.on('timeout', () => {
+      cloudRelaySyncInFlight = false;
+      try { req.destroy(); } catch (_) {}
+    });
+    req.write(payload);
+    req.end();
+  } catch (_) {
+    cloudRelaySyncInFlight = false;
+  }
+}
+
+const BRIDGE_MIME_MAP = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.pdf': 'application/pdf'
+};
+
+function startBridgeServer() {
+  bridgeServer = http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Private-Network', 'true');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    const reqUrl = String(req.url || '').split('?')[0];
+
+    if (req.method === 'GET' && reqUrl === '/api/status') {
+      const boards = driveSync.listBoards();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          app: 'BossFreeForm',
+          activeBoardId: driveSync.config.lastActiveBoardId,
+          boardCount: boards.length,
+          syncStatus: driveSync.getSyncStatus()
+        })
+      );
+      return;
+    }
+
+    if (req.method === 'POST' && (reqUrl === '/api/window/toggle' || reqUrl === '/api/window/show')) {
+      if (
+        reqUrl === '/api/window/toggle' &&
+        mainWindow &&
+        !mainWindow.isDestroyed() &&
+        mainWindow.isVisible() &&
+        mainWindow.isFocused()
+      ) {
+        mainWindow.hide();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, visible: false }));
+      } else {
+        showMainWindow();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, visible: true }));
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && reqUrl === '/api/board/add-object') {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          showMainWindow();
+
+          if (Array.isArray(payload.objects) && payload.objects.length > 0) {
+            const objectsToPush = payload.objects.map((item, idx) => {
+              const rawContent = item.content || item.markdown || '';
+              const parsedTable =
+                item.forceType === 'text'
+                  ? null
+                  : item.tableData || tryParseTableFromText(rawContent);
+              return {
+                type: item.forceType || item.type || (parsedTable ? 'table' : 'text'),
+                title: item.title || `✨ Spotlight AI #${idx + 1}`,
+                content: rawContent,
+                tableData: parsedTable || null,
+                url: item.url || null,
+                color: item.color || (parsedTable ? 'blue' : 'dark')
+              };
+            });
+
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('bridge:add-object', {
+                objects: objectsToPush
+              });
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ ok: true, count: objectsToPush.length }));
+            return;
+          }
+
+          const rawContent = payload.content || payload.markdown || '';
+          const parsedTable =
+            payload.forceType === 'text'
+              ? null
+              : payload.tableData || tryParseTableFromText(rawContent);
+
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('bridge:add-object', {
+              type: payload.forceType || payload.type || (parsedTable ? 'table' : 'text'),
+              title: payload.title || '✨ Spotlight AI 답변',
+              content: rawContent,
+              tableData: parsedTable || null,
+              url: payload.url || null,
+              color: payload.color || (parsedTable ? 'blue' : 'dark')
+            });
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && reqUrl === '/api/local-drive/boards') {
+      const boards = readAllRawBoardsFromDisk();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(
+        JSON.stringify({
+          localDriveActive: true,
+          driveRoot: driveSync.getActiveStorageRoot(),
+          activeBoardId: driveSync.config.lastActiveBoardId,
+          boards
+        })
+      );
+      return;
+    }
+
+    if (req.method === 'POST' && reqUrl === '/api/local-drive/save-board') {
+      let chunks = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
+          const board = body?.board;
+          if (board && board.id) {
+            const boardsDir = driveSync.getBoardsDir();
+            fs.mkdirSync(boardsDir, { recursive: true });
+            fs.writeFileSync(path.join(boardsDir, `${board.id}.json`), JSON.stringify(board, null, 2), 'utf-8');
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('board:external-update', board.id);
+            }
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: true }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && reqUrl === '/api/local-drive/delete-board') {
+      let chunks = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
+          if (body?.boardId) {
+            driveSync.deleteBoard(body.boardId);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('board:external-update', body.boardId);
+            }
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: true }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && reqUrl === '/api/local-drive/save-asset') {
+      let chunks = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
+          if (body?.assetFileName && body?.base64) {
+            const assetsDir = driveSync.getAssetsDir();
+            fs.mkdirSync(assetsDir, { recursive: true });
+            fs.writeFileSync(path.join(assetsDir, body.assetFileName), Buffer.from(body.base64, 'base64'));
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: true }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && reqUrl.startsWith('/seed_drive/assets/')) {
+      const fileName = decodeURIComponent(reqUrl.replace('/seed_drive/assets/', ''));
+      const assetPath = path.join(driveSync.getAssetsDir(), fileName);
+      if (fs.existsSync(assetPath) && fs.statSync(assetPath).isFile()) {
+        const ext = path.extname(assetPath).toLowerCase();
+        res.writeHead(200, { 'Content-Type': BRIDGE_MIME_MAP[ext] || 'application/octet-stream' });
+        fs.createReadStream(assetPath).pipe(res);
+        return;
+      }
+    }
+
+    res.writeHead(404);
+    res.end();
+  });
+
+  let triedFallbackPort = false;
+  bridgeServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE' && !triedFallbackPort) {
+      triedFallbackPort = true;
+      bridgeServer.listen(18090, '127.0.0.1');
+      return;
+    }
+    console.warn('[BridgeServer] Port warning:', err.message);
+  });
+
+  bridgeServer.listen(BRIDGE_PORT, '127.0.0.1', () => {
+    console.log(`[BossFreeForm] Spotlight & Web Bridge listening on http://127.0.0.1:${BRIDGE_PORT}`);
+  });
+
+  // Event-driven sync only (once at startup + on window open/focus or board save, NO constant 2.5s Vercel polling)
+  setTimeout(() => triggerEventDrivenCloudSync(true), 1000);
 }
 
 function updateTrayMenu() {
@@ -900,6 +1405,7 @@ app.whenReady().then(() => {
   setupIpc();
   createMainWindow();
   setupTray();
+  startBridgeServer();
 
   driveSync.startWatching((changedBoardId) => {
     if (mainWindow && !mainWindow.isDestroyed()) {

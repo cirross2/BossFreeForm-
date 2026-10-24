@@ -57,10 +57,15 @@ contextBridge.exposeInMainWorld('freeformAPI', {
   saveConfig: (partial) => ipcRenderer.invoke('config:save', partial),
   setGlobalHotkey: (hotkey) => ipcRenderer.invoke('config:set-hotkey', hotkey),
 
-  // Events from Main Process (External Drive file sync)
+  // Events from Main Process (External Drive file sync & SpotlightAgent Bridge)
   onBoardExternallyUpdated: (cb) => {
     const handler = (_, boardId) => cb(boardId);
     ipcRenderer.on('board:external-update', handler);
     return () => ipcRenderer.removeListener('board:external-update', handler);
+  },
+  onBridgeAddObject: (cb) => {
+    const handler = (_, objData) => cb(objData);
+    ipcRenderer.on('bridge:add-object', handler);
+    return () => ipcRenderer.removeListener('bridge:add-object', handler);
   }
 });

@@ -1416,7 +1416,7 @@ body.theme-light .ff-table-sel-badge {
   cursor: grab;
   opacity: 0;
   transition: opacity 0.15s ease, transform 0.15s ease;
-  z-index: 15;
+  z-index: 25;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
 }
 .ff-rotate-handle:active {
@@ -2002,7 +2002,7 @@ body.theme-light .ff-context-menu {
 .ff-pdf-pages-container {
   flex: 1;
   overflow: auto;
-  padding: 10px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3432,6 +3432,640 @@ body.theme-light .ff-link-url-row {
   flex: 1 1 auto;
   min-height: 0;
 }
+
+/* ==========================================================================
+   1. PDF Object Auto-Hiding Title Bar & Control Toolbar + Custom Border Frame
+   ========================================================================== */
+.ff-object.is-pdf.is-pdf-viewer {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  border: 1.5px solid transparent;
+  box-shadow: none;
+  border-radius: 12px;
+  overflow: visible;
+}
+.ff-object.is-pdf.is-pdf-viewer:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+.ff-object.is-pdf.is-pdf-viewer.selected {
+  border-color: var(--apple-bright-blue) !important;
+  box-shadow: 0 0 0 2.5px rgba(41, 151, 255, 0.42);
+}
+
+.ff-object.is-pdf .ff-obj-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 16;
+  background: linear-gradient(180deg, rgba(20, 20, 24, 0.94) 0%, rgba(20, 20, 24, 0.80) 100%);
+  backdrop-filter: blur(14px);
+  color: #f5f5f7;
+  border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.ff-object.is-pdf.is-pdf-viewer .ff-pdf-toolbar {
+  position: absolute;
+  top: 38px;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  background: rgba(22, 22, 27, 0.90);
+  backdrop-filter: blur(14px);
+  color: #f5f5f7;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.ff-object.is-pdf:hover .ff-obj-header,
+.ff-object.is-pdf.selected .ff-obj-header,
+.ff-object.is-pdf:focus-within .ff-obj-header,
+.ff-object.is-pdf.ff-search-match .ff-obj-header,
+.ff-object.is-pdf.is-pdf-viewer:hover .ff-pdf-toolbar,
+.ff-object.is-pdf.is-pdf-viewer.selected .ff-pdf-toolbar,
+.ff-object.is-pdf.is-pdf-viewer:focus-within .ff-pdf-toolbar {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.ff-object.is-pdf.is-pdf-viewer .ff-obj-body {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  width: 100%;
+  height: 100%;
+}
+
+.ff-object.is-pdf.is-pdf-viewer .ff-pdf-viewer-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.42));
+}
+
+.ff-object.is-pdf.is-pdf-viewer .ff-pdf-pages-container {
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  gap: 10px;
+  background: transparent;
+  scrollbar-width: none;
+}
+.ff-object.is-pdf.is-pdf-viewer .ff-pdf-pages-container::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+  display: none;
+}
+
+.ff-object.is-pdf.is-pdf-viewer .ff-resize-handle {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 18;
+  background: rgba(20, 20, 24, 0.75);
+  color: #ffffff;
+  border-radius: 5px;
+}
+.ff-object.is-pdf.is-pdf-viewer:hover .ff-resize-handle,
+.ff-object.is-pdf.is-pdf-viewer.selected .ff-resize-handle {
+  opacity: 1;
+}
+
+/* ==========================================================================
+   2. Sticker Object (.type-sticker) & Sticker Library Modal
+   ========================================================================== */
+.ff-object.type-sticker {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  border: 1.5px solid transparent;
+  box-shadow: none;
+  border-radius: 12px;
+  overflow: visible;
+}
+.ff-object.type-sticker:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+.ff-object.type-sticker.selected {
+  border-color: var(--apple-bright-blue) !important;
+  box-shadow: 0 0 0 2.5px rgba(41, 151, 255, 0.42);
+}
+
+.ff-object.type-sticker .ff-obj-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 12;
+  background: linear-gradient(180deg, rgba(20, 20, 24, 0.92) 0%, rgba(20, 20, 24, 0.72) 100%);
+  backdrop-filter: blur(14px);
+  color: #f5f5f7;
+  border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.ff-object.type-sticker:hover .ff-obj-header,
+.ff-object.type-sticker.selected .ff-obj-header,
+.ff-object.type-sticker:focus-within .ff-obj-header,
+.ff-object.type-sticker.ff-search-match .ff-obj-header {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.ff-object.type-sticker .ff-obj-header {
+  padding: 5px 8px;
+  gap: 4px;
+}
+
+.ff-object.type-sticker .ff-obj-title {
+  min-width: 0;
+  font-size: 11.5px;
+}
+
+.ff-object.type-sticker .ff-header-copy-btn span {
+  display: none;
+}
+
+.ff-object.type-sticker .ff-header-copy-btn {
+  padding: 0 5px;
+}
+
+.ff-object.type-sticker .ff-obj-body {
+  padding: 0;
+  overflow: visible;
+  width: 100%;
+  height: 100%;
+  cursor: move;
+}
+
+.ff-sticker-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border-radius: 10px;
+  overflow: visible;
+}
+
+.ff-sticker-wrap img,
+.ff-sticker-wrap svg {
+  width: 100%;
+  height: 100%;
+  object-fit: fill !important;
+  display: block;
+  user-select: none;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.34));
+}
+
+.sticker-card-btn > img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25));
+}
+
+.ff-object.type-sticker .ff-resize-handle {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 16;
+  background: rgba(20, 20, 24, 0.75);
+  color: #ffffff;
+  border-radius: 5px;
+}
+.ff-object.type-sticker:hover .ff-resize-handle,
+.ff-object.type-sticker.selected .ff-resize-handle {
+  opacity: 1;
+}
+
+/* Sticker Library Modal */
+.sticker-modal-card {
+  max-width: 760px !important;
+  width: 92vw;
+}
+.sticker-modal-body {
+  max-height: 68vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.sticker-upload-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(0, 113, 227, 0.10);
+  border: 1px dashed rgba(41, 151, 255, 0.45);
+  margin-bottom: 16px;
+}
+.sticker-upload-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  flex-wrap: wrap;
+}
+.sticker-section {
+  margin-bottom: 16px;
+}
+.sticker-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  letter-spacing: -0.1px;
+}
+.sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px;
+}
+.sticker-card-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+}
+body.theme-light .sticker-card-btn {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.10);
+}
+.sticker-card-btn:hover {
+  transform: translateY(-2px) scale(1.04);
+  background: rgba(41, 151, 255, 0.16);
+  border-color: var(--apple-bright-blue);
+}
+.sticker-card-preview {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sticker-card-preview img,
+.sticker-card-preview svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25));
+}
+.sticker-card-name {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.sticker-card-del {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 69, 58, 0.85);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sticker-card-btn:hover .sticker-card-del {
+  opacity: 1;
+}
+
+/* ==========================================================================
+   3. Group Frame & Editable Group Name Header Pill on Canvas + Inspector
+   ========================================================================== */
+.ff-group-frame {
+  position: absolute;
+  border: 1.5px dashed rgba(41, 151, 255, 0.52);
+  background: rgba(41, 151, 255, 0.035);
+  border-radius: 16px;
+  pointer-events: none;
+  z-index: 0;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.ff-group-frame.is-group-selected {
+  border-color: var(--apple-bright-blue);
+  background: rgba(41, 151, 255, 0.07);
+  box-shadow: 0 0 0 2px rgba(41, 151, 255, 0.22);
+}
+.ff-group-name-bar {
+  position: absolute;
+  top: -14px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  background: rgba(22, 28, 40, 0.94);
+  border: 1px solid rgba(41, 151, 255, 0.55);
+  color: #f5f5f7;
+  font-size: 11.5px;
+  font-weight: 700;
+  pointer-events: auto;
+  cursor: move;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+}
+body.theme-light .ff-group-name-bar {
+  background: rgba(255, 255, 255, 0.95);
+  color: #1d1d1f;
+  border-color: rgba(0, 113, 227, 0.5);
+}
+.ff-group-name-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 700;
+  min-width: 64px;
+  max-width: 200px;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.ff-group-name-input:focus {
+  background: rgba(41, 151, 255, 0.18);
+  box-shadow: 0 0 0 1.5px var(--apple-bright-blue);
+  cursor: text;
+}
+.ff-group-count-tag {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.72;
+  padding-left: 2px;
+}
+
+.insp-group-name-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+.insp-group-name-input {
+  width: 115px;
+  height: 25px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(41, 151, 255, 0.45);
+  background: rgba(41, 151, 255, 0.12);
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 600;
+  outline: none;
+}
+.insp-group-name-input:focus {
+  border-color: var(--apple-bright-blue);
+  box-shadow: 0 0 0 2px rgba(41, 151, 255, 0.28);
+}
+
+/* ==========================================================================
+   4. Unified Canvas Search Bar (Ctrl+F) & Persistent Match Highlights
+   ========================================================================== */
+.canvas-search-bar {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border-radius: 12px;
+  background: rgba(24, 24, 28, 0.94);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 214, 10, 0.48);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(255, 214, 10, 0.16);
+  color: var(--text-primary);
+}
+body.theme-light .canvas-search-bar {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(255, 149, 0, 0.55);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+.canvas-search-icon {
+  color: #ffd60a;
+  flex-shrink: 0;
+}
+body.theme-light .canvas-search-icon {
+  color: #ff9500;
+}
+.canvas-search-input {
+  width: 240px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.canvas-search-input::placeholder {
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+.canvas-search-count {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 214, 10, 0.16);
+  color: #ffd60a;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+body.theme-light .canvas-search-count {
+  background: rgba(255, 149, 0, 0.16);
+  color: #c96900;
+}
+.canvas-search-count.no-matches {
+  background: rgba(255, 69, 58, 0.18);
+  color: #ff6961;
+}
+.canvas-search-nav-btn,
+.canvas-search-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+body.theme-light .canvas-search-nav-btn,
+body.theme-light .canvas-search-close-btn {
+  border-color: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.04);
+}
+.canvas-search-nav-btn:hover,
+.canvas-search-close-btn:hover {
+  background: var(--apple-blue);
+  border-color: transparent;
+  color: #ffffff;
+}
+.canvas-search-close-btn {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* Native CSS Custom Highlight API for Inline Text Nodes */
+::highlight(ff-search-all) {
+  background-color: #ffd60a;
+  color: #111113;
+}
+::highlight(ff-search-active) {
+  background-color: #ff9f0a;
+  color: #000000;
+}
+
+/* Object & Group Search Match Outlines & Badges */
+.ff-object.ff-search-match,
+.ff-group-frame.ff-search-match {
+  outline: 2.5px solid #ffd60a !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(255, 214, 10, 0.28), 0 12px 30px rgba(0, 0, 0, 0.45) !important;
+}
+.ff-object.ff-search-match-active,
+.ff-group-frame.ff-search-match-active {
+  outline: 3.5px solid #ff9f0a !important;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(255, 159, 10, 0.48), 0 16px 38px rgba(0, 0, 0, 0.55) !important;
+}
+
+.ff-input-search-hit {
+  background: rgba(255, 214, 10, 0.28) !important;
+  border-radius: 5px;
+  box-shadow: 0 0 0 1.5px #ffd60a;
+}
+
+.ff-search-match-badge {
+  position: absolute;
+  top: -26px;
+  right: 0;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(24, 24, 28, 0.95);
+  border: 1.5px solid #ffd60a;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.ff-object.ff-search-match-active > .ff-search-match-badge,
+.ff-group-frame.ff-search-match-active > .ff-search-match-badge {
+  background: #ff9f0a;
+  border-color: #ffffff;
+  color: #111113;
+}
+
+mark.ff-search-hl {
+  background: #ffd60a;
+  color: #111113;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 800;
+}
+
+.ff-pdf-search-hl-box {
+  position: absolute;
+  background: rgba(255, 214, 10, 0.46);
+  border: 1.5px solid rgba(255, 149, 0, 0.95);
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 8;
+  box-shadow: 0 0 6px rgba(255, 214, 10, 0.65);
+}
+.ff-pdf-search-hl-box.is-active-pdf-hit {
+  background: rgba(255, 149, 0, 0.58);
+  border: 2px solid #ff3b30;
+  box-shadow: 0 0 10px rgba(255, 149, 0, 0.9);
+}
+
+/* ==========================================================================
+   5. Checklist Filtered Copy Buttons (Unchecked Copy & Checked Copy)
+   ========================================================================== */
+.ff-chk-copy-combo {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.ff-chk-copy-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 23px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 135, 0.28);
+  background: rgba(128, 128, 135, 0.14);
+  color: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  flex-shrink: 0;
+}
+.ff-chk-copy-filter-btn:hover {
+  background: var(--apple-blue);
+  border-color: transparent;
+  color: #ffffff;
+}
+.ff-chk-copy-filter-btn.copied {
+  background: var(--apple-green) !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+}
+
 
 
 

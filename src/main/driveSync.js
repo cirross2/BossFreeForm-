@@ -88,6 +88,58 @@ class DriveSyncManager {
     return null;
   }
 
+  migrateLegacyFreeformDriveFolder(targetBossFreeFormDir) {
+    if (!targetBossFreeFormDir) return;
+    try {
+      const parentDir = path.dirname(targetBossFreeFormDir);
+      const legacyDir = path.join(parentDir, 'FreeformDrive');
+      if (!fs.existsSync(legacyDir) || legacyDir === targetBossFreeFormDir) return;
+
+      const targetBoards = path.join(targetBossFreeFormDir, 'boards');
+      const targetAssets = path.join(targetBossFreeFormDir, 'assets');
+      fs.mkdirSync(targetBoards, { recursive: true });
+      fs.mkdirSync(targetAssets, { recursive: true });
+
+      const legacyBoards = path.join(legacyDir, 'boards');
+      if (fs.existsSync(legacyBoards)) {
+        for (const f of fs.readdirSync(legacyBoards)) {
+          if (!f.endsWith('.json')) continue;
+          const src = path.join(legacyBoards, f);
+          const dst = path.join(targetBoards, f);
+          if (!fs.existsSync(dst)) {
+            fs.copyFileSync(src, dst);
+          } else {
+            try {
+              const sObj = JSON.parse(fs.readFileSync(src, 'utf-8'));
+              const dObj = JSON.parse(fs.readFileSync(dst, 'utf-8'));
+              if ((Number(sObj.updatedAt) || 0) > (Number(dObj.updatedAt) || 0)) {
+                fs.copyFileSync(src, dst);
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
+      const legacyAssets = path.join(legacyDir, 'assets');
+      if (fs.existsSync(legacyAssets)) {
+        for (const f of fs.readdirSync(legacyAssets)) {
+          const src = path.join(legacyAssets, f);
+          const dst = path.join(targetAssets, f);
+          try {
+            if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+              fs.copyFileSync(src, dst);
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Remove duplicate legacy FreeformDrive folder after safe migration
+      try {
+        fs.rmSync(legacyDir, { recursive: true, force: true });
+      } catch (_) {}
+    } catch (_) {}
+  }
+
   getDefaultConfig() {
     const detectedDrivePath = this.detectGoogleDriveDesktopPath();
     return {
@@ -115,6 +167,10 @@ class DriveSyncManager {
 
   loadConfig() {
     const defaults = this.getDefaultConfig();
+    const detected = this.detectGoogleDriveDesktopPath();
+    if (detected) {
+      this.migrateLegacyFreeformDriveFolder(detected);
+    }
     try {
       if (fs.existsSync(CONFIG_PATH)) {
         const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
@@ -122,12 +178,19 @@ class DriveSyncManager {
         if (!raw.hotkey) {
           merged.hotkey = 'Ctrl+Shift+Space';
         }
-        const detected = this.detectGoogleDriveDesktopPath();
         merged.googleDesktopDetectedPath = detected;
-        // If user hasn't explicitly changed from default local and Google Drive Desktop is now available, upgrade automatically
-        if (detected && (!raw.syncFolderPath || raw.syncFolderPath === DEFAULT_LOCAL_STORAGE)) {
+        // Unify any legacy FreeformDrive path or default local path to BossFreeForm
+        if (
+          detected &&
+          (!raw.syncFolderPath ||
+            raw.syncFolderPath === DEFAULT_LOCAL_STORAGE ||
+            /[\\/]FreeformDrive$/i.test(String(raw.syncFolderPath)))
+        ) {
           merged.syncFolderPath = detected;
           merged.syncMode = 'desktop-drive';
+          try {
+            fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf-8');
+          } catch (_) {}
         }
         return merged;
       }
@@ -431,6 +494,9 @@ class DriveSyncManager {
     const destPath = path.join(this.getAssetsDir(), fileName);
     fs.copyFileSync(sourcePath, destPath);
     const stat = fs.statSync(destPath);
+    if (this.config.autoSyncCloud && this.isOAuthConnected()) {
+      this.syncToGoogleCloud().catch(() => {});
+    }
     return {
       assetFileName: fileName,
       name: originalName || path.basename(sourcePath),
@@ -450,6 +516,9 @@ class DriveSyncManager {
     const fileName = `${Date.now()}_${baseLabel}${cleanExt}`;
     const destPath = path.join(this.getAssetsDir(), fileName);
     fs.writeFileSync(destPath, buffer);
+    if (this.config.autoSyncCloud && this.isOAuthConnected()) {
+      this.syncToGoogleCloud().catch(() => {});
+    }
     return {
       assetFileName: fileName,
       name: label || fileName,
@@ -803,37 +872,55 @@ class DriveSyncManager {
     }
   }
 
-  async ensureCloudFolderId() {
-    if (this.config.cloudFolderId) return this.config.cloudFolderId;
-    const q = encodeURIComponent("name = 'BossFreeForm_Workspace' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+  async findOrCreateCloudSubfolder(name, parentId = null) {
+    const parentClause = parentId ? ` and '${parentId}' in parents` : '';
+    const q = encodeURIComponent(
+      `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false${parentClause}`
+    );
     const listRes = await this.googleApiRequest(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
     if (listRes?.files?.length > 0) {
-      const fid = listRes.files[0].id;
-      this.saveConfig({ cloudFolderId: fid });
-      return fid;
+      return listRes.files[0].id;
     }
-
     const createRes = await this.googleApiRequest('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: 'BossFreeForm_Workspace',
-        mimeType: 'application/vnd.google-apps.folder'
+        name,
+        mimeType: 'application/vnd.google-apps.folder',
+        ...(parentId ? { parents: [parentId] } : {})
       })
     });
-    if (createRes?.id) {
-      this.saveConfig({ cloudFolderId: createRes.id });
-      return createRes.id;
-    }
+    if (createRes?.id) return createRes.id;
     throw new Error('Google Drive 폴더 생성 실패');
+  }
+
+  async ensureCloudFolderId() {
+    if (this.config.cloudFolderId && this.config.cloudBoardsFolderId && this.config.cloudAssetsFolderId) {
+      return {
+        rootId: this.config.cloudFolderId,
+        boardsFolderId: this.config.cloudBoardsFolderId,
+        assetsFolderId: this.config.cloudAssetsFolderId
+      };
+    }
+    const rootId = await this.findOrCreateCloudSubfolder('BossFreeForm');
+    const boardsFolderId = await this.findOrCreateCloudSubfolder('boards', rootId);
+    const assetsFolderId = await this.findOrCreateCloudSubfolder('assets', rootId);
+    this.saveConfig({
+      cloudFolderId: rootId,
+      cloudBoardsFolderId: boardsFolderId,
+      cloudAssetsFolderId: assetsFolderId
+    });
+    return { rootId, boardsFolderId, assetsFolderId };
   }
 
   async syncToGoogleCloud() {
     if (!this.isOAuthConnected()) {
       return { success: false, error: 'Google 계정이 연결되어 있지 않습니다.' };
     }
-    const folderId = await this.ensureCloudFolderId();
-    const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+    const { boardsFolderId, assetsFolderId } = await this.ensureCloudFolderId();
+
+    // 1. Sync Boards (BossFreeForm/boards)
+    const q = encodeURIComponent(`'${boardsFolderId}' in parents and trashed = false`);
     const remoteList = await this.googleApiRequest(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)`);
     const remoteFiles = new Map((remoteList?.files || []).map((f) => [f.name, f]));
 
@@ -853,7 +940,7 @@ class DriveSyncManager {
         });
       } else {
         const boundary = '-------BossFreeFormBoundary' + Date.now();
-        const metadata = JSON.stringify({ name: fileName, parents: [folderId], mimeType: 'application/json' });
+        const metadata = JSON.stringify({ name: fileName, parents: [boardsFolderId], mimeType: 'application/json' });
         const multipartBody =
           `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n` +
           `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n` +
@@ -867,7 +954,6 @@ class DriveSyncManager {
       }
     }
 
-    // Download any remote board files that don't exist locally yet
     for (const [remoteName, remoteMeta] of remoteFiles.entries()) {
       if (remoteName.endsWith('.json') && !localFiles.includes(remoteName)) {
         try {
@@ -878,6 +964,47 @@ class DriveSyncManager {
         } catch (_) {}
       }
     }
+
+    // 2. Sync Assets (BossFreeForm/assets) so added images/PDFs are always backed up to Google Drive Cloud
+    try {
+      const aq = encodeURIComponent(`'${assetsFolderId}' in parents and trashed = false`);
+      const remoteAssetList = await this.googleApiRequest(`https://www.googleapis.com/drive/v3/files?q=${aq}&fields=files(id,name)&pageSize=200`);
+      const remoteAssets = new Map((remoteAssetList?.files || []).map((f) => [f.name, f]));
+      const assetsDir = this.getAssetsDir();
+      if (fs.existsSync(assetsDir)) {
+        const localAssets = fs.readdirSync(assetsDir);
+        for (const assetName of localAssets) {
+          if (remoteAssets.has(assetName)) continue;
+          const assetPath = path.join(assetsDir, assetName);
+          if (!fs.statSync(assetPath).isFile()) continue;
+          const buf = fs.readFileSync(assetPath);
+          const ext = path.extname(assetName).toLowerCase();
+          const mime =
+            ext === '.pdf'
+              ? 'application/pdf'
+              : ext === '.jpg' || ext === '.jpeg'
+                ? 'image/jpeg'
+                : ext === '.webp'
+                  ? 'image/webp'
+                  : ext === '.svg'
+                    ? 'image/svg+xml'
+                    : 'image/png';
+          const boundary = '-------BossAssetBoundary' + Date.now();
+          const metadata = JSON.stringify({ name: assetName, parents: [assetsFolderId], mimeType: mime });
+          const headerBuf = Buffer.from(
+            `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`,
+            'utf-8'
+          );
+          const footerBuf = Buffer.from(`\r\n--${boundary}--`, 'utf-8');
+          const multipartBuf = Buffer.concat([headerBuf, buf, footerBuf]);
+          await this.googleApiRequest('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST',
+            headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+            body: multipartBuf
+          });
+        }
+      }
+    } catch (_) {}
 
     const now = Date.now();
     this.saveConfig({ lastCloudSyncAt: now });

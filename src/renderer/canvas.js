@@ -24,6 +24,7 @@ function createBoardSnapshot(actionLabel = '작업') {
     objects: JSON.parse(JSON.stringify(currentBoard.objects || [])),
     connectors: JSON.parse(JSON.stringify(currentBoard.connectors || [])),
     strokes: JSON.parse(JSON.stringify(currentBoard.strokes || [])),
+    groupNames: JSON.parse(JSON.stringify(currentBoard.groupNames || {})),
     selectedIds: Array.from(selectedObjectIds)
   };
 }
@@ -66,6 +67,7 @@ function applyBoardSnapshot(snap) {
   currentBoard.objects = JSON.parse(JSON.stringify(snap.objects || []));
   currentBoard.connectors = JSON.parse(JSON.stringify(snap.connectors || []));
   currentBoard.strokes = JSON.parse(JSON.stringify(snap.strokes || []));
+  currentBoard.groupNames = JSON.parse(JSON.stringify(snap.groupNames || {}));
   selectedObjectIds = new Set(snap.selectedIds || []);
   renderAllObjects();
   renderAllConnectors();
@@ -453,19 +455,26 @@ const SVG_ICONS = {
   sticky: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"></path><path d="M14 3v4a2 2 0 0 0 2 2h4"></path></svg>`,
   table: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>`,
   fit: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>`,
-  resetWin: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 12h6"></path><path d="M12 9v6"></path></svg>`
+  resetWin: `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 12h6"></path><path d="M12 9v6"></path></svg>`,
+  copyUnchecked: `<span class="ff-chk-copy-combo"><svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect></svg><svg class="ui-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></span>`,
+  copyChecked: `<span class="ff-chk-copy-combo"><svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect><path d="m7.5 12 3 3 6-6.5"></path></svg><svg class="ui-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></span>`
 };
 
 if (window.pdfjsLib) {
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = '../../node_modules/pdfjs-dist/build/pdf.worker.min.js';
 }
-const pdfDocCache = new Map(); // filePath -> { pdfDoc, extractedText }
+const pdfDocCache = new Map(); // filePath -> { pdfDoc, extractedText, pageAspect, pageTextsByPage, pageTextItems }
 
 function isPdfObject(obj) {
   if (!obj) return false;
   if (obj.type !== 'file' && obj.type !== 'pdf') return false;
   const nameOrPath = String(obj.fileName || obj.title || obj.resolvedFilePath || '').toLowerCase();
   return nameOrPath.endsWith('.pdf');
+}
+
+function hasBorderFrameSupport(obj) {
+  if (!obj) return false;
+  return obj.type === 'image' || obj.type === 'sticker' || isPdfObject(obj);
 }
 
 async function getOrLoadPdfDocument(filePath) {
@@ -481,19 +490,84 @@ async function getOrLoadPdfDocument(filePath) {
   const loadingTask = window.pdfjsLib.getDocument({ data: bytes });
   const pdfDoc = await loadingTask.promise;
 
-  // Extract full text across pages in background for the one-click Copy All button
+  // Extract first-page aspect ratio (portrait or landscape) + full text & item coordinates across pages
+  let pageAspect = 595.28 / 841.89;
+  try {
+    const firstPage = await pdfDoc.getPage(1);
+    const vp1 = firstPage.getViewport({ scale: 1 });
+    if (vp1 && vp1.width > 0 && vp1.height > 0) {
+      pageAspect = vp1.width / vp1.height;
+    }
+  } catch (_) {}
+
   const pageTexts = [];
+  const pageTextsByPage = {};
+  const pageTextItems = {};
   for (let p = 1; p <= Math.min(pdfDoc.numPages, 80); p++) {
     try {
       const page = await pdfDoc.getPage(p);
+      const vp = page.getViewport({ scale: 1 });
       const tc = await page.getTextContent();
       const pageStr = tc.items.map((it) => it.str).join(' ').trim();
+      pageTextsByPage[p] = pageStr;
       if (pageStr) pageTexts.push(`[${p}페이지]\n${pageStr}`);
+      const pw = Math.max(1, vp.width);
+      const ph = Math.max(1, vp.height);
+      pageTextItems[p] = (tc.items || [])
+        .filter((it) => it && typeof it.str === 'string' && it.str.trim() !== '')
+        .map((it) => {
+          const tr = it.transform || [1, 0, 0, 1, 0, 0];
+          const fontH = Math.max(8, Math.hypot(tr[2] || 0, tr[3] || 12));
+          const x = Number(tr[4]) || 0;
+          const yBottom = Number(tr[5]) || 0;
+          const yTop = ph - yBottom - fontH * 0.88;
+          const w = Math.max(fontH * 0.5, Number(it.width) || it.str.length * fontH * 0.55);
+          return {
+            str: it.str,
+            xRatio: Math.max(0, Math.min(0.98, x / pw)),
+            yRatio: Math.max(0, Math.min(0.98, yTop / ph)),
+            wRatio: Math.max(0.01, Math.min(1, w / pw)),
+            hRatio: Math.max(0.012, Math.min(0.25, (fontH * 1.18) / ph))
+          };
+        });
     } catch (_) {}
   }
-  const entry = { pdfDoc, extractedText: pageTexts.join('\n\n') };
+  const entry = { pdfDoc, extractedText: pageTexts.join('\n\n'), pageAspect, pageTextsByPage, pageTextItems };
   pdfDocCache.set(filePath, entry);
   return entry;
+}
+
+const PDF_DEFAULT_CHROME_W = 0;
+const PDF_DEFAULT_CHROME_H = 0;
+
+function syncPdfViewerAspectSize(obj, pageAspectInput = null, options = {}) {
+  if (!isPdfObject(obj)) return false;
+  const aspect = Number(pageAspectInput || obj.pdfPageAspect) || (595.28 / 841.89);
+  obj.pdfPageAspect = aspect;
+  obj.pdfChromeW = 0;
+  obj.pdfChromeH = 0;
+  const isLandscape = aspect > 1.02;
+  const minPageW = isLandscape ? 260 : 200;
+
+  let targetW = Number(options.width || obj.width || obj.viewerWidth || 0);
+  if (!obj.pdfAspectFitted && isLandscape && (!targetW || targetW === 480)) {
+    targetW = 620;
+  }
+  if (!targetW || targetW < minPageW) {
+    targetW = isLandscape ? 620 : 480;
+  }
+  targetW = Math.max(minPageW, Math.round(targetW));
+  const targetH = Math.round(targetW / Math.max(0.15, aspect));
+
+  const changed = obj.width !== targetW || obj.height !== targetH || !obj.pdfAspectFitted;
+  if ((obj.pdfViewMode || 'viewer') === 'viewer') {
+    obj.width = targetW;
+    obj.height = targetH;
+  }
+  obj.viewerWidth = targetW;
+  obj.viewerHeight = targetH;
+  obj.pdfAspectFitted = true;
+  return changed;
 }
 
 // ============================================================================
@@ -735,24 +809,32 @@ function parseHexToRgb(hexStr) {
 
 function applyObjectCustomColorStyles(el, obj) {
   if (!el || !obj) return;
-  if (obj.type === 'image') {
-    const imgEl = el.querySelector('.ff-image-wrap img');
+  if (obj.type === 'image' || obj.type === 'sticker' || isPdfObject(obj)) {
+    const targetEl =
+      obj.type === 'image'
+        ? el.querySelector('.ff-image-wrap img')
+        : obj.type === 'sticker'
+        ? el.querySelector('.ff-sticker-wrap')
+        : el.querySelector('.ff-pdf-viewer-wrap') || el;
     if (obj.borderEnabled) {
       const bWidth = Number(obj.borderWidth) || 4;
       const bStyle = obj.borderStyle || 'solid';
       const bColor = obj.borderColor || obj.customColor || getResolvedObjectColorHex(obj) || '#0a84ff';
       el.classList.add('has-custom-border');
-      if (imgEl) {
-        imgEl.style.border = `${bWidth}px ${bStyle} ${bColor}`;
-        imgEl.style.boxSizing = 'border-box';
+      if (targetEl) {
+        targetEl.style.border = `${bWidth}px ${bStyle} ${bColor}`;
+        targetEl.style.borderRadius = '10px';
+        targetEl.style.boxSizing = 'border-box';
       }
     } else {
       el.classList.remove('has-custom-border');
-      if (imgEl) {
-        imgEl.style.border = 'none';
+      if (targetEl) {
+        targetEl.style.border = 'none';
       }
     }
-    return;
+    if (obj.type === 'image' || obj.type === 'sticker' || (isPdfObject(obj) && (obj.pdfViewMode || 'viewer') === 'viewer')) {
+      return;
+    }
   }
 
   if (obj.type === 'stroke') {
@@ -1774,8 +1856,9 @@ function togglePdfObjectViewMode(obj) {
     showToast('아이콘 보기로 전환되었습니다');
   } else {
     obj.pdfViewMode = 'viewer';
-    obj.width = Math.max(420, obj.viewerWidth || 480);
-    obj.height = Math.max(500, obj.viewerHeight || 580);
+    const defaultW = (obj.pdfPageAspect || 0) > 1.02 ? 620 : 480;
+    const restoredW = Math.max(320, obj.viewerWidth || defaultW);
+    syncPdfViewerAspectSize(obj, obj.pdfPageAspect, { width: restoredW });
     showToast('PDF 내용 보기로 전환되었습니다');
   }
   obj.x = fixedX;
@@ -1839,16 +1922,20 @@ async function copyEntireObjectContent(obj, copyBtnEl = null) {
       .join('\n');
     await window.freeformAPI.writeClipboardText(tsv);
     flashSuccess('표 전체 내용이 복사되었습니다 (엑셀/시트에 바로 붙여넣기 가능)');
-  } else if (obj.type === 'image') {
+  } else if (obj.type === 'image' || obj.type === 'sticker') {
     const res = await window.freeformAPI.writeClipboardImage({
       filePath: obj.resolvedFilePath,
-      dataUrl: obj.imageUrl
+      dataUrl: obj.stickerSvgUrl || obj.resolvedFileUrl || obj.imageUrl
     });
     if (res && res.ok) {
-      flashSuccess('이미지가 클립보드에 복사되었습니다 (Ctrl+V로 어디든 붙여넣기 가능)');
+      flashSuccess(
+        obj.type === 'sticker'
+          ? '스티커가 클립보드에 복사되었습니다 (Ctrl+V로 붙여넣기 가능)'
+          : '이미지가 클립보드에 복사되었습니다 (Ctrl+V로 어디든 붙여넣기 가능)'
+      );
     } else {
       await window.freeformAPI.writeClipboardText(obj.resolvedFilePath || obj.title || '');
-      flashSuccess('이미지 경로가 복사되었습니다');
+      flashSuccess(obj.type === 'sticker' ? '스티커 정보가 복사되었습니다' : '이미지 경로가 복사되었습니다');
     }
   } else if (obj.type === 'link') {
     const txt = obj.url || obj.title || '';
@@ -1866,6 +1953,36 @@ async function copyEntireObjectContent(obj, copyBtnEl = null) {
     await window.freeformAPI.writeClipboardText(obj.resolvedFilePath || obj.fileName || obj.title || '');
     flashSuccess('첨부 파일 정보/경로가 클립보드에 복사되었습니다');
   }
+}
+
+async function copyChecklistFilteredItems(obj, checkedOnly = false, btnEl = null) {
+  if (!obj) return;
+  const parsed = parseNoteLines(obj.content || '');
+  const matched = parsed.filter(
+    (it) => it.isCheck && Boolean(it.checked) === Boolean(checkedOnly) && String(it.text || '').trim() !== ''
+  );
+  if (matched.length === 0) {
+    showToast(checkedOnly ? '☑ 복사할 체크 완료 항목이 없습니다' : '☐ 복사할 미체크 항목이 없습니다');
+    return;
+  }
+  const out = matched.map((it) => `${checkedOnly ? '☑' : '☐'} ${it.text.trim()}`).join('\n');
+  await window.freeformAPI.writeClipboardText(out);
+  if (btnEl) {
+    const origHtml = btnEl.innerHTML;
+    btnEl.classList.add('copied');
+    btnEl.innerHTML = `${SVG_ICONS.check}`;
+    setTimeout(() => {
+      if (btnEl.isConnected) {
+        btnEl.classList.remove('copied');
+        btnEl.innerHTML = origHtml;
+      }
+    }, 1200);
+  }
+  showToast(
+    checkedOnly
+      ? `☑ 체크된 항목 ${matched.length}개가 클립보드에 복사되었습니다`
+      : `☐ 체크 안 된 항목 ${matched.length}개가 클립보드에 복사되었습니다`
+  );
 }
 
 function renderSidebarBoards() {
@@ -1918,6 +2035,14 @@ async function loadBoardById(boardId) {
   if (!Array.isArray(currentBoard.objects)) currentBoard.objects = [];
   if (!Array.isArray(currentBoard.connectors)) currentBoard.connectors = [];
   if (!Array.isArray(currentBoard.strokes)) currentBoard.strokes = [];
+  if (!currentBoard.groupNames || typeof currentBoard.groupNames !== 'object') {
+    currentBoard.groupNames = {};
+  }
+  currentBoard.objects.forEach((o) => {
+    if (o.groupId && o.groupName && !currentBoard.groupNames[o.groupId]) {
+      currentBoard.groupNames[o.groupId] = o.groupName;
+    }
+  });
 
   // Automatically convert any legacy board.strokes into selectable/editable 'stroke' objects
   if (currentBoard.strokes.length > 0) {
@@ -2028,6 +2153,10 @@ function syncSelectionUI() {
     el.classList.toggle('selected', selectedObjectIds.has(el.dataset.id));
   });
   const selected = getSelectedObjects();
+  const activeGroupIds = new Set(selected.map((o) => o.groupId).filter(Boolean));
+  document.querySelectorAll('.ff-group-frame').forEach((gEl) => {
+    gEl.classList.toggle('is-group-selected', activeGroupIds.has(gEl.dataset.groupId));
+  });
   const selectedConn = getSelectedConnector();
   const hasSelection = selected.length > 0 || Boolean(selectedConn);
 
@@ -2061,17 +2190,18 @@ function syncSelectionUI() {
     } else if (selected.length > 0) {
       const primary = selected[selected.length - 1];
       const allStrokes = selected.every((o) => o.type === 'stroke');
-      const allImages = selected.every((o) => o.type === 'image');
+      const allImagesOrStickers = selected.every((o) => o.type === 'image' || o.type === 'sticker' || isPdfObject(o));
       const allShapes = selected.every((o) => o.type === 'shape');
       const hasStrokes = selected.some((o) => o.type === 'stroke');
-      const hasImages = selected.some((o) => o.type === 'image');
+      const hasBorderTargets = selected.some((o) => hasBorderFrameSupport(o));
+      const hasAspectTargets = selected.some((o) => o.type === 'image' || o.type === 'sticker');
       const hasShapes = selected.some((o) => o.type === 'shape');
       const hasLabels = selected.some((o) => o.type === 'label');
 
       objGroupEl?.classList.remove('hidden');
-      typoGroupEl?.classList.toggle('hidden', allStrokes || allImages || allShapes);
+      typoGroupEl?.classList.toggle('hidden', allStrokes || allImagesOrStickers || allShapes);
       strokeGroupEl?.classList.toggle('hidden', !hasStrokes);
-      imgGroupEl?.classList.toggle('hidden', !hasImages);
+      imgGroupEl?.classList.toggle('hidden', !hasBorderTargets);
       connGroupEl?.classList.add('hidden');
 
       const shapeGroupEl = document.getElementById('inspShapeOnlyGroup');
@@ -2085,15 +2215,18 @@ function syncSelectionUI() {
         syncLabelStyleInspectorUI(selected.find((o) => o.type === 'label') || primary);
       }
 
-      if (hasImages) {
-        const imgObj = selected.find((o) => o.type === 'image') || primary;
-        const keepAsp = imgObj.keepAspect !== false;
+      if (hasBorderTargets) {
+        const borderObj = selected.find((o) => hasBorderFrameSupport(o)) || primary;
+        const keepAsp = borderObj.keepAspect !== false;
         const aspBtn = document.getElementById('inspImgAspectBtn');
         const aspLbl = document.getElementById('inspImgAspectLabel');
-        if (aspBtn) aspBtn.classList.toggle('active-pill', keepAsp);
+        if (aspBtn) {
+          aspBtn.classList.toggle('hidden', !hasAspectTargets);
+          aspBtn.classList.toggle('active-pill', keepAsp);
+        }
         if (aspLbl) aspLbl.textContent = keepAsp ? '비율유지 ON' : '비율유지 OFF';
 
-        const bEnabled = Boolean(imgObj.borderEnabled);
+        const bEnabled = Boolean(borderObj.borderEnabled);
         const bBtn = document.getElementById('inspImgBorderToggleBtn');
         const bLbl = document.getElementById('inspImgBorderToggleLabel');
         const bSub = document.getElementById('inspImgBorderSubControls');
@@ -2103,8 +2236,8 @@ function syncSelectionUI() {
         if (bBtn) bBtn.classList.toggle('active-pill', bEnabled);
         if (bLbl) bLbl.textContent = bEnabled ? '테두리 ON' : '테두리 OFF';
         if (bSub) bSub.classList.toggle('hidden', !bEnabled);
-        if (bWidthSel) bWidthSel.value = String(imgObj.borderWidth || 4);
-        if (bStyleSel) bStyleSel.value = imgObj.borderStyle || 'solid';
+        if (bWidthSel) bWidthSel.value = String(borderObj.borderWidth || 4);
+        if (bStyleSel) bStyleSel.value = borderObj.borderStyle || 'solid';
       }
 
       if (hasStrokes) {
@@ -2135,6 +2268,14 @@ function syncSelectionUI() {
         selected.every((o) => o.groupId === selected[0].groupId);
       if (groupLabel) {
         groupLabel.textContent = allSameGroup ? '그룹 해제' : `그룹화 (${selected.length})`;
+      }
+      const groupNameWrap = document.getElementById('inspGroupNameWrap');
+      const groupNameInput = document.getElementById('inspGroupNameInput');
+      if (groupNameWrap) {
+        groupNameWrap.classList.toggle('hidden', !allSameGroup);
+      }
+      if (groupNameInput && allSameGroup && document.activeElement !== groupNameInput) {
+        groupNameInput.value = getGroupName(selected[0].groupId);
       }
 
       // Sync Typography UI controls to primary selected object (or selected table cell(s))
@@ -2198,7 +2339,7 @@ function syncSelectionUI() {
 
       document.querySelectorAll('#inspectorColors .swatch:not(.random-swatch)').forEach((sw) => {
         const isMatch =
-          primary.type === 'image' && primary.borderEnabled && primary.borderColor
+          hasBorderFrameSupport(primary) && primary.borderEnabled && primary.borderColor
             ? (sw.dataset.hex || '').toLowerCase() === primary.borderColor.toLowerCase()
             : primary.customColor
             ? (sw.dataset.hex || '').toLowerCase() === primary.customColor.toLowerCase()
@@ -2332,6 +2473,168 @@ function toggleShapeBackgroundMode(obj) {
   );
 }
 
+function getGroupName(groupId) {
+  if (!groupId || !currentBoard) return '그룹';
+  if (currentBoard.groupNames && currentBoard.groupNames[groupId]) {
+    return currentBoard.groupNames[groupId];
+  }
+  const member = (currentBoard.objects || []).find((o) => o.groupId === groupId && o.groupName);
+  return member?.groupName || '그룹';
+}
+
+function setGroupName(groupId, newName) {
+  if (!groupId || !currentBoard) return;
+  if (!currentBoard.groupNames || typeof currentBoard.groupNames !== 'object') {
+    currentBoard.groupNames = {};
+  }
+  const clean = String(newName || '').trim() || '그룹';
+  currentBoard.groupNames[groupId] = clean;
+  (currentBoard.objects || []).forEach((o) => {
+    if (o.groupId === groupId) o.groupName = clean;
+  });
+  document.querySelectorAll(`.ff-object .ff-group-badge[data-group-id="${groupId}"] span`).forEach((sp) => {
+    sp.textContent = clean;
+  });
+  const frameInp = objectLayer?.querySelector(`.ff-group-frame[data-group-id="${groupId}"] .ff-group-name-input`);
+  if (frameInp && document.activeElement !== frameInp) {
+    frameInp.value = clean;
+  }
+  const inspInp = document.getElementById('inspGroupNameInput');
+  if (inspInp && document.activeElement !== inspInp) {
+    const sel = getSelectedObjects();
+    if (sel.length > 0 && sel[0].groupId === groupId) {
+      inspInp.value = clean;
+    }
+  }
+}
+
+function updateGroupFramesDOM() {
+  if (!objectLayer || !currentBoard) return;
+  const groupsMap = new Map();
+  (currentBoard.objects || []).forEach((o) => {
+    if (!o.groupId) return;
+    if (!groupsMap.has(o.groupId)) groupsMap.set(o.groupId, []);
+    groupsMap.get(o.groupId).push(o);
+  });
+
+  objectLayer.querySelectorAll('.ff-group-frame').forEach((frameEl) => {
+    const gid = frameEl.dataset.groupId;
+    const members = groupsMap.get(gid);
+    if (!members || members.length === 0) {
+      frameEl.remove();
+      return;
+    }
+    const minX = Math.min(...members.map((m) => m.x || 0)) - 14;
+    const minY = Math.min(...members.map((m) => m.y || 0)) - 22;
+    const maxX = Math.max(...members.map((m) => (m.x || 0) + (m.width || 300))) + 14;
+    const maxY = Math.max(...members.map((m) => (m.y || 0) + (m.height || 200))) + 14;
+    frameEl.style.left = `${Math.round(minX)}px`;
+    frameEl.style.top = `${Math.round(minY)}px`;
+    frameEl.style.width = `${Math.max(120, Math.round(maxX - minX))}px`;
+    frameEl.style.height = `${Math.max(80, Math.round(maxY - minY))}px`;
+  });
+}
+
+function renderGroupFrames() {
+  if (!objectLayer || !currentBoard) return;
+  objectLayer.querySelectorAll('.ff-group-frame').forEach((el) => el.remove());
+
+  const groupsMap = new Map();
+  (currentBoard.objects || []).forEach((o) => {
+    if (!o.groupId) return;
+    if (!groupsMap.has(o.groupId)) groupsMap.set(o.groupId, []);
+    groupsMap.get(o.groupId).push(o);
+  });
+
+  const activeGroupIds = new Set(getSelectedObjects().map((o) => o.groupId).filter(Boolean));
+
+  groupsMap.forEach((members, gid) => {
+    if (!members.length) return;
+    const minX = Math.min(...members.map((m) => m.x || 0)) - 14;
+    const minY = Math.min(...members.map((m) => m.y || 0)) - 22;
+    const maxX = Math.max(...members.map((m) => (m.x || 0) + (m.width || 300))) + 14;
+    const maxY = Math.max(...members.map((m) => (m.y || 0) + (m.height || 200))) + 14;
+
+    const frameEl = document.createElement('div');
+    frameEl.className = `ff-group-frame ${activeGroupIds.has(gid) ? 'is-group-selected' : ''}`;
+    frameEl.dataset.groupId = gid;
+    frameEl.style.left = `${Math.round(minX)}px`;
+    frameEl.style.top = `${Math.round(minY)}px`;
+    frameEl.style.width = `${Math.max(120, Math.round(maxX - minX))}px`;
+    frameEl.style.height = `${Math.max(80, Math.round(maxY - minY))}px`;
+
+    const nameBar = document.createElement('div');
+    nameBar.className = 'ff-group-name-bar';
+    nameBar.title = '드래그하여 그룹 전체 이동 · 그룹 이름을 클릭하여 수정';
+
+    const iconSpan = document.createElement('span');
+    iconSpan.style.display = 'inline-flex';
+    iconSpan.innerHTML = SVG_ICONS.group;
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'ff-group-name-input';
+    nameInput.value = getGroupName(gid);
+    nameInput.placeholder = '그룹 이름...';
+    nameInput.spellcheck = false;
+
+    nameInput.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+    });
+    nameInput.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setSelectedObjectIds(members.map((m) => m.id));
+    });
+    nameInput.addEventListener('input', () => {
+      setGroupName(gid, nameInput.value);
+      scheduleSaveBoard();
+      if (isCanvasSearchOpen()) performCanvasUnifiedSearch(getCanvasSearchQuery(), { preserveIndex: true });
+    });
+    nameInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter' || e.key === 'Escape') {
+        e.preventDefault();
+        nameInput.blur();
+      }
+    });
+
+    const countTag = document.createElement('span');
+    countTag.className = 'ff-group-count-tag';
+    countTag.textContent = `(${members.length})`;
+
+    nameBar.appendChild(iconSpan);
+    nameBar.appendChild(nameInput);
+    nameBar.appendChild(countTag);
+
+    nameBar.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target === nameInput) return;
+      e.stopPropagation();
+      setSelectedObjectIds(members.map((m) => m.id));
+      const startWorld = screenToWorld(e.clientX, e.clientY);
+      const dragItems = members
+        .filter((m) => !m.locked)
+        .map((m) => ({
+          obj: m,
+          el: objectLayer.querySelector(`.ff-object[data-id="${m.id}"]`),
+          origX: m.x,
+          origY: m.y
+        }));
+      if (dragItems.length > 0) {
+        document.body.classList.add('is-dragging-object');
+        draggingObjState = {
+          startWorldX: startWorld.x,
+          startWorldY: startWorld.y,
+          items: dragItems,
+          snapshotBefore: createBoardSnapshot('그룹 이동')
+        };
+      }
+    });
+
+    frameEl.appendChild(nameBar);
+    objectLayer.prepend(frameEl);
+  });
+}
+
 function toggleGroupSelectedObjects() {
   const selected = getSelectedObjects();
   if (selected.length === 0) return;
@@ -2341,9 +2644,14 @@ function toggleGroupSelectedObjects() {
 
   if (allSameGroup) {
     pushUndoSnapshot('그룹 해제');
-    // Ungroup all members of this group
+    if (currentBoard.groupNames) {
+      delete currentBoard.groupNames[firstGroupId];
+    }
     currentBoard.objects.forEach((o) => {
-      if (o.groupId === firstGroupId) delete o.groupId;
+      if (o.groupId === firstGroupId) {
+        delete o.groupId;
+        delete o.groupName;
+      }
     });
     renderAllObjects();
     syncSelectionUI();
@@ -2356,13 +2664,24 @@ function toggleGroupSelectedObjects() {
     }
     pushUndoSnapshot(`객체 그룹화 (${selected.length}개)`);
     const newGroupId = `grp_${Date.now().toString().slice(-5)}`;
+    const existingGroupIds = new Set((currentBoard.objects || []).map((o) => o.groupId).filter(Boolean));
+    const defaultGroupName = `그룹 ${existingGroupIds.size + 1}`;
     selected.forEach((o) => {
       o.groupId = newGroupId;
+      o.groupName = defaultGroupName;
     });
+    setGroupName(newGroupId, defaultGroupName);
     renderAllObjects();
     syncSelectionUI();
     scheduleSaveBoard();
-    showToast(`${selected.length}개 객체가 하나의 그룹으로 묶였습니다`);
+    showToast(`📁 '${defaultGroupName}'(${selected.length}개 객체)이 생성되었습니다! 상단에서 그룹 이름을 변경할 수 있습니다.`);
+    setTimeout(() => {
+      const frameInp = objectLayer?.querySelector(`.ff-group-frame[data-group-id="${newGroupId}"] .ff-group-name-input`);
+      if (frameInp) {
+        frameInp.focus();
+        frameInp.select();
+      }
+    }, 40);
   }
 }
 
@@ -2887,6 +3206,10 @@ function renderAllObjects() {
       console.error('Failed to render object:', obj?.id, err);
     }
   });
+  renderGroupFrames();
+  if (typeof isCanvasSearchOpen === 'function' && isCanvasSearchOpen()) {
+    applyCanvasSearchHighlights();
+  }
 }
 
 // Converts every translucent rgba() in the card's computed background into a solid rgb() (alpha=1).
@@ -2930,10 +3253,11 @@ function createObjectDOM(obj) {
   const el = document.createElement('div');
   const isSelected = selectedObjectIds.has(obj.id);
   const isPdf = isPdfObject(obj);
+  const pdfViewerClass = isPdf && (obj.pdfViewMode || 'viewer') === 'viewer' ? 'is-pdf-viewer' : '';
   const artClass = obj.type === 'label' ? `art-${obj.artStyle || 'none'}` : '';
   const vecClass = obj.vectorized ? 'is-vectorized' : '';
   const bgShapeClass = obj.type === 'shape' && obj.shapeBackground ? 'is-background-shape' : '';
-  el.className = `ff-object type-${obj.type || 'sticky'} ${isPdf ? 'is-pdf' : ''} ${artClass} ${vecClass} ${bgShapeClass} color-${obj.color || 'dark'} ${isSelected ? 'selected' : ''}`;
+  el.className = `ff-object type-${obj.type || 'sticky'} ${isPdf ? 'is-pdf' : ''} ${pdfViewerClass} ${artClass} ${vecClass} ${bgShapeClass} color-${obj.color || 'dark'} ${isSelected ? 'selected' : ''}`;
   el.dataset.id = obj.id;
   el.style.left = `${Math.round(obj.x || 0)}px`;
   el.style.top = `${Math.round(obj.y || 0)}px`;
@@ -2985,7 +3309,7 @@ function createObjectDOM(obj) {
   titleInput.value = obj.title || '';
   titleInput.style.textAlign = obj.titleAlign || 'left';
   titleInput.placeholder =
-    obj.type === 'sticky' ? '📌 포스트잇 메모' : obj.type === 'label' ? '텍스트' : '제목 입력...';
+    obj.type === 'sticky' ? '📌 포스트잇 메모' : obj.type === 'label' ? '텍스트' : obj.type === 'sticker' ? '스티커' : '제목 입력...';
   const registerTitleAlignTarget = () => {
     lastActiveAlignTarget = {
       kind: 'title',
@@ -3000,6 +3324,9 @@ function createObjectDOM(obj) {
   titleInput.addEventListener('input', () => {
     obj.title = titleInput.value;
     scheduleSaveBoard();
+    if (typeof isCanvasSearchOpen === 'function' && isCanvasSearchOpen()) {
+      performCanvasUnifiedSearch(document.getElementById('canvasSearchInput')?.value || '', { preserveIndex: true });
+    }
   });
   titleInput.addEventListener('keydown', (e) => {
     if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Enter' || e.code === 'Space') {
@@ -3017,10 +3344,17 @@ function createObjectDOM(obj) {
   headerActions.className = 'ff-header-actions';
 
   if (obj.groupId) {
+    const grpName = getGroupName(obj.groupId);
     const grpBadge = document.createElement('span');
     grpBadge.className = 'ff-group-badge';
-    grpBadge.innerHTML = `${SVG_ICONS.group} <span>그룹</span>`;
-    grpBadge.title = '그룹화된 객체입니다 (클릭 시 그룹 전체 선택)';
+    grpBadge.dataset.groupId = obj.groupId;
+    grpBadge.innerHTML = `${SVG_ICONS.group} <span>${escapeHtml(grpName)}</span>`;
+    grpBadge.title = `그룹 "${grpName}" (클릭 시 그룹 전체 선택)`;
+    grpBadge.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectObject(obj.id, { additive: false });
+      renderAllConnectors();
+    });
     headerActions.appendChild(grpBadge);
   }
 
@@ -3072,15 +3406,15 @@ function createObjectDOM(obj) {
     headerActions.appendChild(bgBtn);
   }
 
-  // Image Aspect Ratio Lock & Border Toggle Buttons in Header
-  if (obj.type === 'image') {
+  // Image & Sticker Aspect Ratio Lock Toggle Button in Header
+  if (obj.type === 'image' || obj.type === 'sticker') {
     const keepAsp = obj.keepAspect !== false;
     const aspectBtn = document.createElement('button');
     aspectBtn.className = `ff-obj-icon-btn ${keepAsp ? 'is-active' : ''}`;
     aspectBtn.innerHTML = `${SVG_ICONS.aspectRatio}<span>${keepAsp ? '비율유지 ON' : '비율유지 OFF (자유비율)'}</span>`;
     aspectBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      pushUndoSnapshot('이미지 비율유지 토글');
+      pushUndoSnapshot('비율유지 토글');
       obj.keepAspect = obj.keepAspect === false ? true : false;
       if (obj.keepAspect && obj.imageAspect) {
         obj.height = Math.max(48, Math.round(obj.width / obj.imageAspect));
@@ -3089,16 +3423,19 @@ function createObjectDOM(obj) {
       renderAllConnectors();
       syncSelectionUI();
       scheduleSaveBoard();
-      showToast(obj.keepAspect ? '📐 이미지 비율유지 ON (원본 비율대로 여백 없이 크기 조절)' : '↔️ 이미지 비율유지 OFF (자유 비율로 여백 없이 크기 조절)');
+      showToast(obj.keepAspect ? '📐 비율유지 ON (원본 비율대로 크기 조절)' : '↔️ 비율유지 OFF (자유 비율로 크기 조절)');
     });
     headerActions.appendChild(aspectBtn);
+  }
 
+  // Border / Outline Toggle Button for Image, Sticker, and PDF Objects
+  if (hasBorderFrameSupport(obj)) {
     const borderBtn = document.createElement('button');
     borderBtn.className = `ff-obj-icon-btn ${obj.borderEnabled ? 'is-active' : ''}`;
-    borderBtn.innerHTML = `${SVG_ICONS.borderFrame}<span>${obj.borderEnabled ? '테두리 ON' : '테두리 OFF'}</span>`;
+    borderBtn.innerHTML = `${SVG_ICONS.borderFrame}<span>${obj.borderEnabled ? '외곽선 ON' : '외곽선 OFF'}</span>`;
     borderBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      pushUndoSnapshot('이미지 테두리 토글');
+      pushUndoSnapshot('외곽선 토글');
       obj.borderEnabled = !Boolean(obj.borderEnabled);
       if (obj.borderEnabled && !obj.borderColor) {
         obj.borderColor = obj.customColor || '#0a84ff';
@@ -3106,7 +3443,7 @@ function createObjectDOM(obj) {
       renderAllObjects();
       syncSelectionUI();
       scheduleSaveBoard();
-      showToast(obj.borderEnabled ? '🖼️ 이미지 컬러 테두리 ON' : '이미지 테두리 OFF');
+      showToast(obj.borderEnabled ? '🖼️ 외곽선(테두리) ON' : '외곽선(테두리) OFF');
     });
     headerActions.appendChild(borderBtn);
   }
@@ -3128,6 +3465,29 @@ function createObjectDOM(obj) {
       togglePdfObjectViewMode(obj);
     });
     headerActions.appendChild(pdfModeBtn);
+  }
+
+  // Checklist Filtered Copy Buttons (Unchecked-only copy & Checked-only copy) in Header
+  if (obj.type === 'text') {
+    const copyUncheckedBtn = document.createElement('button');
+    copyUncheckedBtn.className = 'ff-header-copy-btn ff-chk-copy-filter-btn';
+    copyUncheckedBtn.title = '체크 안 된(미완료) 항목만 복사';
+    copyUncheckedBtn.innerHTML = `${SVG_ICONS.copyUnchecked}<span>미체크</span>`;
+    copyUncheckedBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copyChecklistFilteredItems(obj, false, copyUncheckedBtn);
+    });
+    headerActions.appendChild(copyUncheckedBtn);
+
+    const copyCheckedBtn = document.createElement('button');
+    copyCheckedBtn.className = 'ff-header-copy-btn ff-chk-copy-filter-btn';
+    copyCheckedBtn.title = '체크된(완료) 항목만 복사';
+    copyCheckedBtn.innerHTML = `${SVG_ICONS.copyChecked}<span>체크됨</span>`;
+    copyCheckedBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copyChecklistFilteredItems(obj, true, copyCheckedBtn);
+    });
+    headerActions.appendChild(copyCheckedBtn);
   }
 
   // Copy All Content Button at the far right end of the title bar
@@ -3988,6 +4348,56 @@ function createObjectDOM(obj) {
       }
     });
     body.appendChild(imgWrap);
+  } else if (obj.type === 'sticker') {
+    const stickerWrap = document.createElement('div');
+    stickerWrap.className = 'ff-sticker-wrap';
+    const img = document.createElement('img');
+    const rawStickerSrc = obj.stickerSvgUrl || obj.resolvedFileUrl || obj.imageUrl || '';
+    const stickerSrc = typeof ensureStretchableStickerUrl === 'function' ? ensureStretchableStickerUrl(rawStickerSrc) : rawStickerSrc;
+    if (stickerSrc && obj.stickerSvgUrl && stickerSrc !== obj.stickerSvgUrl) {
+      obj.stickerSvgUrl = stickerSrc;
+    }
+    img.src = stickerSrc;
+    img.draggable = false;
+    img.addEventListener('load', () => {
+      if (!obj.imageAspect) {
+        const natW = img.naturalWidth || 200;
+        const natH = img.naturalHeight || 200;
+        obj.imageAspect = Number((natW / Math.max(1, natH)).toFixed(4));
+      }
+      const ratio = obj.imageAspect || 1;
+      if (obj.keepAspect !== false && !obj._aspectFitted) {
+        obj._aspectFitted = true;
+        obj.height = Math.max(48, Math.round((obj.width || 180) / Math.max(0.1, ratio)));
+        el.style.height = `${obj.height}px`;
+        renderAllConnectors();
+      }
+      if (!obj.stickerSvgUrl && stickerSrc && !stickerSrc.startsWith('data:image/svg+xml') && typeof vectorizePngDataUrlToSvg === 'function') {
+        vectorizePngDataUrlToSvg(stickerSrc)
+          .then((vecRes) => {
+            if (vecRes && vecRes.svgDataUrl) {
+              const stretchSvg = typeof ensureStretchableStickerUrl === 'function' ? ensureStretchableStickerUrl(vecRes.svgDataUrl) : vecRes.svgDataUrl;
+              obj.stickerSvgUrl = stretchSvg;
+              if (vecRes.aspect) obj.imageAspect = vecRes.aspect;
+              img.src = stretchSvg;
+              scheduleSaveBoard();
+            }
+          })
+          .catch(() => {});
+      }
+    });
+    stickerWrap.appendChild(img);
+    stickerWrap.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      const lb = document.getElementById('lightboxModal');
+      const lbImg = document.getElementById('lightboxImage');
+      const currentSrc = obj.stickerSvgUrl || stickerSrc;
+      if (lb && lbImg && currentSrc) {
+        lbImg.src = currentSrc;
+        lb.classList.remove('hidden');
+      }
+    });
+    body.appendChild(stickerWrap);
   } else if (obj.type === 'link') {
     const card = document.createElement('div');
     card.className = 'ff-link-card';
@@ -4148,19 +4558,43 @@ function createObjectDOM(obj) {
           if (pageIndicatorEl) pageIndicatorEl.textContent = `${currentVisiblePage} / ${total} p`;
           if (zoomIndicatorEl) zoomIndicatorEl.textContent = `${Math.round(currentPdfZoom * 100)}%`;
 
+          // Ensure deterministic scrollbar state before measuring single-page container geometry
+          pagesContainer.style.overflowY = total > 1 || currentPdfZoom > 1 ? 'scroll' : 'hidden';
+          pagesContainer.style.overflowX = currentPdfZoom > 1 ? 'auto' : 'hidden';
+
+          const firstPageForAspect = await loadedPdfDoc.getPage(1);
+          if (myTicket !== renderTicket) return;
+          const vp1 = firstPageForAspect.getViewport({ scale: 1 });
+          const docAspect =
+            vp1 && vp1.width > 0 && vp1.height > 0
+              ? vp1.width / vp1.height
+              : entry.pageAspect || 595.28 / 841.89;
+          entry.pageAspect = docAspect;
+
+          obj.pdfChromeW = 0;
+          obj.pdfChromeH = 0;
+          const sizeChanged = syncPdfViewerAspectSize(obj, docAspect, { width: obj.width });
+          el.style.width = `${obj.width}px`;
+          el.style.height = `${obj.height}px`;
+          if (sizeChanged) {
+            renderAllConnectors();
+            scheduleSaveBoard();
+          }
+
           const prevScrollRatio =
             pagesContainer.scrollHeight > 0 ? pagesContainer.scrollTop / pagesContainer.scrollHeight : 0;
 
           pagesContainer.innerHTML = '';
           const dpr = Math.min(2, window.devicePixelRatio || 1);
-          // Fit cleanly to the inner width of the PDF viewer window
-          const innerWidth = pagesContainer.clientWidth || (obj.width || 480) - 24;
-          const targetContainerWidth = Math.max(200, innerWidth - 20);
+          // Fit cleanly to 1 full page inside the PDF viewer window
+          const innerWidth = pagesContainer.clientWidth || obj.width || 480;
+          const targetContainerWidth = Math.max(180, innerWidth);
 
           for (let pageNum = 1; pageNum <= total; pageNum++) {
             if (myTicket !== renderTicket) return;
-            const page = await loadedPdfDoc.getPage(pageNum);
+            const page = pageNum === 1 ? firstPageForAspect : await loadedPdfDoc.getPage(pageNum);
             const unscaledVp = page.getViewport({ scale: 1 });
+            const pageAspect = unscaledVp.width / Math.max(1, unscaledVp.height);
             const fitScale = (targetContainerWidth / unscaledVp.width) * currentPdfZoom;
             const vp = page.getViewport({ scale: fitScale * dpr });
 
@@ -4170,10 +4604,11 @@ function createObjectDOM(obj) {
 
             const canvas = document.createElement('canvas');
             canvas.className = 'ff-pdf-page-canvas';
-            canvas.width = Math.floor(vp.width);
-            canvas.height = Math.floor(vp.height);
-            canvas.style.width = `${Math.floor(vp.width / dpr)}px`;
-            canvas.style.height = `${Math.floor(vp.height / dpr)}px`;
+            canvas.dataset.pageAspect = String(pageAspect);
+            canvas.width = Math.round(vp.width);
+            canvas.height = Math.round(vp.height);
+            canvas.style.width = `${Math.round(vp.width / dpr)}px`;
+            canvas.style.height = `${Math.round(vp.height / dpr)}px`;
 
             const badge = document.createElement('span');
             badge.className = 'ff-pdf-page-badge';
@@ -4185,6 +4620,9 @@ function createObjectDOM(obj) {
 
             const ctx = canvas.getContext('2d');
             await page.render({ canvasContext: ctx, viewport: vp }).promise;
+            if (typeof renderPdfPageSearchHighlights === 'function') {
+              renderPdfPageSearchHighlights(pageCard, obj, pageNum);
+            }
           }
 
           if (prevScrollRatio > 0 && pagesContainer.scrollHeight > 0) {
@@ -4240,11 +4678,15 @@ function createObjectDOM(obj) {
         if (act === 'prev' && loadedPdfDoc) {
           const targetP = Math.max(1, currentVisiblePage - 1);
           const card = pagesContainer.querySelector(`.ff-pdf-page-card[data-page-number="${targetP}"]`);
-          card?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          if (card) {
+            pagesContainer.scrollTo({ top: Math.max(0, card.offsetTop), behavior: 'smooth' });
+          }
         } else if (act === 'next' && loadedPdfDoc) {
           const targetP = Math.min(loadedPdfDoc.numPages, currentVisiblePage + 1);
           const card = pagesContainer.querySelector(`.ff-pdf-page-card[data-page-number="${targetP}"]`);
-          card?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          if (card) {
+            pagesContainer.scrollTo({ top: Math.max(0, card.offsetTop), behavior: 'smooth' });
+          }
         } else if (act === 'zoom-in') {
           currentPdfZoom = Math.min(3.0, Number((currentPdfZoom + 0.15).toFixed(2)));
           obj.pdfZoom = currentPdfZoom;
@@ -4446,11 +4888,13 @@ function createObjectDOM(obj) {
   if (
     obj.vectorized ||
     obj.type === 'image' ||
+    obj.type === 'sticker' ||
     obj.type === 'label' ||
     obj.type === 'stroke' ||
     obj.type === 'shape' ||
     obj.type === 'link' ||
-    (obj.type === 'file' && !(isPdf && (obj.pdfViewMode || 'viewer') === 'viewer'))
+    obj.type === 'file' ||
+    obj.type === 'pdf'
   ) {
     body.addEventListener('pointerdown', (e) => startDrag(e, false));
   }
@@ -5121,6 +5565,15 @@ function sendSelectedObjectsToBack() {
   showToast('선택 객체를 맨 뒤로 보냈습니다');
 }
 
+const RANDOM_CARD_COLOR_POOL = ['yellow', 'blue', 'green', 'pink', 'purple', 'orange'];
+let lastRandomCardColor = '';
+function pickRandomNoteOrChecklistColor() {
+  const candidates = RANDOM_CARD_COLOR_POOL.filter((c) => c !== lastRandomCardColor);
+  const picked = candidates[Math.floor(Math.random() * candidates.length)] || 'yellow';
+  lastRandomCardColor = picked;
+  return picked;
+}
+
 function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
   if (!currentBoard) return null;
   if (recordUndo) {
@@ -5132,16 +5585,23 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
   const jitter = Math.round((Math.random() - 0.5) * 32);
   const rawX = partial.x ?? center.x - Math.round(w / 2) + jitter;
   const rawY = partial.y ?? center.y - Math.round(h / 2) + jitter;
+  const targetType = partial.type || 'sticky';
   const newObj = {
     id: `obj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    type: partial.type || 'sticky',
+    type: targetType,
     x: snapWorldVal(rawX, gridConfig.snapObjects),
     y: snapWorldVal(rawY, gridConfig.snapObjects),
     width: w,
     height: h,
     rotation: partial.rotation || 0,
     groupId: partial.groupId || undefined,
-    color: partial.color || (partial.type === 'sticky' ? 'yellow' : partial.type === 'label' ? 'light' : 'dark'),
+    color:
+      partial.color ||
+      (targetType === 'sticky' || targetType === 'text'
+        ? pickRandomNoteOrChecklistColor()
+        : targetType === 'label'
+        ? 'light'
+        : 'dark'),
     customColor: partial.customColor || null,
     textStyle: partial.textStyle ? { ...partial.textStyle } : null,
     titleAlign: partial.titleAlign || 'left',
@@ -5202,7 +5662,18 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
     'labelFillColor',
     'labelStrokeEnabled',
     'labelStrokeColor',
-    'labelStrokeWidth'
+    'labelStrokeWidth',
+    'pdfPageAspect',
+    'pdfChromeW',
+    'pdfChromeH',
+    'pdfAspectFitted',
+    'viewerWidth',
+    'viewerHeight',
+    'pdfZoom',
+    'groupName',
+    'stickerSvgUrl',
+    'stickerPresetId',
+    'imageUrl'
   ].forEach((k) => {
     if (partial[k] !== undefined && partial[k] !== null) newObj[k] = partial[k];
   });
@@ -5271,7 +5742,13 @@ function pasteCopiedObjectsFromBuffer(atWorldPos = null) {
     clone.y = Math.round(orig.y + dy);
     if (orig.groupId) {
       if (!groupMap.has(orig.groupId)) {
-        groupMap.set(orig.groupId, `grp_${Date.now().toString().slice(-5)}_${Math.random().toString(36).slice(2, 4)}`);
+        const nextGid = `grp_${Date.now().toString().slice(-5)}_${Math.random().toString(36).slice(2, 4)}`;
+        groupMap.set(orig.groupId, nextGid);
+        const origGrpName = orig.groupName || (currentBoard.groupNames && currentBoard.groupNames[orig.groupId]);
+        if (origGrpName) {
+          if (!currentBoard.groupNames) currentBoard.groupNames = {};
+          currentBoard.groupNames[nextGid] = origGrpName;
+        }
       }
       clone.groupId = groupMap.get(orig.groupId);
     }
@@ -5366,40 +5843,136 @@ async function handleSmartPaste(atWorldPos = null, preferObjectBuffer = false) {
       y: pos.y - 110,
       width: 350,
       height: 220,
-      color: 'dark'
+      color: pickRandomNoteOrChecklistColor()
     });
     showToast('📝 클립보드 텍스트가 노트 객체로 생성되었습니다');
   }
 }
 
 // ============================================================================
-// Middle-Mouse-Click+Drag Pan (Anywhere), Empty Canvas Pan, Shift+Drag Marquee, Smart Pen
+// Middle-Mouse-Click+Drag OR Left+Right Simultaneous Click+Drag Pan (Anywhere), Empty Canvas Pan, Shift+Drag Marquee, Smart Pen
 // ============================================================================
-// Prevent Windows default auto-scroll circle on middle mouse button click
+let chordPanActive = false;
+let suppressContextMenuUntil = 0;
+let pointerDownInViewport = false;
+
+function startCanvasPanMode(clientX, clientY, isChordPan = false) {
+  hideContextMenu();
+  cancelViewportAnimation();
+
+  if (isChordPan) {
+    chordPanActive = true;
+    suppressContextMenuUntil = Date.now() + 800;
+
+    // Cancel and revert any in-flight drag/draw/marquee that began a few ms earlier when the first button was pressed
+    if (draggingObjState) {
+      draggingObjState.items.forEach((item) => {
+        item.obj.x = item.origX;
+        item.obj.y = item.origY;
+        if (item.el) {
+          item.el.style.left = `${item.obj.x}px`;
+          item.el.style.top = `${item.obj.y}px`;
+        }
+      });
+      document.body.classList.remove('is-dragging-object');
+      draggingObjState = null;
+      updateGroupFramesDOM();
+      renderAllConnectors();
+    }
+    if (resizingObjState) {
+      resizingObjState.obj.width = resizingObjState.origW;
+      resizingObjState.obj.height = resizingObjState.origH;
+      if (resizingObjState.el) {
+        resizingObjState.el.style.width = `${resizingObjState.origW}px`;
+        resizingObjState.el.style.height = `${resizingObjState.origH}px`;
+      }
+      resizingObjState = null;
+      updateGroupFramesDOM();
+      renderAllConnectors();
+    }
+    if (rotatingObjState) {
+      rotatingObjState.obj.rotation = rotatingObjState.origRotation;
+      if (rotatingObjState.el) {
+        rotatingObjState.el.style.transform = `rotate(${rotatingObjState.origRotation}deg)`;
+      }
+      rotatingObjState = null;
+    }
+    if (drawingStroke) {
+      drawingStroke = null;
+      renderAllStrokes();
+    }
+    if (drawingShapeState) {
+      drawingShapeState = null;
+      shapeDrawPreview?.classList.add('hidden');
+    }
+    if (marqueeState) {
+      marqueeState = null;
+      selectionMarquee?.classList.add('hidden');
+    }
+    if (tableCellDragState) {
+      tableCellDragState.tableEl?.classList.remove('is-selecting-cells');
+      tableCellDragState = null;
+    }
+    if (connectingState) {
+      connectingState = null;
+      tempConnectorPath?.remove();
+      tempConnectorPath = null;
+    }
+  }
+
+  isPanning = true;
+  panStartX = clientX - panX;
+  panStartY = clientY - panY;
+  canvasViewport?.classList.add('canvas-panning-active');
+}
+
+// Prevent Windows default auto-scroll circle on middle mouse button click, and detect Left+Right chord click
 window.addEventListener(
   'mousedown',
   (e) => {
     if (e.button === 1) {
       e.preventDefault();
     }
+    // Left + Right simultaneous click anywhere inside canvasViewport -> Pan!
+    if ((e.buttons & 3) === 3 && canvasViewport && canvasViewport.contains(e.target)) {
+      e.preventDefault();
+      e.stopPropagation();
+      startCanvasPanMode(e.clientX, e.clientY, true);
+    }
   },
   true
 );
 
-// Capture-phase pointerdown on canvasViewport so Middle-Click (Wheel Click) Pan works EVEN when objects fill the screen!
+window.addEventListener(
+  'mouseup',
+  (e) => {
+    if (chordPanActive) {
+      suppressContextMenuUntil = Date.now() + 450;
+      if ((e.buttons & 3) === 0) {
+        chordPanActive = false;
+        if (isPanning) {
+          isPanning = false;
+          canvasViewport?.classList.remove('canvas-panning-active');
+          scheduleSaveBoard();
+        }
+      }
+    }
+  },
+  true
+);
+
+// Capture-phase pointerdown on canvasViewport so Middle-Click (Wheel Click) or Left+Right Click Pan works EVEN when objects fill the screen!
 canvasViewport.addEventListener(
   'pointerdown',
   (e) => {
+    pointerDownInViewport = true;
     hideContextMenu();
 
-    // 1. Middle Mouse Button (Wheel Click + Drag, button === 1) -> Pan anywhere on the canvas or over objects!
-    if (e.button === 1) {
+    // 1. Middle Mouse Button (Wheel Click + Drag, button === 1) OR Left+Right Simultaneous Click ((e.buttons & 3) === 3) -> Pan anywhere!
+    if (e.button === 1 || (e.buttons & 3) === 3) {
       e.preventDefault();
       e.stopPropagation();
-      isPanning = true;
-      panStartX = e.clientX - panX;
-      panStartY = e.clientY - panY;
-      canvasViewport.classList.add('canvas-panning-active');
+      startCanvasPanMode(e.clientX, e.clientY, (e.buttons & 3) === 3);
       return;
     }
 
@@ -5483,6 +6056,21 @@ canvasViewport.addEventListener(
 window.addEventListener('pointermove', (e) => {
   lastCanvasMousePos = { x: e.clientX, y: e.clientY };
   document.body.classList.toggle('ctrl-move-mode', Boolean(e.ctrlKey && activeTool === 'select'));
+
+  // Left + Right simultaneous click + drag ((e.buttons & 3) === 3) -> immediately switch to canvas panning!
+  if (!isPanning && (e.buttons & 3) === 3 && (pointerDownInViewport || canvasViewport?.contains(e.target))) {
+    startCanvasPanMode(e.clientX, e.clientY, true);
+  }
+
+  if (isPanning) {
+    if (chordPanActive) {
+      suppressContextMenuUntil = Date.now() + 600;
+    }
+    panX = e.clientX - panStartX;
+    panY = e.clientY - panStartY;
+    applyViewportTransform();
+    return;
+  }
 
   if (tableCellDragState) {
     const hoverEl = document.elementFromPoint(e.clientX, e.clientY);
@@ -5587,13 +6175,6 @@ window.addEventListener('pointermove', (e) => {
     return;
   }
 
-  if (isPanning) {
-    panX = e.clientX - panStartX;
-    panY = e.clientY - panStartY;
-    applyViewportTransform();
-    return;
-  }
-
   if (rotatingObjState) {
     const curAngle =
       (Math.atan2(e.clientY - rotatingObjState.centerY, e.clientX - rotatingObjState.centerX) * 180) / Math.PI;
@@ -5618,6 +6199,7 @@ window.addEventListener('pointermove', (e) => {
         item.el.style.top = `${item.obj.y}px`;
       }
     });
+    updateGroupFramesDOM();
     renderAllConnectors();
     return;
   }
@@ -5648,8 +6230,8 @@ window.addEventListener('pointermove', (e) => {
         rObj.width = nextW;
         rObj.height = nextH;
       }
-    } else if (rObj.type === 'image') {
-      const minW = 60;
+    } else if (rObj.type === 'image' || rObj.type === 'sticker') {
+      const minW = 48;
       const minH = 40;
       const lockAspect = rObj.keepAspect !== false ? !e.shiftKey : e.shiftKey;
       if (lockAspect) {
@@ -5667,6 +6249,40 @@ window.addEventListener('pointermove', (e) => {
         rObj.width = Math.max(minW, snapWorldVal(resizingObjState.origW + dw, gridConfig.snapObjects));
         rObj.height = Math.max(minH, snapWorldVal(resizingObjState.origH + dh, gridConfig.snapObjects));
       }
+    } else if (isPdfObject(rObj) && (rObj.pdfViewMode || 'viewer') === 'viewer') {
+      // Lock PDF viewer resizing strictly to the document's single-page aspect ratio (both portrait and landscape)
+      const aspect = Number(rObj.pdfPageAspect) || 595.28 / 841.89;
+      const chromeW = 0;
+      const chromeH = 0;
+      const isLandscape = aspect > 1.02;
+      const minPageW = isLandscape ? 260 : 200;
+
+      const origPageW = Math.max(minPageW, resizingObjState.origW - chromeW);
+      const origPageH = Math.max(120, origPageW / Math.max(0.15, aspect));
+
+      const scaleX = (origPageW + dw) / origPageW;
+      const scaleY = (origPageH + dh) / origPageH;
+      const scale = Math.abs(dw) >= Math.abs(dh) ? scaleX : scaleY;
+
+      const rawNextW = Math.round(origPageW * scale + chromeW);
+      const nextW = Math.max(minPageW + chromeW, snapWorldVal(rawNextW, gridConfig.snapObjects));
+      const nextPageW = Math.max(minPageW, nextW - chromeW);
+      const nextPageH = Math.round(nextPageW / Math.max(0.15, aspect));
+      const nextH = nextPageH + chromeH;
+
+      rObj.width = nextW;
+      rObj.height = nextH;
+      rObj.viewerWidth = nextW;
+      rObj.viewerHeight = nextH;
+      rObj.pdfAspectFitted = true;
+
+      const zoomFactor = rObj.pdfZoom && rObj.pdfZoom !== 1.15 ? rObj.pdfZoom : 1.0;
+      const canvases = resizingObjState.el.querySelectorAll('.ff-pdf-page-canvas');
+      canvases.forEach((cv) => {
+        const cvAspect = Number(cv.dataset.pageAspect) || aspect;
+        cv.style.width = `${Math.round(nextPageW * zoomFactor)}px`;
+        cv.style.height = `${Math.round((nextPageW / Math.max(0.15, cvAspect)) * zoomFactor)}px`;
+      });
     } else {
       const isSmallKind = rObj.type === 'stroke' || rObj.type === 'shape';
       const minW = isSmallKind ? 36 : 180;
@@ -5690,6 +6306,7 @@ window.addEventListener('pointermove', (e) => {
       const sWrap = resizingObjState.el.querySelector('.ff-shape-wrap');
       if (sWrap) renderShapeObjectInto(sWrap, rObj);
     }
+    updateGroupFramesDOM();
     renderAllConnectors();
     return;
   }
@@ -5722,6 +6339,15 @@ window.addEventListener('pointermove', (e) => {
 });
 
 window.addEventListener('pointerup', (e) => {
+  if ((e.buttons & 3) === 0) {
+    pointerDownInViewport = false;
+  }
+  if (chordPanActive) {
+    suppressContextMenuUntil = Date.now() + 450;
+    if ((e.buttons & 3) === 0) {
+      chordPanActive = false;
+    }
+  }
   if (tableCellDragState) {
     const wasMulti = tableCellDragState.isMultiDrag;
     tableCellDragState.tableEl?.classList.remove('is-selecting-cells');
@@ -6021,7 +6647,7 @@ window.addEventListener('drop', async (e) => {
       y: dropPos.y - 105,
       width: 320,
       height: 220,
-      color: 'yellow'
+      color: pickRandomNoteOrChecklistColor()
     });
     showToast('드래그한 텍스트가 메모로 추가되었습니다');
   }
@@ -6035,6 +6661,12 @@ function hideContextMenu() {
 }
 
 window.addEventListener('contextmenu', (e) => {
+  if (chordPanActive || isPanning || Date.now() < suppressContextMenuUntil || (e.buttons & 1) === 1) {
+    e.preventDefault();
+    e.stopPropagation();
+    hideContextMenu();
+    return;
+  }
   if (e.target.closest('#inspectorColors .swatch, #penToolbar .pen-color')) {
     return;
   }
@@ -6279,9 +6911,26 @@ window.addEventListener('contextmenu', (e) => {
         el?.focus();
       }
     } else if (act === 'new-sticky') {
-      addObjectToBoard({ type: 'sticky', title: '📌 포스트잇 메모', x: worldPos.x - 140, y: worldPos.y - 110, width: 280, height: 220, color: 'yellow' });
+      addObjectToBoard({
+        type: 'sticky',
+        title: '📌 포스트잇 메모',
+        x: worldPos.x - 140,
+        y: worldPos.y - 110,
+        width: 280,
+        height: 220,
+        color: pickRandomNoteOrChecklistColor()
+      });
     } else if (act === 'new-text') {
-      const created = addObjectToBoard({ type: 'text', title: '체크리스트 & 노트', content: '[square:0] ', x: worldPos.x - 175, y: worldPos.y - 110, width: 360, height: 240, color: 'dark' });
+      const created = addObjectToBoard({
+        type: 'text',
+        title: '체크리스트 & 노트',
+        content: '[square:0] ',
+        x: worldPos.x - 175,
+        y: worldPos.y - 110,
+        width: 360,
+        height: 240,
+        color: pickRandomNoteOrChecklistColor()
+      });
       if (created) {
         const el = objectLayer.querySelector(`.ff-object[data-id="${created.id}"] .ff-check-input`);
         el?.focus();
@@ -6359,7 +7008,7 @@ document.getElementById('addStickyBtn')?.addEventListener('click', () => {
     content: '',
     width: 280,
     height: 220,
-    color: 'yellow'
+    color: pickRandomNoteOrChecklistColor()
   });
   if (created) {
     const el = objectLayer.querySelector(`.ff-object[data-id="${created.id}"] .ff-sticky-textarea`);
@@ -6391,7 +7040,7 @@ document.getElementById('addTextBtn')?.addEventListener('click', () => {
     content: '[square:0] ',
     width: 360,
     height: 240,
-    color: 'dark'
+    color: pickRandomNoteOrChecklistColor()
   });
   if (created) {
     const el = objectLayer.querySelector(`.ff-object[data-id="${created.id}"] .ff-check-input`);
@@ -7231,7 +7880,7 @@ function applyPickedColorToTarget(hex, recordUndo = false) {
         o.color = presetName;
         o.customColor = hex.toLowerCase() !== defaultHex ? hex : null;
         applySwatchHexToShapeOrLabel(o, hex);
-        if (o.type === 'image') {
+        if (hasBorderFrameSupport(o)) {
           o.borderEnabled = true;
           o.borderColor = hex;
           if (!o.borderWidth) o.borderWidth = 4;
@@ -7302,7 +7951,7 @@ document.querySelectorAll('#inspectorColors .swatch:not(.random-swatch)').forEac
       o.color = presetName;
       o.customColor = isCustomized ? slotHex : null;
       applySwatchHexToShapeOrLabel(o, slotHex);
-      if (o.type === 'image') {
+      if (hasBorderFrameSupport(o)) {
         o.borderEnabled = true;
         o.borderColor = slotHex;
         if (!o.borderWidth) o.borderWidth = 4;
@@ -7341,7 +7990,7 @@ document.getElementById('inspRandomColorBtn')?.addEventListener('click', () => {
   selected.forEach((o) => {
     o.customColor = randomHex;
     applySwatchHexToShapeOrLabel(o, randomHex);
-    if (o.type === 'image') {
+    if (hasBorderFrameSupport(o)) {
       o.borderEnabled = true;
       o.borderColor = randomHex;
       if (!o.borderWidth) o.borderWidth = 4;
@@ -7354,29 +8003,29 @@ document.getElementById('inspRandomColorBtn')?.addEventListener('click', () => {
   showToast(`🎲 고유 랜덤 컬러 적용: ${randomHex.toUpperCase()}`);
 });
 
-// Image Aspect Ratio Lock & Colored Border Controls
+// Image / Sticker Aspect Ratio Lock & Image / Sticker / PDF Colored Border Controls
 document.getElementById('inspImgAspectBtn')?.addEventListener('click', () => {
-  const selected = getSelectedObjects().filter((o) => o.type === 'image');
+  const selected = getSelectedObjects().filter((o) => o.type === 'image' || o.type === 'sticker');
   if (!selected.length) return;
-  pushUndoSnapshot('이미지 비율유지 전환');
+  pushUndoSnapshot('비율유지 전환');
   const nextKeep = !(selected[0].keepAspect !== false);
   selected.forEach((o) => {
     o.keepAspect = nextKeep;
     if (nextKeep && o.imageAspect && o.imageAspect > 0) {
-      o.height = Math.max(80, Math.round(o.width / o.imageAspect));
+      o.height = Math.max(48, Math.round(o.width / o.imageAspect));
     }
   });
   renderAllObjects();
   renderAllConnectors();
   syncSelectionUI();
   scheduleSaveBoard();
-  showToast(nextKeep ? '🔒 이미지 비율유지 ON (여백 없이 비율 고정)' : '🔓 이미지 자유비율 크기조절 모드 (여백 없음)');
+  showToast(nextKeep ? '🔒 비율유지 ON (여백 없이 비율 고정)' : '🔓 자유비율 크기조절 모드 (여백 없음)');
 });
 
 document.getElementById('inspImgBorderToggleBtn')?.addEventListener('click', () => {
-  const selected = getSelectedObjects().filter((o) => o.type === 'image');
+  const selected = getSelectedObjects().filter((o) => hasBorderFrameSupport(o));
   if (!selected.length) return;
-  pushUndoSnapshot('이미지 테두리 토글');
+  pushUndoSnapshot('외곽선 토글');
   const nextBorder = !Boolean(selected[0].borderEnabled);
   selected.forEach((o) => {
     o.borderEnabled = nextBorder;
@@ -7391,14 +8040,14 @@ document.getElementById('inspImgBorderToggleBtn')?.addEventListener('click', () 
   renderAllObjects();
   syncSelectionUI();
   scheduleSaveBoard();
-  showToast(nextBorder ? '🖼️ 이미지 컬러 테두리 ON' : '이미지 테두리 OFF');
+  showToast(nextBorder ? '🖼️ 외곽선(테두리) ON' : '외곽선(테두리) OFF');
 });
 
 document.getElementById('inspImgBorderWidthSelect')?.addEventListener('change', (e) => {
   const bw = Number(e.target.value) || 4;
-  const selected = getSelectedObjects().filter((o) => o.type === 'image');
+  const selected = getSelectedObjects().filter((o) => hasBorderFrameSupport(o));
   if (!selected.length) return;
-  pushUndoSnapshot('이미지 테두리 두께 변경');
+  pushUndoSnapshot('외곽선 두께 변경');
   selected.forEach((o) => {
     o.borderEnabled = true;
     o.borderWidth = bw;
@@ -7410,9 +8059,9 @@ document.getElementById('inspImgBorderWidthSelect')?.addEventListener('change', 
 
 document.getElementById('inspImgBorderStyleSelect')?.addEventListener('change', (e) => {
   const bs = e.target.value || 'solid';
-  const selected = getSelectedObjects().filter((o) => o.type === 'image');
+  const selected = getSelectedObjects().filter((o) => hasBorderFrameSupport(o));
   if (!selected.length) return;
-  pushUndoSnapshot('이미지 테두리 모양 변경');
+  pushUndoSnapshot('외곽선 모양 변경');
   selected.forEach((o) => {
     o.borderEnabled = true;
     o.borderStyle = bs;
@@ -7811,6 +8460,26 @@ document.getElementById('inspRotResetBtn')?.addEventListener('click', () => rota
 document.getElementById('inspRotRightBtn')?.addEventListener('click', () => rotateSelectedObjects(15));
 document.getElementById('inspGroupBtn')?.addEventListener('click', () => toggleGroupSelectedObjects());
 
+const inspGroupNameInput = document.getElementById('inspGroupNameInput');
+if (inspGroupNameInput) {
+  inspGroupNameInput.addEventListener('input', () => {
+    const selected = getSelectedObjects().filter((o) => Boolean(o.groupId));
+    if (!selected.length) return;
+    const gid = selected[0].groupId;
+    setGroupName(gid, inspGroupNameInput.value);
+    scheduleSaveBoard();
+    if (typeof isCanvasSearchOpen === 'function' && isCanvasSearchOpen()) {
+      performCanvasUnifiedSearch(document.getElementById('canvasSearchInput')?.value || '', { preserveIndex: true });
+    }
+  });
+  inspGroupNameInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' || e.key === 'Escape') {
+      inspGroupNameInput.blur();
+    }
+  });
+}
+
 document.getElementById('inspBringFrontBtn')?.addEventListener('click', () => {
   const selected = getSelectedObjects();
   if (!selected.length) return;
@@ -7895,6 +8564,13 @@ window.addEventListener('keydown', (e) => {
       (document.activeElement && document.activeElement.closest('input, textarea, [contenteditable="true"]'))
   );
 
+  // Unified Canvas Search (Ctrl+F / Cmd+F) works anytime!
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key.toLowerCase() === 'f' || e.code === 'KeyF')) {
+    e.preventDefault();
+    openCanvasSearchBar();
+    return;
+  }
+
   // Typography shortcuts (Ctrl+B, Ctrl+I, Ctrl+U) work whether editing inside an object or having an object selected!
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && selectedObjectIds.size > 0) {
     const k = e.key.toLowerCase();
@@ -7954,14 +8630,23 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     deleteSelectedObjects();
   } else if (e.key === 'Escape') {
+    if (document.activeElement && document.activeElement.id === 'canvasSearchInput') {
+      closeCanvasSearchBar();
+      return;
+    }
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
       document.activeElement.blur();
     }
     hideContextMenu();
     document.getElementById('linkModal')?.classList.add('hidden');
     document.getElementById('syncModal')?.classList.add('hidden');
+    document.getElementById('stickerModal')?.classList.add('hidden');
     document.getElementById('lightboxModal')?.classList.add('hidden');
     document.getElementById('gridSettingsPopover')?.classList.add('hidden');
+    if (selectedObjectIds.size === 0 && !selectedConnectorId && isCanvasSearchOpen()) {
+      closeCanvasSearchBar();
+      return;
+    }
     if ((activeTool === 'pen' || activeTool === 'shape') && selectedObjectIds.size === 0 && !selectedConnectorId) {
       setToolMode('select');
     }
@@ -7975,6 +8660,7 @@ window.addEventListener('keydown', (e) => {
   const isModalOpen =
     !document.getElementById('linkModal')?.classList.contains('hidden') ||
     !document.getElementById('syncModal')?.classList.contains('hidden') ||
+    !document.getElementById('stickerModal')?.classList.contains('hidden') ||
     !document.getElementById('lightboxModal')?.classList.contains('hidden');
 
   if (
@@ -8026,6 +8712,10 @@ window.addEventListener('keydown', (e) => {
       e.preventDefault();
       setToolMode('select');
       document.getElementById('addImageBtn')?.click();
+    } else if (code === 'KeyK' || key === 'k') {
+      e.preventDefault();
+      setToolMode('select');
+      document.getElementById('addStickerBtn')?.click();
     } else if (code === 'KeyW' || key === 'w') {
       e.preventDefault();
       setToolMode('select');
@@ -8518,7 +9208,7 @@ document.getElementById('disconnectOAuthBtn')?.addEventListener('click', async (
 // External Sync Update & SpotlightAgent Bridge Listener
 // ============================================================================
 window.freeformAPI.onBoardExternallyUpdated(async (changedBoardId) => {
-  if (isSavingBoard || Date.now() - lastLocalSaveAt < 3500) {
+  if (isSavingBoard || Date.now() - lastLocalSaveAt < 1500) {
     return;
   }
   const activeEl = document.activeElement;
@@ -8535,11 +9225,16 @@ window.freeformAPI.onBoardExternallyUpdated(async (changedBoardId) => {
   await refreshBoardsSidebarList();
   if (currentBoard && currentBoard.id === changedBoardId && !draggingObjState && !resizingObjState && !rotatingObjState) {
     const fresh = await window.freeformAPI.getBoard(changedBoardId);
-    if (fresh && fresh.updatedAt > (currentBoard.updatedAt || 0) + 500) {
+    if (fresh && (Number(fresh.updatedAt) || 0) > (Number(currentBoard.updatedAt) || 0) + 100) {
       currentBoard = fresh;
+      if (activeBoardTitleInput) activeBoardTitleInput.value = currentBoard.title || '제목 없는 보드';
+      if (activeBoardEmoji) activeBoardEmoji.textContent = currentBoard.icon || '📋';
       renderAllObjects();
       renderAllConnectors();
       renderAllStrokes();
+      if (isCanvasSearchOpen() && canvasSearchState.query) {
+        performCanvasUnifiedSearch(canvasSearchState.query, { panToActive: false });
+      }
     }
   }
 });
@@ -8609,8 +9304,959 @@ window.freeformAPI.onBridgeAddObject?.((objData) => {
   showToast('✨ Spotlight AI에서 보낸 항목이 보드에 추가되었습니다!');
 });
 
+// ============================================================================
+// Sticker Object Library (32 Built-in Vector Stickers + Custom PNG Auto-Vectorization)
+// ============================================================================
+function svgMarkupToDataUrl(svgMarkup) {
+  let markup = String(svgMarkup || '').trim();
+  if (markup.startsWith('<svg') && !/<svg[^>]*preserveAspectRatio\s*=/i.test(markup)) {
+    markup = markup.replace(/^<svg\b/i, '<svg preserveAspectRatio="none"');
+  }
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
+}
+
+function ensureStretchableStickerUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  if (!url.startsWith('data:image/svg+xml')) return url;
+  const commaIdx = url.indexOf(',');
+  if (commaIdx === -1) return url;
+  const header = url.slice(0, commaIdx + 1);
+  const body = url.slice(commaIdx + 1);
+  try {
+    let decoded = header.includes(';base64') ? atob(body) : decodeURIComponent(body);
+    let modified = false;
+    if (decoded.includes('<svg') && !/<svg[^>]*preserveAspectRatio\s*=/i.test(decoded)) {
+      decoded = decoded.replace(/<svg\b/i, '<svg preserveAspectRatio="none"');
+      modified = true;
+    }
+    if (decoded.includes('preserveAspectRatio="xMidYMid meet"')) {
+      decoded = decoded.replace(/preserveAspectRatio="xMidYMid meet"/g, 'preserveAspectRatio="none"');
+      modified = true;
+    }
+    if (!modified) return url;
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(decoded)}`;
+  } catch (_) {
+    return url;
+  }
+}
+
+const BUILTIN_STICKERS = [
+  {
+    id: 'heart',
+    name: '하트',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ff5e7e"/><stop offset="100%" stop-color="#ff2d55"/></linearGradient></defs><path d="M60 103 C60 103 16 74 16 42 C16 25 29 14 44 14 C53 14 60 20 60 27 C60 20 67 14 76 14 C91 14 104 25 104 42 C104 74 60 103 60 103 Z" fill="url(#g)" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/><path d="M32 34 C32 27 38 23 44 23" stroke="rgba(255,255,255,0.65)" stroke-width="4" stroke-linecap="round" fill="none"/></svg>`
+  },
+  {
+    id: 'pencil',
+    name: '연필',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><g stroke="#ffffff" stroke-width="4" stroke-linejoin="round"><polygon points="22,98 36,68 52,84" fill="#ffd59e"/><polygon points="22,98 28,85 35,92" fill="#2c2c2e"/><polygon points="36,68 80,24 96,40 52,84" fill="#ffcc00"/><rect x="82" y="16" width="18" height="14" rx="4" transform="rotate(45 91 23)" fill="#ff6b8b"/></g></svg>`
+  },
+  {
+    id: 'sun',
+    name: '해 (태양)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><radialGradient id="sg" cx="50%" cy="45%" r="55%"><stop offset="0%" stop-color="#fff07c"/><stop offset="100%" stop-color="#ff9500"/></radialGradient></defs><g stroke="#ff9f0a" stroke-width="6" stroke-linecap="round"><line x1="60" y1="10" x2="60" y2="22"/><line x1="60" y1="98" x2="60" y2="110"/><line x1="10" y1="60" x2="22" y2="60"/><line x1="98" y1="60" x2="110" y2="60"/><line x1="24" y1="24" x2="33" y2="33"/><line x1="87" y1="87" x2="96" y2="96"/><line x1="96" y1="24" x2="87" y2="33"/><line x1="33" y1="87" x2="24" y2="96"/></g><circle cx="60" cy="60" r="28" fill="url(#sg)" stroke="#ffffff" stroke-width="4"/></svg>`
+  },
+  {
+    id: 'moon',
+    name: '달 (초승달)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M76 18 C50 22 32 45 36 72 C40 95 62 108 86 102 C67 112 42 107 28 90 C12 70 16 40 36 24 C48 15 62 14 76 18 Z" fill="#ffd60a" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><polygon points="88,28 91,36 99,39 91,42 88,50 85,42 77,39 85,36" fill="#fff394"/><circle cx="72" cy="56" r="4" fill="#fff394"/></svg>`
+  },
+  {
+    id: 'star',
+    name: '별 (스타)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="stg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffe66d"/><stop offset="100%" stop-color="#ff9f0a"/></linearGradient></defs><polygon points="60,12 74,42 107,46 82,69 89,102 60,85 31,102 38,69 13,46 46,42" fill="url(#stg)" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/></svg>`
+  },
+  {
+    id: 'monitor',
+    name: '모니터',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect x="14" y="20" width="92" height="64" rx="10" fill="#1c1c1e" stroke="#ffffff" stroke-width="4"/><rect x="20" y="26" width="80" height="48" rx="5" fill="#0a84ff"/><path d="M26 62 L46 42 L62 56 L82 36 L94 48 L94 74 L26 74 Z" fill="#64d2ff" opacity="0.65"/><rect x="48" y="84" width="24" height="12" fill="#8e8e93" stroke="#ffffff" stroke-width="3"/><rect x="34" y="95" width="52" height="7" rx="3.5" fill="#aeaeb2" stroke="#ffffff" stroke-width="3"/></svg>`
+  },
+  {
+    id: 'laptop',
+    name: '노트북',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect x="22" y="24" width="76" height="52" rx="7" fill="#2c2c2e" stroke="#ffffff" stroke-width="4"/><rect x="28" y="30" width="64" height="40" rx="3" fill="#30d158"/><path d="M45 50 L55 60 L76 40" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M10 76 L110 76 L102 90 L18 90 Z" fill="#8e8e93" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"/></svg>`
+  },
+  {
+    id: 'bulb',
+    name: '아이디어 전구',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M60 16 C38 16 24 31 24 51 C24 64 32 74 41 81 L44 90 L76 90 L79 81 C88 74 96 64 96 51 C96 31 82 16 60 16 Z" fill="#ffd60a" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><rect x="45" y="90" width="30" height="9" rx="3" fill="#8e8e93" stroke="#ffffff" stroke-width="3"/><rect x="50" y="99" width="20" height="8" rx="4" fill="#636366" stroke="#ffffff" stroke-width="3"/><path d="M48 54 L56 44 L64 54 L72 44" stroke="#ff9500" stroke-width="4" stroke-linecap="round" fill="none"/></svg>`
+  },
+  {
+    id: 'check',
+    name: '완료 체크',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><circle cx="60" cy="60" r="46" fill="#30d158" stroke="#ffffff" stroke-width="5"/><path d="M38 61 L53 76 L84 44" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`
+  },
+  {
+    id: 'fire',
+    name: '불꽃 (핫이슈)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M62 12 C62 12 96 40 92 72 C89 94 72 106 58 106 C38 106 24 91 26 70 C28 53 42 44 42 44 C42 44 39 56 47 59 C43 38 62 12 62 12 Z" fill="#ff453a" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><path d="M60 52 C60 52 76 66 73 84 C71 95 63 101 56 101 C47 101 41 93 43 82 C45 71 60 52 60 52 Z" fill="#ffd60a"/></svg>`
+  },
+  {
+    id: 'rocket',
+    name: '로켓 (런칭)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M88 18 C64 18 42 36 34 60 L20 66 L30 78 L42 86 L54 96 L60 82 C84 74 102 52 102 28 Z" fill="#0a84ff" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><circle cx="72" cy="46" r="10" fill="#ffffff"/><circle cx="72" cy="46" r="6" fill="#64d2ff"/><path d="M28 84 C20 90 16 102 16 102 C16 102 28 98 34 90 Z" fill="#ff9f0a" stroke="#ffffff" stroke-width="3"/></svg>`
+  },
+  {
+    id: 'crown',
+    name: '왕관 (VIP)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M16 88 L24 38 L48 60 L60 28 L72 60 L96 38 L104 88 Z" fill="#ffd60a" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/><circle cx="24" cy="32" r="6" fill="#ff375f" stroke="#ffffff" stroke-width="3"/><circle cx="60" cy="22" r="7" fill="#0a84ff" stroke="#ffffff" stroke-width="3"/><circle cx="96" cy="32" r="6" fill="#30d158" stroke="#ffffff" stroke-width="3"/></svg>`
+  },
+  {
+    id: 'coffee',
+    name: '커피 타임',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M84 48 H94 C101 48 106 54 106 61 C106 68 101 74 94 74 H84" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/><path d="M24 42 H86 V72 C86 89 72 100 55 100 C38 100 24 89 24 72 Z" fill="#c67c4e" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><path d="M42 28 C40 22 46 18 44 12 M58 28 C56 22 62 18 60 12 M74 28 C72 22 78 18 76 12" stroke="#ffffff" stroke-width="4" stroke-linecap="round" fill="none"/></svg>`
+  },
+  {
+    id: 'pin',
+    name: '압정 핀',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><line x1="60" y1="68" x2="60" y2="108" stroke="#d1d1d6" stroke-width="6" stroke-linecap="round"/><path d="M36 22 H84 L76 50 L90 66 H30 L44 50 Z" fill="#ff3b30" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/></svg>`
+  },
+  {
+    id: 'megaphone',
+    name: '메가폰 (공지)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M22 50 L86 24 V92 L22 66 Z" fill="#ff9f0a" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><rect x="14" y="48" width="14" height="22" rx="4" fill="#ff3b30" stroke="#ffffff" stroke-width="3.5"/><path d="M28 68 L36 94 H48 L42 72" fill="#5e5ce6" stroke="#ffffff" stroke-width="3.5" stroke-linejoin="round"/><path d="M96 42 C104 48 104 68 96 74" stroke="#ffd60a" stroke-width="5" stroke-linecap="round" fill="none"/></svg>`
+  },
+  {
+    id: 'camera',
+    name: '카메라',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M20 38 H38 L45 26 H75 L82 38 H100 C105 38 108 42 108 47 V88 C108 93 105 97 100 97 H20 C15 97 12 93 12 88 V47 C12 42 15 38 20 38 Z" fill="#5e5ce6" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><circle cx="60" cy="67" r="19" fill="#64d2ff" stroke="#ffffff" stroke-width="4.5"/><circle cx="89" cy="50" r="4" fill="#ffd60a"/></svg>`
+  },
+  {
+    id: 'music',
+    name: '음표 (뮤직)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M44 84 V30 L92 20 V74" fill="none" stroke="#bf5af2" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/><circle cx="34" cy="86" r="14" fill="#bf5af2" stroke="#ffffff" stroke-width="4"/><circle cx="82" cy="76" r="14" fill="#ff375f" stroke="#ffffff" stroke-width="4"/></svg>`
+  },
+  {
+    id: 'gift',
+    name: '선물 상자',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect x="22" y="50" width="76" height="54" rx="6" fill="#ff375f" stroke="#ffffff" stroke-width="4"/><rect x="16" y="36" width="88" height="18" rx="5" fill="#ff6482" stroke="#ffffff" stroke-width="4"/><rect x="53" y="36" width="14" height="68" fill="#ffd60a"/><path d="M60 36 C42 36 36 18 50 18 C58 18 60 30 60 36 C60 30 62 18 70 18 C84 18 78 36 60 36 Z" fill="none" stroke="#ffd60a" stroke-width="6" stroke-linecap="round"/></svg>`
+  },
+  {
+    id: 'trophy',
+    name: '트로피 (우승)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M34 26 H86 V52 C86 68 74 78 60 78 C46 78 34 68 34 52 Z" fill="#ffd60a" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><path d="M34 32 H20 C20 50 26 58 36 58 M86 32 H100 C100 50 94 58 84 58" fill="none" stroke="#ffd60a" stroke-width="6" stroke-linecap="round"/><rect x="52" y="78" width="16" height="16" fill="#ff9f0a" stroke="#ffffff" stroke-width="3"/><rect x="36" y="92" width="48" height="12" rx="4" fill="#8e8e93" stroke="#ffffff" stroke-width="3.5"/></svg>`
+  },
+  {
+    id: 'rainbow',
+    name: '무지개',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M16 84 A44 44 0 0 1 104 84" fill="none" stroke="#ff3b30" stroke-width="9" stroke-linecap="round"/><path d="M25 84 A35 35 0 0 1 95 84" fill="none" stroke="#ff9500" stroke-width="9" stroke-linecap="round"/><path d="M34 84 A26 26 0 0 1 86 84" fill="none" stroke="#ffd60a" stroke-width="9" stroke-linecap="round"/><path d="M43 84 A17 17 0 0 1 77 84" fill="none" stroke="#30d158" stroke-width="9" stroke-linecap="round"/><path d="M52 84 A8 8 0 0 1 68 84" fill="none" stroke="#0a84ff" stroke-width="9" stroke-linecap="round"/></svg>`
+  },
+  {
+    id: 'cloud',
+    name: '구름',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M34 88 H88 C100 88 108 79 108 68 C108 58 100 50 90 49 C87 33 73 22 56 22 C39 22 25 34 23 50 C14 52 10 61 10 70 C10 80 20 88 34 88 Z" fill="#64d2ff" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/></svg>`
+  },
+  {
+    id: 'bolt',
+    name: '번개 (스피드)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><polygon points="68,10 26,66 56,66 48,110 94,52 62,52" fill="#ffd60a" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/></svg>`
+  },
+  {
+    id: 'diamond',
+    name: '다이아몬드',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><polygon points="34,22 86,22 108,48 60,104 12,48" fill="#5ac8fa" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><polyline points="12,48 108,48" stroke="#ffffff" stroke-width="3.5"/><polyline points="34,22 46,48 60,104 74,48 86,22" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linejoin="round"/></svg>`
+  },
+  {
+    id: 'search',
+    name: '돋보기',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><line x1="74" y1="74" x2="104" y2="104" stroke="#ff9f0a" stroke-width="12" stroke-linecap="round"/><circle cx="52" cy="52" r="32" fill="#64d2ff" fill-opacity="0.45" stroke="#ffffff" stroke-width="7"/></svg>`
+  },
+  {
+    id: 'clock',
+    name: '알람시계',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><circle cx="60" cy="64" r="40" fill="#ff453a" stroke="#ffffff" stroke-width="5"/><circle cx="60" cy="64" r="31" fill="#ffffff"/><polyline points="60,44 60,64 75,72" fill="none" stroke="#1c1c1e" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 28 L38 16 M98 28 L82 16" stroke="#ffd60a" stroke-width="7" stroke-linecap="round"/></svg>`
+  },
+  {
+    id: 'calendar',
+    name: '달력 (일정)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect x="18" y="24" width="84" height="80" rx="12" fill="#ffffff" stroke="#d1d1d6" stroke-width="4"/><path d="M18 36 C18 29 23 24 30 24 H90 C97 24 102 29 102 36 V48 H18 Z" fill="#ff3b30"/><line x1="40" y1="16" x2="40" y2="30" stroke="#8e8e93" stroke-width="6" stroke-linecap="round"/><line x1="80" y1="16" x2="80" y2="30" stroke="#8e8e93" stroke-width="6" stroke-linecap="round"/><text x="60" y="88" font-family="sans-serif" font-size="36" font-weight="800" fill="#1c1c1e" text-anchor="middle">24</text></svg>`
+  },
+  {
+    id: 'folder',
+    name: '폴더',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M14 34 C14 28 18 24 24 24 H48 L58 34 H96 C102 34 106 38 106 44 V88 C106 94 102 98 96 98 H24 C18 98 14 94 14 88 Z" fill="#0a84ff" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><rect x="22" y="46" width="76" height="44" rx="6" fill="#64d2ff" opacity="0.55"/></svg>`
+  },
+  {
+    id: 'speech',
+    name: '말풍선',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M60 20 C30 20 12 38 12 60 C12 73 20 84 32 91 L22 106 L46 97 C50 98 55 99 60 99 C90 99 108 81 108 60 C108 38 90 20 60 20 Z" fill="#30d158" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/><circle cx="42" cy="60" r="6" fill="#ffffff"/><circle cx="60" cy="60" r="6" fill="#ffffff"/><circle cx="78" cy="60" r="6" fill="#ffffff"/></svg>`
+  },
+  {
+    id: 'thumbsup',
+    name: '엄지척 (최고)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect x="16" y="52" width="22" height="48" rx="5" fill="#0a84ff" stroke="#ffffff" stroke-width="4"/><path d="M38 54 L54 20 C60 20 66 25 65 34 L62 48 H92 C100 48 104 54 102 62 L94 92 C92 98 86 100 78 100 H38 Z" fill="#ffd60a" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/></svg>`
+  },
+  {
+    id: 'target',
+    name: '타겟 (목표)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><circle cx="60" cy="60" r="46" fill="#ff3b30" stroke="#ffffff" stroke-width="4.5"/><circle cx="60" cy="60" r="32" fill="#ffffff"/><circle cx="60" cy="60" r="19" fill="#ff3b30"/><circle cx="60" cy="60" r="8" fill="#ffd60a"/><line x1="60" y1="60" x2="102" y2="18" stroke="#30d158" stroke-width="6" stroke-linecap="round"/></svg>`
+  },
+  {
+    id: 'book',
+    name: '오픈 북 (책)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M60 32 C46 24 26 24 14 30 V92 C26 86 46 86 60 94 C74 86 94 86 106 92 V30 C94 24 74 24 60 32 Z" fill="#5e5ce6" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><line x1="60" y1="32" x2="60" y2="94" stroke="#ffffff" stroke-width="4"/></svg>`
+  },
+  {
+    id: 'leaf',
+    name: '나뭇잎 (에코)',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M98 20 C52 20 22 46 22 86 C22 92 28 98 34 98 C74 98 100 68 98 20 Z" fill="#30d158" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round"/><path d="M24 96 C46 74 66 56 90 30" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" fill="none"/></svg>`
+  }
+].map((item) => ({
+  ...item,
+  svgDataUrl: svgMarkupToDataUrl(item.svg)
+}));
+
+let customStickers = [];
+
+async function persistCustomStickers() {
+  try {
+    localStorage.setItem('boss_custom_stickers_v1', JSON.stringify(customStickers));
+  } catch (_) {}
+  try {
+    await window.freeformAPI.saveConfig({ customStickers });
+  } catch (_) {}
+}
+
+/**
+ * Automatically vectorizes a transparent PNG dataURL into a resolution-independent SVG dataURL.
+ * - Crops excess transparent borders so the sticker fits its frame tightly
+ * - Traces color scanline/contour runs into vector <path> geometry AND wraps a high-precision
+ *   SVG vector-upscale filter so scaling up/down on the canvas never shows jagged pixelation.
+ */
+async function vectorizePngDataUrlToSvg(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const srcW = Math.max(1, img.naturalWidth || img.width || 200);
+        const srcH = Math.max(1, img.naturalHeight || img.height || 200);
+        const maxSample = 160;
+        const scale = Math.min(1, maxSample / Math.max(srcW, srcH));
+        const w = Math.max(16, Math.round(srcW * scale));
+        const h = Math.max(16, Math.round(srcH * scale));
+
+        const cv = document.createElement('canvas');
+        cv.width = w;
+        cv.height = h;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const imgData = ctx.getImageData(0, 0, w, h).data;
+
+        // Find tight bounding box of non-transparent pixels
+        let minX = w,
+          minY = h,
+          maxX = 0,
+          maxY = 0,
+          hasPixels = false;
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const a = imgData[(y * w + x) * 4 + 3];
+            if (a > 18) {
+              hasPixels = true;
+              if (x < minX) minX = x;
+              if (y < minY) minY = y;
+              if (x > maxX) maxX = x;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+        if (!hasPixels) {
+          minX = 0;
+          minY = 0;
+          maxX = w - 1;
+          maxY = h - 1;
+        } else {
+          minX = Math.max(0, minX - 1);
+          minY = Math.max(0, minY - 1);
+          maxX = Math.min(w - 1, maxX + 1);
+          maxY = Math.min(h - 1, maxY + 1);
+        }
+
+        // Crop original full-res image to tight bounding box
+        const cropX = Math.round((minX / w) * srcW);
+        const cropY = Math.round((minY / h) * srcH);
+        const cropW = Math.max(1, Math.round(((maxX - minX + 1) / w) * srcW));
+        const cropH = Math.max(1, Math.round(((maxY - minY + 1) / h) * srcH));
+
+        const hiCv = document.createElement('canvas');
+        const hiMax = 512;
+        const hiScale = Math.min(1, hiMax / Math.max(cropW, cropH));
+        const outW = Math.max(32, Math.round(cropW * hiScale));
+        const outH = Math.max(32, Math.round(cropH * hiScale));
+        hiCv.width = outW;
+        hiCv.height = outH;
+        const hiCtx = hiCv.getContext('2d');
+        hiCtx.imageSmoothingEnabled = true;
+        hiCtx.imageSmoothingQuality = 'high';
+        hiCtx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
+        const croppedPngUrl = hiCv.toDataURL('image/png');
+
+        // Build quantized vector scanline paths for crisp vector silhouette under extreme zoom
+        const pathsByColor = new Map();
+        const cw = maxX - minX + 1;
+        const ch = maxY - minY + 1;
+        for (let y = minY; y <= maxY; y++) {
+          let runColor = null;
+          let runStart = minX;
+          for (let x = minX; x <= maxX + 1; x++) {
+            let hex = null;
+            if (x <= maxX) {
+              const idx = (y * w + x) * 4;
+              const a = imgData[idx + 3];
+              if (a > 40) {
+                const r = Math.min(255, Math.round(imgData[idx] / 24) * 24);
+                const g = Math.min(255, Math.round(imgData[idx + 1] / 24) * 24);
+                const b = Math.min(255, Math.round(imgData[idx + 2] / 24) * 24);
+                hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+              }
+            }
+            if (hex !== runColor) {
+              if (runColor !== null) {
+                const rx = runStart - minX;
+                const ry = y - minY;
+                const rw = x - runStart;
+                const prev = pathsByColor.get(runColor) || '';
+                pathsByColor.set(runColor, `${prev}M${rx},${ry}h${rw}v1.15h-${rw}Z`);
+              }
+              runColor = hex;
+              runStart = x;
+            }
+          }
+        }
+
+        let vectorPathsMarkup = '';
+        if (pathsByColor.size <= 140) {
+          pathsByColor.forEach((d, color) => {
+            vectorPathsMarkup += `<path d="${d}" fill="${color}" shape-rendering="geometricPrecision"/>`;
+          });
+        }
+
+        const svgMarkup = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${cw} ${ch}" width="${outW}" height="${outH}" preserveAspectRatio="none" shape-rendering="geometricPrecision"><defs><filter id="vecSmooth" x="-4%" y="-4%" width="108%" height="108%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="0.35" result="blur"/><feComponentTransfer in="blur" result="sharpAlpha"><feFuncA type="linear" slope="2.2" intercept="-0.35"/></feComponentTransfer><feComposite in="SourceGraphic" in2="sharpAlpha" operator="in"/></filter></defs><g filter="url(#vecSmooth)">${vectorPathsMarkup}<image href="${croppedPngUrl}" x="0" y="0" width="${cw}" height="${ch}" preserveAspectRatio="none" style="image-rendering:smooth;"/></g></svg>`;
+        const aspect = Number((outW / Math.max(1, outH)).toFixed(4));
+        resolve({
+          svgDataUrl: svgMarkupToDataUrl(svgMarkup),
+          aspect,
+          width: outW,
+          height: outH
+        });
+      } catch (err) {
+        console.warn('vectorizePngDataUrlToSvg fallback:', err);
+        resolve({
+          svgDataUrl: dataUrl,
+          aspect: 1,
+          width: 200,
+          height: 200
+        });
+      }
+    };
+    img.onerror = () => resolve({ svgDataUrl: dataUrl, aspect: 1, width: 200, height: 200 });
+    img.src = dataUrl;
+  });
+}
+
+function addStickerObjectToCanvas(sticker) {
+  if (!sticker) return;
+  const aspect = Number(sticker.aspect) || 1;
+  const w = 170;
+  const h = Math.max(64, Math.round(w / Math.max(0.2, aspect)));
+  addObjectToBoard(
+    {
+      type: 'sticker',
+      title: sticker.name || '스티커',
+      width: w,
+      height: h,
+      keepAspect: true,
+      imageAspect: aspect,
+      color: 'dark',
+      stickerPresetId: sticker.id || null,
+      stickerSvgUrl: sticker.svgDataUrl,
+      resolvedFileUrl: sticker.svgDataUrl
+    },
+    true
+  );
+  document.getElementById('stickerModal')?.classList.add('hidden');
+  showToast(`✨ '${sticker.name || '스티커'}' 벡터 스티커가 캔버스에 추가되었습니다`);
+}
+
+function renderStickerModalGrids() {
+  const builtinGrid = document.getElementById('builtinStickerGrid');
+  const customSection = document.getElementById('customStickerSection');
+  const customGrid = document.getElementById('customStickerGrid');
+
+  if (builtinGrid && !builtinGrid.dataset.rendered) {
+    builtinGrid.dataset.rendered = '1';
+    builtinGrid.innerHTML = '';
+    BUILTIN_STICKERS.forEach((st) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'sticker-card-btn';
+      btn.title = `${st.name} 스티커 추가 (자동 벡터 스케일링)`;
+      btn.innerHTML = `
+        <img src="${st.svgDataUrl}" alt="${escapeHtml(st.name)}" draggable="false" />
+        <span class="sticker-card-name">${escapeHtml(st.name)}</span>
+      `;
+      btn.addEventListener('click', () => addStickerObjectToCanvas(st));
+      builtinGrid.appendChild(btn);
+    });
+  }
+
+  if (customSection && customGrid) {
+    if (!Array.isArray(customStickers) || customStickers.length === 0) {
+      customSection.classList.add('hidden');
+      customGrid.innerHTML = '';
+    } else {
+      customSection.classList.remove('hidden');
+      customGrid.innerHTML = '';
+      customStickers.forEach((st) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sticker-card-btn';
+        btn.title = `${st.name} (클릭하여 추가)`;
+        btn.innerHTML = `
+          <span class="sticker-card-del" data-del-sticker="${escapeHtml(st.id)}" title="등록된 스티커 삭제">✕</span>
+          <img src="${st.svgDataUrl}" alt="${escapeHtml(st.name)}" draggable="false" />
+          <span class="sticker-card-name">${escapeHtml(st.name)}</span>
+        `;
+        btn.addEventListener('click', (e) => {
+          if (e.target.closest('[data-del-sticker]')) {
+            e.stopPropagation();
+            customStickers = customStickers.filter((item) => item.id !== st.id);
+            persistCustomStickers();
+            renderStickerModalGrids();
+            showToast(`🗑️ '${st.name}' 스티커가 보관함에서 삭제되었습니다`);
+            return;
+          }
+          addStickerObjectToCanvas(st);
+        });
+        customGrid.appendChild(btn);
+      });
+    }
+  }
+}
+
+document.getElementById('addStickerBtn')?.addEventListener('click', () => {
+  renderStickerModalGrids();
+  document.getElementById('stickerModal')?.classList.remove('hidden');
+});
+
+document.getElementById('closeStickerModalBtn')?.addEventListener('click', () => {
+  document.getElementById('stickerModal')?.classList.add('hidden');
+});
+
+document.getElementById('stickerModal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'stickerModal') {
+    document.getElementById('stickerModal')?.classList.add('hidden');
+  }
+});
+
+document.getElementById('registerCustomStickerBtn')?.addEventListener('click', () => {
+  document.getElementById('customStickerFileInput')?.click();
+});
+
+document.getElementById('customStickerFileInput')?.addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (!files.length) return;
+  showToast('✨ PNG 이미지를 투명 벡터 스티커로 변환 중...');
+  let lastAdded = null;
+  for (const file of files) {
+    const dataUrl = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+    if (!dataUrl) continue;
+    const vec = await vectorizePngDataUrlToSvg(dataUrl);
+    const cleanName = String(file.name || '커스텀 스티커').replace(/\.[^.]+$/, '');
+    const customItem = {
+      id: `custom_stk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: cleanName,
+      svgDataUrl: vec.svgDataUrl,
+      aspect: vec.aspect || 1
+    };
+    customStickers.unshift(customItem);
+    lastAdded = customItem;
+  }
+  await persistCustomStickers();
+  renderStickerModalGrids();
+  if (lastAdded) {
+    addStickerObjectToCanvas(lastAdded);
+  }
+});
+
+// ============================================================================
+// Unified Canvas Search System (Text, Vectorized Titles, Object Titles, Group Names, PDF Content)
+// ============================================================================
+const canvasSearchState = {
+  open: false,
+  query: '',
+  matches: [],
+  activeIndex: -1,
+  loadingPdfPaths: new Set()
+};
+
+function isCanvasSearchOpen() {
+  return Boolean(canvasSearchState.open);
+}
+
+function openCanvasSearchBar() {
+  const bar = document.getElementById('canvasSearchBar');
+  const inp = document.getElementById('canvasSearchInput');
+  if (!bar || !inp) return;
+  canvasSearchState.open = true;
+  bar.classList.remove('hidden');
+  document.getElementById('openSearchBarBtn')?.classList.add('active');
+  inp.focus();
+  inp.select();
+  performCanvasUnifiedSearch(inp.value || '', { preserveIndex: true });
+}
+
+function closeCanvasSearchBar() {
+  const bar = document.getElementById('canvasSearchBar');
+  if (bar) bar.classList.add('hidden');
+  canvasSearchState.open = false;
+  canvasSearchState.query = '';
+  canvasSearchState.matches = [];
+  canvasSearchState.activeIndex = -1;
+  document.getElementById('openSearchBarBtn')?.classList.remove('active');
+  clearCanvasSearchHighlights();
+}
+
+function clearCanvasSearchHighlights() {
+  try {
+    if (typeof CSS !== 'undefined' && CSS.highlights) {
+      CSS.highlights.delete('ff-search-all');
+      CSS.highlights.delete('ff-search-active');
+    }
+  } catch (_) {}
+  document.querySelectorAll('.ff-search-match, .ff-search-match-active').forEach((el) => {
+    el.classList.remove('ff-search-match', 'ff-search-match-active');
+  });
+  document.querySelectorAll('.ff-input-search-hit').forEach((el) => {
+    el.classList.remove('ff-input-search-hit');
+  });
+  document.querySelectorAll('.ff-search-match-badge, .ff-pdf-search-hl-box').forEach((el) => {
+    el.remove();
+  });
+}
+
+function findSubstringOccurrences(haystack, needleLower) {
+  const results = [];
+  if (!haystack || !needleLower) return results;
+  const lower = String(haystack).toLowerCase();
+  const step = Math.max(1, needleLower.length);
+  let pos = 0;
+  while (pos <= lower.length - needleLower.length) {
+    const idx = lower.indexOf(needleLower, pos);
+    if (idx === -1) break;
+    results.push({ start: idx, end: idx + needleLower.length });
+    pos = idx + step;
+  }
+  return results;
+}
+
+function performCanvasUnifiedSearch(rawQuery, opts = {}) {
+  const q = String(rawQuery || '').trim();
+  const qLower = q.toLowerCase();
+  canvasSearchState.query = q;
+  const prevMatch = canvasSearchState.matches[canvasSearchState.activeIndex] || null;
+  const matches = [];
+
+  if (qLower && currentBoard && Array.isArray(currentBoard.objects)) {
+    // 1. Search Group Names (once per unique groupId on board)
+    const seenGroups = new Set();
+    currentBoard.objects.forEach((obj) => {
+      if (!obj.groupId || seenGroups.has(obj.groupId)) return;
+      seenGroups.add(obj.groupId);
+      const gName = getGroupName(obj.groupId);
+      const hits = findSubstringOccurrences(gName, qLower);
+      hits.forEach((h, occIdx) => {
+        matches.push({
+          kind: 'group',
+          groupId: obj.groupId,
+          objId: obj.id,
+          occIdx,
+          label: `그룹: ${gName}`
+        });
+      });
+    });
+
+    // 2. Search Objects (Object Title, Vectorized Label/Object, Body Text/Checklist/Table/Link/File, and PDF Document Content)
+    currentBoard.objects.forEach((obj) => {
+      // 2-A. Object Name / Title
+      if (obj.title) {
+        const titleHits = findSubstringOccurrences(obj.title, qLower);
+        titleHits.forEach((h, occIdx) => {
+          matches.push({
+            kind: 'title',
+            objId: obj.id,
+            occIdx,
+            label: `이름: ${obj.title}`
+          });
+        });
+      }
+
+      // 2-B. Vectorized Title/Label or Universal Vectorized Object Content
+      if (obj.type === 'label' || obj.vectorized) {
+        const vecText =
+          obj.type === 'label'
+            ? obj.content || ''
+            : obj.type === 'table' && Array.isArray(obj.tableData)
+            ? obj.tableData.map((r) => r.join(' ')).join('\n')
+            : obj.content || '';
+        const vecHits = findSubstringOccurrences(vecText, qLower);
+        vecHits.forEach((h, occIdx) => {
+          matches.push({
+            kind: obj.vectorized ? 'vector' : 'text',
+            objId: obj.id,
+            occIdx,
+            start: h.start,
+            end: h.end,
+            label: obj.type === 'label' ? `타이틀: ${vecText.slice(h.start, h.end)}` : `벡터 텍스트`
+          });
+        });
+      } else if (obj.type === 'sticky' || obj.type === 'text') {
+        // 2-C. Sticky Note or Checklist + Note
+        const rawBody =
+          obj.type === 'text'
+            ? parseNoteLines(obj.content || '')
+                .map((it) => it.text || '')
+                .join('\n')
+            : obj.content || '';
+        const bodyHits = findSubstringOccurrences(rawBody, qLower);
+        bodyHits.forEach((h, occIdx) => {
+          matches.push({
+            kind: 'text',
+            objId: obj.id,
+            occIdx,
+            start: h.start,
+            end: h.end,
+            label: `본문 텍스트`
+          });
+        });
+      } else if (obj.type === 'table' && Array.isArray(obj.tableData)) {
+        // 2-D. Table Cells
+        let tableOccIdx = 0;
+        obj.tableData.forEach((row, rIdx) => {
+          if (!Array.isArray(row)) return;
+          row.forEach((cell, cIdx) => {
+            const cleanCell = String(cell ?? '').replace(/^\[(square|circle|toggle):(0|1)\]\s?/, '');
+            const cellHits = findSubstringOccurrences(cleanCell, qLower);
+            cellHits.forEach((h) => {
+              matches.push({
+                kind: 'table-cell',
+                objId: obj.id,
+                rIdx,
+                cIdx,
+                occIdx: tableOccIdx++,
+                start: h.start,
+                end: h.end,
+                label: `표 셀 (${rIdx + 1}행 ${cIdx + 1}열)`
+              });
+            });
+          });
+        });
+      } else if (obj.type === 'link') {
+        const linkText = [obj.pageTitle, obj.description, obj.url, obj.domain].filter(Boolean).join(' ');
+        const linkHits = findSubstringOccurrences(linkText, qLower);
+        linkHits.forEach((h, occIdx) => {
+          matches.push({
+            kind: 'link',
+            objId: obj.id,
+            occIdx,
+            label: `링크 정보`
+          });
+        });
+      }
+
+      // 2-E. File Name & PDF Full-Text Search
+      if (obj.fileName && obj.fileName !== obj.title) {
+        const fnHits = findSubstringOccurrences(obj.fileName, qLower);
+        fnHits.forEach((h, occIdx) => {
+          matches.push({
+            kind: 'file',
+            objId: obj.id,
+            occIdx,
+            label: `파일명: ${obj.fileName}`
+          });
+        });
+      }
+
+      if (isPdfObject(obj) && obj.resolvedFilePath) {
+        const cached = pdfDocCache.get(obj.resolvedFilePath);
+        if (!cached && !canvasSearchState.loadingPdfPaths.has(obj.resolvedFilePath)) {
+          canvasSearchState.loadingPdfPaths.add(obj.resolvedFilePath);
+          getOrLoadPdfDocument(obj.resolvedFilePath)
+            .then(() => {
+              canvasSearchState.loadingPdfPaths.delete(obj.resolvedFilePath);
+              if (canvasSearchState.open && canvasSearchState.query) {
+                performCanvasUnifiedSearch(canvasSearchState.query, { preserveIndex: true });
+              }
+            })
+            .catch(() => {
+              canvasSearchState.loadingPdfPaths.delete(obj.resolvedFilePath);
+            });
+        } else if (cached && Array.isArray(cached.pageTextItems)) {
+          cached.pageTextItems.forEach((items, pIdx) => {
+            const pageNum = pIdx + 1;
+            if (!Array.isArray(items)) return;
+            items.forEach((item, itemIdx) => {
+              const itemHits = findSubstringOccurrences(item.str, qLower);
+              itemHits.forEach((h, subIdx) => {
+                const len = Math.max(1, item.str.length);
+                const xSubRatio = item.xRatio + (h.start / len) * item.wRatio;
+                const wSubRatio = Math.max(0.015, ((h.end - h.start) / len) * item.wRatio);
+                matches.push({
+                  kind: 'pdf',
+                  objId: obj.id,
+                  pageNum,
+                  itemIdx,
+                  subIdx,
+                  xRatio: xSubRatio,
+                  yRatio: item.yRatio,
+                  wRatio: wSubRatio,
+                  hRatio: item.hRatio,
+                  snippet: item.str,
+                  label: `PDF ${pageNum}p`
+                });
+              });
+            });
+          });
+        }
+      }
+    });
+  }
+
+  canvasSearchState.matches = matches;
+  if (matches.length === 0) {
+    canvasSearchState.activeIndex = -1;
+  } else if (opts.preserveIndex && prevMatch) {
+    const foundIdx = matches.findIndex(
+      (m) =>
+        m.kind === prevMatch.kind &&
+        m.objId === prevMatch.objId &&
+        m.groupId === prevMatch.groupId &&
+        m.pageNum === prevMatch.pageNum &&
+        m.occIdx === prevMatch.occIdx
+    );
+    canvasSearchState.activeIndex = foundIdx >= 0 ? foundIdx : 0;
+  } else {
+    canvasSearchState.activeIndex = 0;
+  }
+
+  updateCanvasSearchCounterUI();
+  applyCanvasSearchHighlights();
+  if (opts.panToActive && canvasSearchState.activeIndex >= 0) {
+    panToCanvasSearchMatch(canvasSearchState.matches[canvasSearchState.activeIndex]);
+  }
+}
+
+function updateCanvasSearchCounterUI() {
+  const badge = document.getElementById('canvasSearchCountBadge');
+  if (!badge) return;
+  const total = canvasSearchState.matches.length;
+  const cur = total > 0 && canvasSearchState.activeIndex >= 0 ? canvasSearchState.activeIndex + 1 : 0;
+  badge.textContent = `${cur} / ${total}건`;
+  badge.classList.toggle('has-matches', total > 0);
+}
+
+function renderPdfPageSearchHighlights(pageCard, obj, pageNum) {
+  if (!pageCard || !obj) return;
+  pageCard.querySelectorAll('.ff-pdf-search-hl-box').forEach((el) => el.remove());
+  if (!canvasSearchState.open || !canvasSearchState.query) return;
+  const activeMatch = canvasSearchState.matches[canvasSearchState.activeIndex] || null;
+  const pageMatches = canvasSearchState.matches.filter(
+    (m) => m.kind === 'pdf' && m.objId === obj.id && m.pageNum === pageNum
+  );
+  pageMatches.forEach((m) => {
+    const box = document.createElement('div');
+    const isAct = activeMatch === m;
+    box.className = `ff-pdf-search-hl-box ${isAct ? 'is-active' : ''}`;
+    box.style.left = `${(m.xRatio * 100).toFixed(2)}%`;
+    box.style.top = `${(m.yRatio * 100).toFixed(2)}%`;
+    box.style.width = `${(m.wRatio * 100).toFixed(2)}%`;
+    box.style.height = `${(m.hRatio * 100).toFixed(2)}%`;
+    pageCard.appendChild(box);
+  });
+}
+
+function applyCanvasSearchHighlights() {
+  clearCanvasSearchHighlights();
+  if (!canvasSearchState.open || !canvasSearchState.query || !canvasSearchState.matches.length) {
+    return;
+  }
+
+  const qLower = canvasSearchState.query.toLowerCase();
+  const activeMatch = canvasSearchState.matches[canvasSearchState.activeIndex] || null;
+
+  // 1. Highlight editable text nodes via native CSS Custom Highlight API (zero DOM mutation)
+  const allRanges = [];
+  const activeRanges = [];
+  if (objectLayer && typeof Range !== 'undefined') {
+    currentBoard?.objects.forEach((obj) => {
+      const domEl = objectLayer.querySelector(`.ff-object[data-id="${obj.id}"]`);
+      if (!domEl) return;
+      const bodyEl = domEl.querySelector('.ff-obj-body');
+      if (!bodyEl) return;
+      const walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT, null);
+      let objTextOccCounter = 0;
+      let node = walker.nextNode();
+      while (node) {
+        const val = node.nodeValue || '';
+        if (val.trim()) {
+          const hits = findSubstringOccurrences(val, qLower);
+          hits.forEach((h) => {
+            try {
+              const rng = new Range();
+              rng.setStart(node, h.start);
+              rng.setEnd(node, h.end);
+              allRanges.push(rng);
+              if (
+                activeMatch &&
+                activeMatch.objId === obj.id &&
+                (activeMatch.kind === 'text' || activeMatch.kind === 'table-cell' || activeMatch.kind === 'vector') &&
+                activeMatch.occIdx === objTextOccCounter
+              ) {
+                activeRanges.push(rng);
+              }
+              objTextOccCounter++;
+            } catch (_) {}
+          });
+        }
+        node = walker.nextNode();
+      }
+    });
+  }
+
+  try {
+    if (typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined') {
+      if (allRanges.length > 0) {
+        CSS.highlights.set('ff-search-all', new Highlight(...allRanges));
+      }
+      if (activeRanges.length > 0) {
+        CSS.highlights.set('ff-search-active', new Highlight(...activeRanges));
+      }
+    }
+  } catch (_) {}
+
+  // 2. Highlight matched Objects, Titles, Group Frames, Vectorized SVGs, and PDF Pages
+  const matchedObjCounts = new Map();
+  canvasSearchState.matches.forEach((m) => {
+    if (m.objId) {
+      matchedObjCounts.set(m.objId, (matchedObjCounts.get(m.objId) || 0) + 1);
+    }
+    if (m.kind === 'group' && m.groupId) {
+      const frame = objectLayer?.querySelector(`.ff-group-frame[data-group-id="${m.groupId}"]`);
+      if (frame) {
+        frame.classList.add('ff-search-match');
+        if (activeMatch === m) frame.classList.add('ff-search-match-active');
+        const gInp = frame.querySelector('.ff-group-name-input');
+        if (gInp) gInp.classList.add('ff-input-search-hit');
+      }
+    }
+  });
+
+  matchedObjCounts.forEach((cnt, objId) => {
+    const domEl = objectLayer?.querySelector(`.ff-object[data-id="${objId}"]`);
+    const obj = currentBoard?.objects.find((o) => o.id === objId);
+    if (!domEl || !obj) return;
+    domEl.classList.add('ff-search-match');
+    if (activeMatch && activeMatch.objId === objId) {
+      domEl.classList.add('ff-search-match-active');
+    }
+
+    // Highlight title input if title matched
+    if (canvasSearchState.matches.some((m) => m.objId === objId && m.kind === 'title')) {
+      domEl.querySelector('.ff-obj-title')?.classList.add('ff-input-search-hit');
+    }
+
+    // Add floating match badge on object
+    const badge = document.createElement('div');
+    badge.className = 'ff-search-match-badge';
+    badge.textContent = `🔍 검색 일치 ${cnt}건`;
+    domEl.appendChild(badge);
+
+    // If PDF viewer, render highlight boxes on each rendered page card
+    if (isPdfObject(obj)) {
+      domEl.querySelectorAll('.ff-pdf-page-card').forEach((card) => {
+        const pNum = Number(card.dataset.pageNumber) || 1;
+        renderPdfPageSearchHighlights(card, obj, pNum);
+      });
+    }
+  });
+}
+
+function panToCanvasSearchMatch(match) {
+  if (!match || !currentBoard) return;
+  const obj = currentBoard.objects.find((o) => o.id === match.objId);
+  if (!obj) return;
+
+  const rect = canvasViewport.getBoundingClientRect();
+  const targetZoom = Math.max(0.65, Math.min(1.25, zoom));
+  const cx = obj.x + (obj.width || 300) / 2;
+  const cy = obj.y + (obj.height || 200) / 2;
+  const targetPanX = Math.round(rect.width / 2 - cx * targetZoom);
+  const targetPanY = Math.round(rect.height / 2 - cy * targetZoom);
+  animateViewportTo(targetPanX, targetPanY, targetZoom, 280);
+
+  // If the match is inside a PDF page, scroll that PDF viewer container directly to that page!
+  if (match.kind === 'pdf' && match.pageNum) {
+    const domEl = objectLayer?.querySelector(`.ff-object[data-id="${obj.id}"]`);
+    const pagesContainer = domEl?.querySelector('.ff-pdf-pages-container');
+    const card = pagesContainer?.querySelector(`.ff-pdf-page-card[data-page-number="${match.pageNum}"]`);
+    if (pagesContainer && card) {
+      pagesContainer.scrollTo({ top: Math.max(0, card.offsetTop), behavior: 'smooth' });
+    }
+  }
+}
+
+function stepCanvasSearchMatch(delta) {
+  const total = canvasSearchState.matches.length;
+  if (!total) return;
+  canvasSearchState.activeIndex = (canvasSearchState.activeIndex + delta + total) % total;
+  updateCanvasSearchCounterUI();
+  applyCanvasSearchHighlights();
+  panToCanvasSearchMatch(canvasSearchState.matches[canvasSearchState.activeIndex]);
+}
+
+document.getElementById('openSearchBarBtn')?.addEventListener('click', () => {
+  if (isCanvasSearchOpen()) {
+    closeCanvasSearchBar();
+  } else {
+    openCanvasSearchBar();
+  }
+});
+
+document.getElementById('canvasSearchInput')?.addEventListener('input', (e) => {
+  performCanvasUnifiedSearch(e.target.value, { panToActive: true });
+});
+
+document.getElementById('canvasSearchInput')?.addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    stepCanvasSearchMatch(e.shiftKey ? -1 : 1);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeCanvasSearchBar();
+  }
+});
+
+document.getElementById('canvasSearchPrevBtn')?.addEventListener('click', () => stepCanvasSearchMatch(-1));
+document.getElementById('canvasSearchNextBtn')?.addEventListener('click', () => stepCanvasSearchMatch(1));
+document.getElementById('canvasSearchCloseBtn')?.addEventListener('click', () => closeCanvasSearchBar());
+
 // Initialize on startup
 window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const savedCustomStickers = localStorage.getItem('boss_custom_stickers_v1');
+    if (savedCustomStickers) {
+      const parsed = JSON.parse(savedCustomStickers);
+      if (Array.isArray(parsed)) customStickers = parsed;
+    }
+  } catch (_) {}
   try {
     const cfg = await window.freeformAPI.getConfig();
     if (cfg && Array.isArray(cfg.customObjectSwatches) && cfg.customObjectSwatches.length > 0) {
@@ -8630,6 +10276,9 @@ window.addEventListener('DOMContentLoaded', async () => {
         ...shapeToolConfig,
         ...cfg.shapeToolConfig
       };
+    }
+    if (cfg && Array.isArray(cfg.customStickers) && cfg.customStickers.length > 0) {
+      customStickers = cfg.customStickers;
     }
   } catch (err) {
     console.warn('getConfig error:', err);

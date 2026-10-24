@@ -1,84 +1,176 @@
-# 🎨 BossFreeForm — Standalone Infinite Canvas x Google Drive
+<div align="center">
 
-Apple **Freeform(프리폼)** 디자인 철학을 적용한 **Windows용 단독(Standalone) 무한 캔버스 화이트보드 & 프로젝트 관리 앱**입니다.  
-외부 브릿지나 부가 의존성 없이 순수 프리폼 보드 기능에 집중하며, **Google Drive 데스크톱 폴더 실시간 동기화**, **내장 구글 계정 웹 로그인 & Google Drive Cloud OAuth2 API 동기화**, 그리고 **사용자 지정 가능한 글로벌 호출 단축키(기본값: `Ctrl + Shift + Space`)**를 지원합니다.
+# 🎨 BossFreeForm
+
+**Infinite Canvas Whiteboard & Visual Workspace for Windows & Web (Synced with Google Drive)**  
+**Apple Freeform 감성을 담은 Windows & 웹 겸용 무한 캔버스 화이트보드 · 시각적 워크스페이스**
+
+[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=cirross2%40gmail.com&item_name=BossFreeForm+Open+Source+Support&currency_code=USD)
+[![Web Demo](https://img.shields.io/badge/Web_App-boss--freeform--web.vercel.app-0071e3?style=for-the-badge&logo=vercel&logoColor=white)](https://boss-freeform-web.vercel.app)
+[![License: MIT](https://img.shields.io/badge/License-MIT-30d158?style=for-the-badge)](./LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Web-1d1d1f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/cirross2/BossFreeForm-)
+
+<br />
+
+**[🇰🇷 한국어 가이드 (Korean)](#-한국어-가이드-korean)** &nbsp;|&nbsp; **[🇺🇸 English Guide](#-english-guide)** &nbsp;|&nbsp; **[☕ 후원하기 / Support & Donate](#-후원하기--support--donate)**
+
+</div>
 
 ---
 
-## ✨ 핵심 기능 요약
+## 🇰🇷 한국어 가이드 (Korean)
 
-### 1. ♾️ 무한 캔버스 & 직관적인 마우스 조작
-- **자유로운 이동 및 줌**:
-  - 빈 캔버스 드래그 또는 **마우스 휠 클릭(중간 버튼) + 드래그**로 화면에 객체가 가득 차 있을 때도 언제든 캔버스 이동 가능
-  - 마우스 휠로 커서 중심 부드러운 확대/축소 (`20%` ~ `350%`), 하단 HUD의 `100%` 초기화 및 `맞춤(Fit View)` 지원
-- **명확한 커서 구분**:
-  - 캔버스 바탕 대기/이동 시 **손바닥 커서(`grab` / `grabbing`)**
-  - 객체 이동 바·타이틀·드로잉 위에 마우스 오버 및 드래그 시 **십자가 사방 화살표 커서(`move`)** 표시
-- **배경 격자 & 테마 전환**: 도트(`Dots`), 라인(`Lines`), 무지(`None`) 격자 전환 및 **다크 / 라이트 모드** 완벽 지원
+**BossFreeForm**은 Apple의 **Freeform(프리폼)** 디자인 철학을 Windows 데스크톱과 웹 브라우저 환경으로 확장한 **오픈소스 무한 캔버스(Infinite Canvas) 화이트보드 및 지식 관리 앱**입니다.  
+노트, 체크리스트, 엑셀 호환 표, 벡터 스티커, 스마트 펜/도형, 내장 PDF 문서 뷰어를 하나의 끝없는 캔버스 위에 자유롭게 배치하고 **Google Drive**를 통해 PC와 웹(`https://boss-freeform-web.vercel.app`) 어디서든 이어서 작업할 수 있습니다.
 
-### 2. ⌨️ 글로벌 호출 단축키 (`Ctrl + Shift + Space` & 사용자 커스텀)
-- 기본 글로벌 호출/숨기기 단축키: **`Ctrl + Shift + Space`**
-- **단축키 자유 변경 지원**:
-  - 우측 상단 **[Google Drive 연동]** 설정 모달 내 **[어디서든 보드 호출 / 숨기기 단축키]** 카드에서 입력칸을 클릭하고 원하는 키 조합(예: `Alt+Space`, `Ctrl+Alt+F`, `Ctrl+Shift+Space` 등)을 누른 뒤 **[단축키 적용]**을 누르면 즉시 반영 및 영구 저장됩니다.
-  - 시스템 트레이 아이콘 툴팁과 우클릭 메뉴에도 변경된 단축키가 실시간으로 표시됩니다.
+### ✨ 주요 기능 (Key Features)
 
-### 3. 🖐️ 왼손 중심 원키(Single-Key) 빠른 도구 단축키
-객체가 선택되어 있지 않고 텍스트 입력 중이 아닐 때, **키보드 왼편(왼손)**만으로 모든 핵심 도구를 즉시 전환·생성할 수 있습니다.
+#### 1. ♾️ 무한 캔버스 & 직관적인 양손/마우스 패닝 조작
+- **어디서든 즉시 캔버스 이동 (3가지 방식 지원)**:
+  1. **마우스 휠 클릭(스크롤 버튼) + 드래그**
+  2. **마우스 좌·우 버튼 동시 클릭 + 드래그** *(객체 위나 펜/도형 모드에서도 즉시 캔버스 이동!)*
+  3. **빈 캔버스 좌클릭 + 드래그**
+- **커서 중심 부드러운 확대/축소**: 마우스 휠 스크롤로 `20%` ~ `350%` 줌 인/아웃, 하단 HUD에서 `100%` 초기화 및 전체 객체 화면 맞춤(`Fit View`) 지원.
+- **배경 격자 및 스냅 설정**: 도트(`Dots`), 격자(`Lines`), 무지(`None`) 스타일 전환, 간격(`mm`/`px`) 조절, 객체 및 펜 드로잉 격자 스냅, 다크/라이트 테마 완벽 지원.
 
-| 단축키 | 기능 | 설명 |
+#### 2. 🖐️ 왼손 원키(Single-Key) 빠른 도구 단축키
+텍스트 입력 중이 아닐 때 키보드 왼쪽 키 하나만으로 모든 핵심 도구와 객체를 즉시 생성·전환할 수 있습니다.
+
+| 단축키 | 도구 / 객체 | 설명 |
 | :---: | :--- | :--- |
-| **`A`** (보조 `V`) | **선택 도구** | 객체 선택, 이동, 다중 선택(`Shift+드래그`) 모드 전환 |
-| **`D`** (보조 `P`) | **펜 그리기** | 스마트 펜 드로잉 모드 ON/OFF 토글 |
-| **`S`** | **포스트잇** | 컬러 포스트잇 자유 메모지 즉시 생성 |
-| **`T`** 또는 **`F`** | **텍스트 (타이틀)** | 배경·테두리 없는 투명 타이틀 & 그래픽 아트 텍스트 생성 |
-| **`C`** | **체크리스트** | 3종 체크박스(네모/원형/슬라이드) 할 일 카드 생성 |
-| **`G`** (보조 `R`) | **표 (시트)** | 구글 시트·엑셀 호환 인터랙티브 표 생성 |
-| **`X`** | **화면캡처** | 현재 PC 화면을 캡처하여 보드에 즉시 이미지로 삽입 |
-| **`Q` / `W` / `E`** | **이미지 / 링크 / 파일** | 드래그 앤 드롭 및 `Ctrl+V` 외 보조 단축키로 즉시 추가 |
+| **`A`** (보조 `V`) | **선택 도구** | 객체 선택, 이동, `Shift + 드래그` 다중 선택 박스(Marquee) |
+| **`D`** (보조 `P`) | **스마트 펜** | 자유 곡선, 직선(`Ctrl`/`Shift`), 화살표 및 도형 자동 보정 드로잉 |
+| **`B`** | **도형 그리기** | 사각형, 원형, 삼각형, 마름모, 화살표 등 벡터 도형 및 배경 잠금 |
+| **`S`** | **포스트잇 (노트)** | 생성 시 다채로운 랜덤 컬러로 생성되는 자유 메모 카드 |
+| **`T`** / **`F`** | **텍스트 (타이틀)** | 보더리스 투명 타이틀, 8종 그래픽 텍스트 아트 & 고해상도 벡터화 |
+| **`C`** | **체크리스트** | 랜덤 컬러 할 일 카드 + **완료 항목만 복사 / 미완료 항목만 복사** 원클릭 버튼 |
+| **`G`** (보조 `R`) | **표 (시트)** | 엑셀·구글 시트 복사/붙여넣기 호환, 다중 셀 드래그 선택 및 CSV 내보내기 |
+| **`X`** | **화면 캡처** | 현재 PC 화면을 즉시 캡처하여 캔버스 이미지 객체로 삽입 |
+| **`Ctrl + F`** | **통합 검색** | 노트, 타이틀, 객체 이름, 그룹 이름, **PDF 본문 텍스트**까지 실시간 하이라이트 검색 |
+| **`Ctrl + G`** | **그룹화 / 그룹명** | 다중 선택된 객체들을 하나의 그룹 프레임으로 묶고 **그룹 이름** 지정 |
 
-### 4. 📐 줄별(Line-by-Line) & 제목별 독립 정렬과 타이포그래피
-- **제목 / 본문 각 줄마다 개별 정렬**:
-  - 상단 인스펙터 바의 **좌측 정렬 · 중앙 정렬 · 우측 정렬** SVG 아이콘 버튼을 클릭하면 객체 전체가 일괄 정렬되지 않고, **현재 커서가 위치한 제목, 포스트잇의 특정 줄, 텍스트(타이틀)의 특정 줄, 체크리스트 항목, 표의 셀**만 독립적으로 정렬됩니다.
-  - 여러 줄을 드래그하여 블록 선택한 뒤 정렬 버튼을 누르면 선택된 줄들만 한 번에 정렬됩니다.
-- **다양한 폰트 & 스타일**:
-  - 기본 폰트, 맑은 고딕, Pretendard, 나눔고딕, 나눔스퀘어, 나눔명조, 바탕, 굴림, 궁서체, Consolas 및 글자 크기(`12px` ~ `72px`), 굵게(`Ctrl+B`), 기울임(`Ctrl+I`), 밑줄(`Ctrl+U`) 지원
+#### 3. 🌟 벡터 스티커 객체 (30종 기본 제공 + PNG 자동 벡터화)
+- **기본 벡터 스티커 30종 내장**: 하트, 별, 해, 달, 연필, 전구, 모니터, 노트북, 체크, 화살표, 왕관, 로켓 등 자주 쓰는 30종의 고품질 SVG 스티커 기본 탑재.
+- **투명 PNG 추가 시 자동 벡터화**: 사용자가 투명 배경 PNG 파일을 스티커로 등록하면 자동으로 SVG 벡터 패스로 변환되어, 아무리 크게 확대해도 픽셀 깨짐 없이 선명하게 유지됩니다.
+- **자유 회전 & 비율 고정/왜곡 리사이즈**: 선택 시 내부에 자동 숨김 컨트롤 바가 나타나며, 상단 회전 핸들로 360° 회전하거나 비율 고정을 해제해 자유롭게 늘이고 줄일 수 있습니다.
 
-### 5. 🎨 보더리스 '텍스트' 객체 & 8종 그래픽 텍스트 아트
-- **자동 숨김 헤더**: 이미지 객체처럼 평소에는 배경과 테두리가 완전히 투명하며, 마우스를 올리거나 선택했을 때만 상단 이동 바가 부드럽게 나타납니다.
-- **8종 그래픽 텍스트 아트 스타일**:
-  - `✨ 기본 텍스트`, `⚔️ 게임 타이틀 (골드&크림슨)`, `🎨 스트릿 그래피티`, `⚡ 사이버 네온 사인`, `🕹️ 레트로 3D 아케이드`, `☁️ 귀여운 팝 스티커`, `👑 로얄 골드 엠블럼`, `🔖 프로젝트 배지 스탬프`
+#### 4. 📄 내장 PDF 문서 뷰어 객체
+- **한 페이지 비율 자동 맞춤**: 가로형(Landscape)·세로형(Portrait) PDF 문서의 실제 페이지 비율을 자동 감지하여 여백 없이 깔끔하게 렌더링하며, 크기 조절 시에도 페이지 비율이 엄격하게 유지됩니다.
+- **자동 숨김 컨트롤 & 외곽선**: 마우스를 올렸을 때만 페이지 이동·확대/축소·모드 전환 바가 부드럽게 나타나며, 이미지 객체와 동일하게 외곽선(테두리) 두께 및 색상을 지정할 수 있습니다.
+- **PDF 본문 통합 검색**: PDF 내부의 모든 페이지 텍스트를 자동 인덱싱하여 `Ctrl + F` 검색 시 PDF 안의 단어까지 즉시 찾아줍니다.
 
-### 6. ✏️ 개별 객체로 인식되는 스마트 펜 드로잉 (`stroke` 객체)
-- 펜으로 그린 모든 선, 화살표, 자동 보정 도형(원, 타원, 사각형, 삼각형, 다이아몬드)이 **개별 이동·크기 조절·회전·복제·삭제·색상/굵기/점선/화살촉 편집이 가능한 독립 객체**로 동작합니다.
+#### 5. ☁️ Google Drive & 웹 버전 클라우드 동기화
+- **단일 경로 통합 관리**: `G:\내 드라이브\BossFreeForm` (보드 `.json` 및 `assets/` 첨부 파일) 단일 경로로 깔끔하게 통합 관리합니다.
+- **웹 버전 연동 (`https://boss-freeform-web.vercel.app`)**:
+  - 이벤트 기반(보드 저장 시, 창/탭 포커스 시, 수동 동기화 시) 클라우드 동기화 아키텍처로 서버 부하 없이 PC 상태와 무관하게 모든 보드와 첨부 파일(이미지, PDF, 스티커)을 동기화합니다.
 
-### 7. ☁️ Google Drive 듀얼 동기화 (방식 B 독립 운용)
-1. **데스크톱용 Google Drive 폴더 실시간 연동**:
-   - PC에 설치된 Google Drive(`G:\내 드라이브\BossFreeForm` 등)를 자동 감지하거나 원하는 폴더를 직접 지정하여 모든 보드(`.json`)와 첨부 에셋(`assets/`)을 실시간 저장합니다.
-2. **내장 구글 웹 로그인 & Google Drive Cloud OAuth2 API**:
-   - 앱 내 **[구글 계정 간편 웹 로그인]** 창을 통해 언제든 Google Drive 웹에 접근할 수 있으며, OAuth2 클라이언트 연결 시 클라우드의 `BossFreeForm_Workspace` 폴더와 자동 백그라운드 동기화됩니다.
+### 🚀 설치 및 실행 방법 (Getting Started)
 
----
-
-## 🚀 빌드 및 실행 방법
-
-### 1. 단독 실행 파일(`.exe`) 기본 빌드 및 실행
-별도 설치 과정 없이 즉시 실행 가능한 단독 실행 파일 버전(`dist/BossFreeForm/BossFreeForm.exe`)을 생성합니다:
 ```bash
-npm run build:exe
-```
-- **단독 EXE 직접 실행**: `dist\BossFreeForm\BossFreeForm.exe` 더블클릭
-- **런처 스크립트 실행**: `BossFreeForm_시작.vbs` 더블클릭 (`dist\BossFreeForm\BossFreeForm.exe`가 있으면 즉시 실행)
-- **단축키로 호출/숨기기**: 앱 실행 중 언제든 **`Ctrl + Shift + Space`** (또는 사용자가 설정 모달에서 지정한 단축키) 입력
-
-### 2. 배포용 인스톨러(`Setup.exe`) 생성 (필요 시 실행)
-다른 PC 배포용 단일 설치 파일(`dist/BossFreeForm_Setup_v1.0.0.exe`)이 필요할 때 실행합니다 (Inno Setup 6 기반 자동 컴파일 및 코드 서명):
-```bash
-npm run build:setup
-```
-
-### 3. 개발 환경에서 클론 및 초기 셋업
-```bash
+# 1. 저장소 클론 및 패키지 설치
 git clone https://github.com/cirross2/BossFreeForm-.git
 cd BossFreeForm-
 npm install
+
+# 2. 개발 모드 실행
+npm start
+
+# 3. 무설치 단독 실행 파일(Portable .exe) 빌드 -> dist/BossFreeForm/BossFreeForm.exe
+npm run build:exe
+
+# 4. (선택) Windows 설치 인스톨러(Setup.exe) 빌드
+npm run build:setup
 ```
+
+---
+
+## 🇺🇸 English Guide
+
+**BossFreeForm** is an open-source **Infinite Canvas Whiteboard & Visual Workspace** for Windows Desktop and the Web, inspired by Apple's **Freeform** design philosophy.  
+Combine sticky notes, checklists, Excel-compatible tables, vector stickers, smart pen strokes, and interactive PDF viewers on a boundless canvas—seamlessly synced via **Google Drive** across Desktop and Web (`https://boss-freeform-web.vercel.app`).
+
+### ✨ Key Features
+
+#### 1. ♾️ Infinite Canvas & Effortless Mouse Panning
+- **3 Ways to Pan Anywhere on the Canvas**:
+  1. **Middle-Mouse (Scroll Wheel) Click + Drag**
+  2. **Left + Right Mouse Buttons Simultaneous Click + Drag** *(Works anywhere—even directly over objects or while in Pen/Shape mode!)*
+  3. **Left-Click + Drag on Empty Canvas**
+- **Smooth Cursor-Centered Zoom**: Scroll wheel zooms smoothly between `20%` and `350%`, with one-click `100%` reset and `Fit to Content` in the bottom-right HUD.
+- **Customizable Grid & Snapping**: Switch between `Dots`, `Lines`, and `None`, customize spacing in `mm` or `px`, toggle object/drawing grid snap, and switch between **Dark & Light Themes**.
+
+#### 2. 🖐️ Single-Key Left-Hand Tool Shortcuts
+Switch tools or spawn new objects instantly with a single left-hand keystroke when not typing text:
+
+| Shortcut | Tool / Object | Description |
+| :---: | :--- | :--- |
+| **`A`** (`V`) | **Select Tool** | Select, move, or `Shift + Drag` marquee multi-select objects |
+| **`D`** (`P`) | **Smart Pen** | Freehand ink, straight lines (`Ctrl`/`Shift`), arrows, and auto-shape recognition |
+| **`B`** | **Shape Tool** | Draw rectangles, circles, triangles, diamonds, arrows, or lock shapes as background |
+| **`S`** | **Sticky Note** | Spawn a sticky note card with a vibrant randomized color palette |
+| **`T`** / **`F`** | **Borderless Text** | Transparent title object with 8 graphic text art styles & crisp SVG vectorization |
+| **`C`** | **Checklist** | Randomized color task card with one-click **Copy Checked Only** & **Copy Unchecked Only** buttons |
+| **`G`** (`R`) | **Table (Sheet)** | Interactive table with Excel/Google Sheets copy-paste, multi-cell selection & CSV export |
+| **`X`** | **Screen Capture** | Instantly capture your screen and drop it onto the canvas as an image object |
+| **`Ctrl + F`** | **Unified Search** | Live search across notes, vectorized titles, object names, group names & **full PDF text** |
+| **`Ctrl + G`** | **Group & Naming** | Group selected objects together with a customizable **Group Title Badge** |
+
+#### 3. 🌟 Vector Sticker Objects (30 Built-in Stickers + Auto PNG Vectorization)
+- **30 Built-in Vector Stickers**: Includes versatile everyday icons (heart, star, sun, moon, pencil, lightbulb, monitor, laptop, crown, rocket, checkmarks, arrows, and more).
+- **Automatic PNG-to-SVG Vectorization**: Register any transparent PNG as a custom sticker—BossFreeForm automatically vectorizes it so it stays razor-sharp at any zoom level or scale.
+- **Rotation & Free Aspect Stretch**: Features an auto-hiding interior header bar with a 360° rotation handle and toggleable aspect-ratio lock for free non-proportional stretching.
+
+#### 4. 📄 Built-in Interactive PDF Viewer Object
+- **Single-Page Aspect-Ratio Lock**: Automatically detects portrait or landscape PDF page dimensions, fitting the viewer cleanly to a single page and locking resize proportions to the page's exact aspect ratio.
+- **Auto-Hiding Chrome & Custom Borders**: Top title and page navigation controls auto-hide until hovered, and you can style PDF cards with customizable border outlines just like image objects.
+- **Full-Text PDF Search**: Automatically indexes text across all PDF pages so `Ctrl + F` highlights and counts matches inside your PDF documents.
+
+#### 5. ☁️ Google Drive & Web Cloud Synchronization
+- **Unified Storage**: Stores boards (`.json`) and attachments (`assets/`) cleanly in a single `Google Drive/BossFreeForm` directory.
+- **Event-Driven Web Sync (`https://boss-freeform-web.vercel.app`)**: Syncs boards and uploaded assets across PC and Web on save, window/tab focus, or manual sync—delivering instant cross-device access with near-zero idle server load.
+
+### 🚀 Build & Run Instructions
+
+```bash
+# 1. Clone the repository & install dependencies
+git clone https://github.com/cirross2/BossFreeForm-.git
+cd BossFreeForm-
+npm install
+
+# 2. Run in development mode
+npm start
+
+# 3. Build standalone portable executable (dist/BossFreeForm/BossFreeForm.exe)
+npm run build:exe
+
+# 4. (Optional) Build Windows installer (Setup.exe)
+npm run build:setup
+```
+
+---
+
+## ☕ 후원하기 / Support & Donate
+
+<div align="center">
+
+**BossFreeForm**이 업무와 창작에 도움이 되셨다면, 페이팔(PayPal)을 통해 개발자에게 따뜻한 커피 한 잔을 후원해 주세요!  
+여러분의 후원은 새로운 기능 개발과 오픈소스 유지보수에 큰 힘이 됩니다. 💖
+
+If **BossFreeForm** helps your workflow and creativity, please consider supporting the project via **PayPal**!  
+Your support directly fuels new features, cloud improvements, and open-source maintenance. 💖
+
+<br />
+
+[![Donate with PayPal](https://img.shields.io/badge/☕_Support_via_PayPal-cirross2%40gmail.com-0070ba?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=cirross2%40gmail.com&item_name=BossFreeForm+Open+Source+Support&currency_code=USD)
+
+**PayPal Account / Direct Donation Link**:  
+👉 **[https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=cirross2@gmail.com&currency_code=USD](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=cirross2%40gmail.com&item_name=BossFreeForm+Open+Source+Support&currency_code=USD)**  
+*(PayPal Email: `cirross2@gmail.com`)*
+
+</div>
+
+---
+
+## 📜 License
+
+Released under the [MIT License](./LICENSE). Copyright © 2026 **Doyoon Baek (`cirross2`)**.
