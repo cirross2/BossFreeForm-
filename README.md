@@ -3,7 +3,7 @@
 # 🎨 BossFreeForm
 
 **Infinite Canvas Whiteboard & Visual Workspace for Windows & Web (Synced with Google Drive)**  
-**Apple Freeform 감성을 담은 Windows & 웹 겸용 무한 캔버스 화이트보드 · 시각적 워크스페이스**
+**감성을 담은 Windows & 웹 겸용 무한 캔버스 화이트보드 · 시각적 워크스페이스**
 
 [![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=cirross2%40gmail.com&item_name=BossFreeForm+Open+Source+Support&currency_code=USD)
 [![Web Demo](https://img.shields.io/badge/Web_App-boss--freeform--web.vercel.app-0071e3?style=for-the-badge&logo=vercel&logoColor=white)](https://boss-freeform-web.vercel.app)
