@@ -465,11 +465,40 @@ if (window.pdfjsLib) {
 }
 const pdfDocCache = new Map(); // filePath -> { pdfDoc, extractedText, pageAspect, pageTextsByPage, pageTextItems }
 
+function getDocumentViewerKind(objOrPath) {
+  if (!objOrPath) return null;
+  let nameOrPath = '';
+  if (typeof objOrPath === 'string') {
+    nameOrPath = objOrPath.toLowerCase().trim();
+  } else {
+    if (objOrPath.type !== 'file' && objOrPath.type !== 'pdf') return null;
+    nameOrPath = String(objOrPath.fileName || objOrPath.title || objOrPath.resolvedFilePath || '').toLowerCase().trim();
+  }
+  if (nameOrPath.endsWith('.pdf')) return 'pdf';
+  if (nameOrPath.endsWith('.xlsx')) return 'xlsx';
+  if (nameOrPath.endsWith('.csv') || nameOrPath.endsWith('.tsv')) return 'csv';
+  if (nameOrPath.endsWith('.docx')) return 'docx';
+  if (nameOrPath.endsWith('.pptx')) return 'pptx';
+  return null;
+}
+
+function getDocumentBadgeInfo(docKind) {
+  switch (docKind) {
+    case 'xlsx':
+    case 'csv':
+      return { label: docKind.toUpperCase(), name: 'Excel 스프레드시트', color: '#30d158' };
+    case 'docx':
+      return { label: 'DOCX', name: 'Word 문서', color: '#0a84ff' };
+    case 'pptx':
+      return { label: 'PPTX', name: 'PPT 프레젠테이션', color: '#ff9f0a' };
+    case 'pdf':
+    default:
+      return { label: 'PDF', name: 'PDF 문서', color: '#ff453a' };
+  }
+}
+
 function isPdfObject(obj) {
-  if (!obj) return false;
-  if (obj.type !== 'file' && obj.type !== 'pdf') return false;
-  const nameOrPath = String(obj.fileName || obj.title || obj.resolvedFilePath || '').toLowerCase();
-  return nameOrPath.endsWith('.pdf');
+  return Boolean(getDocumentViewerKind(obj));
 }
 
 function hasBorderFrameSupport(obj) {
@@ -477,9 +506,729 @@ function hasBorderFrameSupport(obj) {
   return obj.type === 'image' || obj.type === 'sticker' || isPdfObject(obj);
 }
 
-async function getOrLoadPdfDocument(filePath) {
-  if (!filePath || !window.pdfjsLib) return null;
+// ============================================================================
+// Ultra-Lightweight Built-in ZIP + XML Decompressor (Zero External Dependencies)
+// Supports .xlsx, .docx, .pptx using Chromium's native DecompressionStream('deflate-raw')
+// ============================================================================
+async function inflateRawBytes(compressedBytes) {
+  if (typeof DecompressionStream === 'undefined') return new Uint8Array(0);
+  const ds = new DecompressionStream('deflate-raw');
+  const writer = ds.writable.getWriter();
+  writer.write(compressedBytes).catch(() => {});
+  writer.close().catch(() => {});
+  const res = new Response(ds.readable);
+  const ab = await res.arrayBuffer();
+  return new Uint8Array(ab);
+}
+
+async function extractZipEntriesMap(bytes) {
+  const entries = new Map();
+  if (!bytes || bytes.length < 22) return entries;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const utf8Dec = new TextDecoder('utf-8');
+
+  // Locate End of Central Directory (0x06054b50)
+  let eocdOffset = -1;
+  const minEocd = Math.max(0, bytes.length - 65557);
+  for (let i = bytes.length - 22; i >= minEocd; i--) {
+    if (view.getUint32(i, true) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset < 0) return entries;
+
+  const totalEntries = view.getUint16(eocdOffset + 10, true);
+  let cdOffset = view.getUint32(eocdOffset + 16, true);
+
+  for (let idx = 0; idx < totalEntries && cdOffset + 46 <= bytes.length; idx++) {
+    if (view.getUint32(cdOffset, true) !== 0x02014b50) break;
+    const compressionMethod = view.getUint16(cdOffset + 10, true);
+    const compressedSize = view.getUint32(cdOffset + 20, true);
+    const fileNameLen = view.getUint16(cdOffset + 28, true);
+    const extraLen = view.getUint16(cdOffset + 30, true);
+    const commentLen = view.getUint16(cdOffset + 32, true);
+    const localHeaderOffset = view.getUint32(cdOffset + 42, true);
+
+    const fileName = utf8Dec.decode(bytes.subarray(cdOffset + 46, cdOffset + 46 + fileNameLen));
+    cdOffset += 46 + fileNameLen + extraLen + commentLen;
+
+    // Only extract XML, rels, and embedded media images up to 4MB
+    const isXmlOrRels = /\.(xml|rels)$/i.test(fileName);
+    const isMediaImg = /(?:word|ppt|xl)\/media\/[^/]+\.(png|jpe?g|gif|webp|svg)$/i.test(fileName);
+    if ((!isXmlOrRels && !isMediaImg) || compressedSize > 4 * 1024 * 1024) continue;
+
+    if (localHeaderOffset + 30 > bytes.length || view.getUint32(localHeaderOffset, true) !== 0x04034b50) continue;
+    const localNameLen = view.getUint16(localHeaderOffset + 26, true);
+    const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
+    const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+    if (dataStart + compressedSize > bytes.length) continue;
+
+    const rawSlice = bytes.subarray(dataStart, dataStart + compressedSize);
+    try {
+      let uncompressed = null;
+      if (compressionMethod === 0) {
+        uncompressed = rawSlice;
+      } else if (compressionMethod === 8) {
+        uncompressed = await inflateRawBytes(rawSlice);
+      }
+      if (uncompressed && uncompressed.length > 0) {
+        if (isXmlOrRels) {
+          entries.set(fileName, { kind: 'xml', text: utf8Dec.decode(uncompressed) });
+        } else if (isMediaImg) {
+          let bin = '';
+          for (let k = 0; k < uncompressed.length; k++) bin += String.fromCharCode(uncompressed[k]);
+          const ext = fileName.split('.').pop().toLowerCase();
+          const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'svg' ? 'image/svg+xml' : 'image/jpeg';
+          entries.set(fileName, { kind: 'image', dataUrl: `data:${mime};base64,${btoa(bin)}` });
+        }
+      }
+    } catch (_) {}
+  }
+  return entries;
+}
+
+function colLettersToIndex(colStr) {
+  let n = 0;
+  for (let i = 0; i < colStr.length; i++) {
+    n = n * 26 + (colStr.charCodeAt(i) - 64);
+  }
+  return Math.max(0, n - 1);
+}
+
+function indexToColLetters(idx) {
+  let s = '';
+  let n = idx + 1;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s || 'A';
+}
+
+function parseCsvOrTsvRows(rawText, isTsv = false) {
+  const sep = isTsv ? '\t' : ',';
+  const lines = String(rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const rows = [];
+  for (const line of lines) {
+    if (!line.trim() && rows.length === 0) continue;
+    const row = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === sep && !inQuotes) {
+        row.push(cur.trim());
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    row.push(cur.trim());
+    if (row.some((c) => c !== '')) rows.push(row);
+    if (rows.length >= 240) break;
+  }
+  return rows;
+}
+
+function buildSpreadsheetPagesFromSheets(sheets, docKindLabel = 'XLSX') {
+  let maxColsOverall = 1;
+  sheets.forEach((sh) => {
+    sh.rows.forEach((r) => {
+      if (r.length > maxColsOverall) maxColsOverall = r.length;
+    });
+  });
+  const displayCols = Math.min(14, Math.max(3, maxColsOverall));
+  const isLandscape = displayCols >= 5;
+  const pageAspect = isLandscape ? 841.89 / 595.28 : 595.28 / 841.89;
+  const rowsPerPage = isLandscape ? 20 : 28;
+
+  const pages = [];
+  const pageTexts = [];
+  const pageTextsByPage = {};
+  const pageTextItems = [];
+
+  for (const sh of sheets) {
+    const totalRows = Math.max(1, sh.rows.length);
+    const sheetPageCount = Math.max(1, Math.ceil(totalRows / rowsPerPage));
+    for (let sp = 0; sp < sheetPageCount; sp++) {
+      const startRow = sp * rowsPerPage;
+      const sliceRows = sh.rows.slice(startRow, startRow + rowsPerPage);
+      const pageNum = pages.length + 1;
+
+      let colHeadersHtml = `<th class="ff-office-sheet-rownum">#</th>`;
+      for (let c = 0; c < displayCols; c++) {
+        colHeadersHtml += `<th>${indexToColLetters(c)}</th>`;
+      }
+
+      let rowsHtml = '';
+      const itemsForSearch = [];
+      const textLines = [];
+
+      sliceRows.forEach((r, rIdx) => {
+        const absRowNum = startRow + rIdx + 1;
+        const isHeaderRow = absRowNum === 1;
+        let cellsHtml = `<td class="ff-office-sheet-rownum">${absRowNum}</td>`;
+        const rowStrParts = [];
+        for (let c = 0; c < displayCols; c++) {
+          const val = String(r[c] ?? '').trim();
+          if (val) {
+            rowStrParts.push(val);
+            itemsForSearch.push({
+              str: val,
+              xRatio: Math.min(0.92, (c + 0.5) / (displayCols + 1)),
+              yRatio: Math.min(0.94, 0.12 + ((rIdx + 0.5) / rowsPerPage) * 0.82),
+              wRatio: Math.max(0.06, 0.85 / displayCols),
+              hRatio: Math.max(0.025, 0.75 / rowsPerPage)
+            });
+          }
+          cellsHtml += `<td class="${isHeaderRow ? 'is-sheet-header-cell' : ''}">${escapeHtml(val)}</td>`;
+        }
+        if (rowStrParts.length) textLines.push(rowStrParts.join('\t'));
+        rowsHtml += `<tr>${cellsHtml}</tr>`;
+      });
+
+      const html = `
+        <div class="ff-office-page-inner is-spreadsheet">
+          <div class="ff-office-page-docbar">
+            <span class="ff-office-badge excel">${escapeHtml(docKindLabel)}</span>
+            <span class="ff-office-sheet-title">${escapeHtml(sh.name || 'Sheet1')}</span>
+            <span class="ff-office-page-meta">행 ${startRow + 1}–${startRow + sliceRows.length} / 총 ${sh.rows.length}행</span>
+          </div>
+          <div class="ff-office-sheet-table-wrap">
+            <table class="ff-office-sheet-table">
+              <thead><tr>${colHeadersHtml}</tr></thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      const pageStr = `[${sh.name || 'Sheet1'} - ${pageNum}p]\n` + textLines.join('\n');
+      pages.push({ pageNumber: pageNum, aspect: pageAspect, html });
+      pageTexts.push(pageStr);
+      pageTextsByPage[pageNum] = pageStr;
+      pageTextItems[pageNum - 1] = itemsForSearch;
+    }
+  }
+
+  return {
+    isOfficeDoc: true,
+    numPages: pages.length,
+    pageAspect,
+    pages,
+    extractedText: pageTexts.join('\n\n'),
+    pageTextsByPage,
+    pageTextItems,
+    rawTableData: sheets[0]?.rows || []
+  };
+}
+
+function parseXlsxFromZip(zipMap) {
+  const parser = new DOMParser();
+  const sharedStrings = [];
+  const ssEntry = zipMap.get('xl/sharedStrings.xml');
+  if (ssEntry?.text) {
+    const ssDoc = parser.parseFromString(ssEntry.text, 'application/xml');
+    ssDoc.querySelectorAll('si').forEach((si) => {
+      const tNodes = Array.from(si.querySelectorAll('t'));
+      sharedStrings.push(tNodes.map((t) => t.textContent || '').join(''));
+    });
+  }
+
+  const sheetNames = [];
+  const wbEntry = zipMap.get('xl/workbook.xml');
+  if (wbEntry?.text) {
+    const wbDoc = parser.parseFromString(wbEntry.text, 'application/xml');
+    wbDoc.querySelectorAll('sheets > sheet, sheet').forEach((s) => {
+      const nm = s.getAttribute('name');
+      if (nm) sheetNames.push(nm);
+    });
+  }
+
+  const sheetFiles = Array.from(zipMap.keys())
+    .filter((k) => /^xl\/worksheets\/sheet\d+\.xml$/i.test(k))
+    .sort((a, b) => {
+      const na = Number((a.match(/sheet(\d+)\.xml/i) || [])[1] || 0);
+      const nb = Number((b.match(/sheet(\d+)\.xml/i) || [])[1] || 0);
+      return na - nb;
+    });
+
+  const sheets = [];
+  sheetFiles.forEach((sf, sIdx) => {
+    const xmlText = zipMap.get(sf)?.text;
+    if (!xmlText) return;
+    const doc = parser.parseFromString(xmlText, 'application/xml');
+    const rows = [];
+    const rowNodes = Array.from(doc.querySelectorAll('sheetData > row, row'));
+    for (const rNode of rowNodes) {
+      if (rows.length >= 200) break;
+      const rowArr = [];
+      const cNodes = Array.from(rNode.querySelectorAll('c'));
+      cNodes.forEach((cNode, fallbackIdx) => {
+        const ref = cNode.getAttribute('r') || '';
+        const colLetters = (ref.match(/^[A-Za-z]+/) || [])[0];
+        const colIdx = colLetters ? colLettersToIndex(colLetters.toUpperCase()) : fallbackIdx;
+        if (colIdx > 24) return;
+        const tAttr = cNode.getAttribute('t') || '';
+        let val = '';
+        if (tAttr === 's') {
+          const vIdx = Number(cNode.querySelector('v')?.textContent || -1);
+          val = sharedStrings[vIdx] ?? '';
+        } else if (tAttr === 'inlineStr') {
+          val = Array.from(cNode.querySelectorAll('is t, t')).map((n) => n.textContent || '').join('');
+        } else if (tAttr === 'b') {
+          val = cNode.querySelector('v')?.textContent === '1' ? 'TRUE' : 'FALSE';
+        } else {
+          const rawV = cNode.querySelector('v')?.textContent || '';
+          if (rawV !== '' && !isNaN(Number(rawV)) && rawV.includes('.') && rawV.length > 10) {
+            val = String(Number(Number(rawV).toFixed(4)));
+          } else {
+            val = rawV;
+          }
+        }
+        rowArr[colIdx] = val;
+      });
+      for (let i = 0; i < rowArr.length; i++) {
+        if (rowArr[i] === undefined) rowArr[i] = '';
+      }
+      if (rowArr.some((cell) => String(cell).trim() !== '')) {
+        rows.push(rowArr);
+      }
+    }
+    if (rows.length > 0) {
+      sheets.push({
+        name: sheetNames[sIdx] || `Sheet${sIdx + 1}`,
+        rows
+      });
+    }
+  });
+
+  if (sheets.length === 0) {
+    sheets.push({ name: sheetNames[0] || 'Sheet1', rows: [['(빈 시트)']] });
+  }
+  return buildSpreadsheetPagesFromSheets(sheets, 'XLSX');
+}
+
+function parseDocxFromZip(zipMap) {
+  const parser = new DOMParser();
+  const relsMap = new Map();
+  const relsEntry = zipMap.get('word/_rels/document.xml.rels');
+  if (relsEntry?.text) {
+    const rDoc = parser.parseFromString(relsEntry.text, 'application/xml');
+    rDoc.querySelectorAll('Relationship').forEach((rel) => {
+      const id = rel.getAttribute('Id');
+      const target = rel.getAttribute('Target') || '';
+      if (id && target) {
+        const cleanTarget = target.startsWith('/') ? target.slice(1) : `word/${target.replace(/^\.\//, '')}`;
+        relsMap.set(id, cleanTarget);
+      }
+    });
+  }
+
+  let pageAspect = 595.28 / 841.89; // Default A4 Portrait
+  const docEntry = zipMap.get('word/document.xml');
+  const blocks = [];
+
+  if (docEntry?.text) {
+    const xmlDoc = parser.parseFromString(docEntry.text, 'application/xml');
+    const pgSz = xmlDoc.querySelector('pgSz');
+    if (pgSz) {
+      const w = Number(pgSz.getAttribute('w:w') || pgSz.getAttribute('w') || 0);
+      const h = Number(pgSz.getAttribute('w:h') || pgSz.getAttribute('h') || 0);
+      if (w > 0 && h > 0) {
+        pageAspect = w / h;
+      }
+    }
+
+    const bodyNode = xmlDoc.querySelector('body') || xmlDoc.documentElement;
+    Array.from(bodyNode.children || []).forEach((child) => {
+      const tag = child.localName || child.nodeName.replace(/^w:/, '');
+      if (tag === 'p') {
+        const hasPageBreak = Boolean(
+          Array.from(child.querySelectorAll('br')).find(
+            (b) => (b.getAttribute('w:type') || b.getAttribute('type')) === 'page'
+          )
+        );
+        const pStyle = child.querySelector('pPr pStyle')?.getAttribute('w:val') || '';
+        const szVal = Number(child.querySelector('rPr sz')?.getAttribute('w:val') || 0);
+        const isHeading1 = /heading\s*1|title|제목\s*1/i.test(pStyle) || szVal >= 36;
+        const isHeading2 = !isHeading1 && (/heading\s*[23]|subtitle|제목\s*[23]/i.test(pStyle) || szVal >= 28);
+        const isBullet = Boolean(child.querySelector('pPr numPr'));
+        const jc = child.querySelector('pPr jc')?.getAttribute('w:val') || 'left';
+
+        const textRuns = Array.from(child.querySelectorAll('t')).map((t) => t.textContent || '').join('');
+        const blip = child.querySelector('blip');
+        const embedId = blip?.getAttribute('r:embed') || blip?.getAttribute('embed') || '';
+        const mediaPath = embedId ? relsMap.get(embedId) : null;
+        const imgUrl = mediaPath ? zipMap.get(mediaPath)?.dataUrl : null;
+
+        if (imgUrl) {
+          blocks.push({ kind: 'image', imgUrl, weight: 6 });
+        }
+        if (textRuns.trim()) {
+          const lineEstimate = Math.max(1, Math.ceil(textRuns.trim().length / 46));
+          blocks.push({
+            kind: isHeading1 ? 'h1' : isHeading2 ? 'h2' : isBullet ? 'bullet' : 'p',
+            text: textRuns.trim(),
+            align: jc === 'center' ? 'center' : jc === 'right' ? 'right' : 'left',
+            weight: (isHeading1 ? 2.2 : isHeading2 ? 1.7 : 1.1) * lineEstimate
+          });
+        }
+        if (hasPageBreak) {
+          blocks.push({ kind: 'pagebreak', weight: 0 });
+        }
+      } else if (tag === 'tbl') {
+        const rows = [];
+        Array.from(child.querySelectorAll(':scope > tr, tr')).forEach((tr) => {
+          const cells = Array.from(tr.querySelectorAll(':scope > tc, tc')).map((tc) =>
+            Array.from(tc.querySelectorAll('t')).map((t) => t.textContent || '').join(' ').trim()
+          );
+          if (cells.length > 0 && cells.some((c) => c !== '')) rows.push(cells);
+        });
+        if (rows.length > 0) {
+          blocks.push({
+            kind: 'table',
+            rows: rows.slice(0, 30),
+            weight: Math.min(14, 1.5 + rows.length * 1.15)
+          });
+        }
+      }
+    });
+  }
+
+  if (blocks.length === 0) {
+    blocks.push({ kind: 'p', text: '(문서 본문이 비어 있습니다)', align: 'left', weight: 1 });
+  }
+
+  const MAX_WEIGHT_PER_PAGE = pageAspect > 1.02 ? 15 : 22;
+  const pageGroups = [];
+  let curGroup = [];
+  let curWeight = 0;
+
+  blocks.forEach((b) => {
+    if (b.kind === 'pagebreak') {
+      if (curGroup.length > 0) {
+        pageGroups.push(curGroup);
+        curGroup = [];
+        curWeight = 0;
+      }
+      return;
+    }
+    if (curGroup.length > 0 && curWeight + b.weight > MAX_WEIGHT_PER_PAGE) {
+      pageGroups.push(curGroup);
+      curGroup = [];
+      curWeight = 0;
+    }
+    curGroup.push(b);
+    curWeight += b.weight;
+  });
+  if (curGroup.length > 0) pageGroups.push(curGroup);
+
+  const pages = [];
+  const pageTexts = [];
+  const pageTextsByPage = {};
+  const pageTextItems = [];
+
+  pageGroups.forEach((grp, idx) => {
+    const pageNum = idx + 1;
+    let bodyHtml = '';
+    const textLines = [];
+    const itemsForSearch = [];
+
+    grp.forEach((b, bIdx) => {
+      const yRatio = Math.min(0.92, 0.1 + (bIdx / Math.max(1, grp.length)) * 0.8);
+      if (b.kind === 'image' && b.imgUrl) {
+        bodyHtml += `<div class="ff-office-doc-img"><img src="${b.imgUrl}" alt="문서 이미지" /></div>`;
+      } else if (b.kind === 'table' && Array.isArray(b.rows)) {
+        let trs = '';
+        b.rows.forEach((r, rIdx) => {
+          const tds = r
+            .map((c) => `<${rIdx === 0 ? 'th' : 'td'}>${escapeHtml(c)}</${rIdx === 0 ? 'th' : 'td'}>`)
+            .join('');
+          trs += `<tr>${tds}</tr>`;
+          const rowTxt = r.filter(Boolean).join(' | ');
+          if (rowTxt) {
+            textLines.push(rowTxt);
+            itemsForSearch.push({ str: rowTxt, xRatio: 0.08, yRatio, wRatio: 0.84, hRatio: 0.04 });
+          }
+        });
+        bodyHtml += `<table class="ff-office-doc-table"><tbody>${trs}</tbody></table>`;
+      } else if (b.text) {
+        textLines.push(b.text);
+        itemsForSearch.push({ str: b.text, xRatio: 0.08, yRatio, wRatio: 0.84, hRatio: 0.04 });
+        const cls =
+          b.kind === 'h1'
+            ? 'ff-office-doc-h1'
+            : b.kind === 'h2'
+            ? 'ff-office-doc-h2'
+            : b.kind === 'bullet'
+            ? 'ff-office-doc-bullet'
+            : 'ff-office-doc-p';
+        bodyHtml += `<div class="${cls}" style="text-align:${b.align || 'left'};">${
+          b.kind === 'bullet' ? '• ' : ''
+        }${escapeHtml(b.text)}</div>`;
+      }
+    });
+
+    const html = `
+      <div class="ff-office-page-inner is-word-doc">
+        <div class="ff-office-page-docbar">
+          <span class="ff-office-badge word">DOCX</span>
+          <span class="ff-office-sheet-title">Word 문서 페이지</span>
+          <span class="ff-office-page-meta">${pageNum} / ${pageGroups.length} p</span>
+        </div>
+        <div class="ff-office-word-content">${bodyHtml}</div>
+      </div>
+    `;
+    const pageStr = `[${pageNum}페이지]\n` + textLines.join('\n');
+    pages.push({ pageNumber: pageNum, aspect: pageAspect, html });
+    pageTexts.push(pageStr);
+    pageTextsByPage[pageNum] = pageStr;
+    pageTextItems[pageNum - 1] = itemsForSearch;
+  });
+
+  return {
+    isOfficeDoc: true,
+    numPages: pages.length,
+    pageAspect,
+    pages,
+    extractedText: pageTexts.join('\n\n'),
+    pageTextsByPage,
+    pageTextItems
+  };
+}
+
+function parsePptxFromZip(zipMap) {
+  const parser = new DOMParser();
+  let pageAspect = 16 / 9;
+  const presEntry = zipMap.get('ppt/presentation.xml');
+  if (presEntry?.text) {
+    const pDoc = parser.parseFromString(presEntry.text, 'application/xml');
+    const sldSz = pDoc.querySelector('sldSz');
+    if (sldSz) {
+      const cx = Number(sldSz.getAttribute('cx') || 0);
+      const cy = Number(sldSz.getAttribute('cy') || 0);
+      if (cx > 0 && cy > 0) pageAspect = cx / cy;
+    }
+  }
+
+  const slideFiles = Array.from(zipMap.keys())
+    .filter((k) => /^ppt\/slides\/slide\d+\.xml$/i.test(k))
+    .sort((a, b) => {
+      const na = Number((a.match(/slide(\d+)\.xml/i) || [])[1] || 0);
+      const nb = Number((b.match(/slide(\d+)\.xml/i) || [])[1] || 0);
+      return na - nb;
+    });
+
+  const pages = [];
+  const pageTexts = [];
+  const pageTextsByPage = {};
+  const pageTextItems = [];
+
+  slideFiles.forEach((sf, sIdx) => {
+    const slideNum = sIdx + 1;
+    const xmlText = zipMap.get(sf)?.text;
+    if (!xmlText) return;
+    const doc = parser.parseFromString(xmlText, 'application/xml');
+
+    // Load slide relationships for embedded images
+    const relsPath = sf.replace('ppt/slides/', 'ppt/slides/_rels/') + '.rels';
+    const relsMap = new Map();
+    const relsEntry = zipMap.get(relsPath);
+    if (relsEntry?.text) {
+      const rDoc = parser.parseFromString(relsEntry.text, 'application/xml');
+      rDoc.querySelectorAll('Relationship').forEach((rel) => {
+        const id = rel.getAttribute('Id');
+        const target = rel.getAttribute('Target') || '';
+        if (id && target) {
+          const clean = target.replace(/^\.\.\//, 'ppt/');
+          relsMap.set(id, clean);
+        }
+      });
+    }
+
+    let slideTitle = '';
+    const bullets = [];
+    const slideImages = [];
+    const slideTables = [];
+
+    // Extract shapes
+    doc.querySelectorAll('sp').forEach((sp) => {
+      const ph = sp.querySelector('nvSpPr nvPr ph');
+      const phType = (ph?.getAttribute('type') || '').toLowerCase();
+      const isTitleShape = phType === 'title' || phType === 'ctrtitle';
+      const paragraphs = Array.from(sp.querySelectorAll('txBody p'))
+        .map((p) => Array.from(p.querySelectorAll('t')).map((t) => t.textContent || '').join('').trim())
+        .filter(Boolean);
+      if (paragraphs.length === 0) return;
+      if (isTitleShape && !slideTitle) {
+        slideTitle = paragraphs.join(' ');
+      } else if (!slideTitle && bullets.length === 0 && paragraphs[0].length < 80) {
+        slideTitle = paragraphs[0];
+        bullets.push(...paragraphs.slice(1));
+      } else {
+        bullets.push(...paragraphs);
+      }
+    });
+
+    // Extract pictures
+    doc.querySelectorAll('pic blip').forEach((blip) => {
+      const rId = blip.getAttribute('r:embed') || blip.getAttribute('embed') || '';
+      const mediaPath = rId ? relsMap.get(rId) : null;
+      const dataUrl = mediaPath ? zipMap.get(mediaPath)?.dataUrl : null;
+      if (dataUrl && slideImages.length < 3) slideImages.push(dataUrl);
+    });
+
+    // Extract tables on slide
+    doc.querySelectorAll('graphicFrame tbl').forEach((tbl) => {
+      const rows = [];
+      Array.from(tbl.querySelectorAll('tr')).forEach((tr) => {
+        const cells = Array.from(tr.querySelectorAll('tc')).map((tc) =>
+          Array.from(tc.querySelectorAll('t')).map((t) => t.textContent || '').join(' ').trim()
+        );
+        if (cells.some(Boolean)) rows.push(cells);
+      });
+      if (rows.length > 0) slideTables.push(rows);
+    });
+
+    const itemsForSearch = [];
+    const textLines = [];
+    if (slideTitle) {
+      textLines.push(slideTitle);
+      itemsForSearch.push({ str: slideTitle, xRatio: 0.08, yRatio: 0.14, wRatio: 0.84, hRatio: 0.08 });
+    }
+    bullets.forEach((b, bIdx) => {
+      textLines.push(b);
+      itemsForSearch.push({
+        str: b,
+        xRatio: 0.08,
+        yRatio: Math.min(0.9, 0.28 + (bIdx / Math.max(1, bullets.length)) * 0.6),
+        wRatio: 0.84,
+        hRatio: 0.05
+      });
+    });
+
+    const bulletsHtml = bullets
+      .map((b) => `<li class="ff-office-ppt-bullet">${escapeHtml(b)}</li>`)
+      .join('');
+    const imgsHtml = slideImages
+      .map((src) => `<div class="ff-office-ppt-img"><img src="${src}" alt="Slide Image" /></div>`)
+      .join('');
+    const tblsHtml = slideTables
+      .map((rows) => {
+        const trs = rows
+          .map(
+            (r, rIdx) =>
+              `<tr>${r
+                .map((c) => `<${rIdx === 0 ? 'th' : 'td'}>${escapeHtml(c)}</${rIdx === 0 ? 'th' : 'td'}>`)
+                .join('')}</tr>`
+          )
+          .join('');
+        return `<table class="ff-office-doc-table">${trs}</table>`;
+      })
+      .join('');
+
+    const html = `
+      <div class="ff-office-page-inner is-ppt-slide">
+        <div class="ff-office-page-docbar">
+          <span class="ff-office-badge ppt">PPTX</span>
+          <span class="ff-office-sheet-title">Slide ${slideNum} / ${slideFiles.length}</span>
+          <span class="ff-office-page-meta">16:9 프레젠테이션 뷰</span>
+        </div>
+        <div class="ff-office-ppt-body ${slideImages.length > 0 ? 'has-media' : ''}">
+          <div class="ff-office-ppt-text-col">
+            <div class="ff-office-ppt-title">${escapeHtml(slideTitle || `Slide ${slideNum}`)}</div>
+            ${bulletsHtml ? `<ul class="ff-office-ppt-list">${bulletsHtml}</ul>` : ''}
+            ${tblsHtml}
+          </div>
+          ${imgsHtml ? `<div class="ff-office-ppt-media-col">${imgsHtml}</div>` : ''}
+        </div>
+      </div>
+    `;
+
+    const pageStr = `[Slide ${slideNum}]\n` + textLines.join('\n');
+    pages.push({ pageNumber: slideNum, aspect: pageAspect, html });
+    pageTexts.push(pageStr);
+    pageTextsByPage[slideNum] = pageStr;
+    pageTextItems[slideNum - 1] = itemsForSearch;
+  });
+
+  if (pages.length === 0) {
+    pages.push({
+      pageNumber: 1,
+      aspect: pageAspect,
+      html: `<div class="ff-office-page-inner is-ppt-slide"><div class="ff-office-ppt-title">(슬라이드가 비어 있습니다)</div></div>`
+    });
+  }
+
+  return {
+    isOfficeDoc: true,
+    numPages: pages.length,
+    pageAspect,
+    pages,
+    extractedText: pageTexts.join('\n\n'),
+    pageTextsByPage,
+    pageTextItems
+  };
+}
+
+async function getOrLoadOfficeDocument(filePath, docKind) {
+  if (!filePath) return null;
   if (pdfDocCache.has(filePath)) return pdfDocCache.get(filePath);
+  const res = await window.freeformAPI.readPdfBase64(filePath);
+  if (!res || !res.ok || !res.base64) return null;
+  const binary = atob(res.base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  let entry = null;
+  if (docKind === 'csv') {
+    let text = new TextDecoder('utf-8').decode(bytes);
+    if (text.includes('\uFFFD')) {
+      try {
+        text = new TextDecoder('euc-kr').decode(bytes);
+      } catch (_) {}
+    }
+    const isTsv = String(filePath).toLowerCase().endsWith('.tsv');
+    const rows = parseCsvOrTsvRows(text, isTsv);
+    entry = buildSpreadsheetPagesFromSheets([{ name: isTsv ? 'TSV Data' : 'CSV Data', rows }], isTsv ? 'TSV' : 'CSV');
+  } else {
+    const zipMap = await extractZipEntriesMap(bytes);
+    if (docKind === 'xlsx') {
+      entry = parseXlsxFromZip(zipMap);
+    } else if (docKind === 'docx') {
+      entry = parseDocxFromZip(zipMap);
+    } else if (docKind === 'pptx') {
+      entry = parsePptxFromZip(zipMap);
+    }
+  }
+
+  if (entry) {
+    entry.docKind = docKind;
+    pdfDocCache.set(filePath, entry);
+  }
+  return entry;
+}
+
+async function getOrLoadPdfDocument(filePath) {
+  if (!filePath) return null;
+  if (pdfDocCache.has(filePath)) return pdfDocCache.get(filePath);
+  const docKind = getDocumentViewerKind(filePath) || 'pdf';
+  if (docKind !== 'pdf') {
+    return await getOrLoadOfficeDocument(filePath, docKind);
+  }
+  if (!window.pdfjsLib) return null;
   const res = await window.freeformAPI.readPdfBase64(filePath);
   if (!res || !res.ok || !res.base64) return null;
   const binary = atob(res.base64);
@@ -502,7 +1251,7 @@ async function getOrLoadPdfDocument(filePath) {
 
   const pageTexts = [];
   const pageTextsByPage = {};
-  const pageTextItems = {};
+  const pageTextItems = [];
   for (let p = 1; p <= Math.min(pdfDoc.numPages, 80); p++) {
     try {
       const page = await pdfDoc.getPage(p);
@@ -513,7 +1262,7 @@ async function getOrLoadPdfDocument(filePath) {
       if (pageStr) pageTexts.push(`[${p}페이지]\n${pageStr}`);
       const pw = Math.max(1, vp.width);
       const ph = Math.max(1, vp.height);
-      pageTextItems[p] = (tc.items || [])
+      pageTextItems[p - 1] = (tc.items || [])
         .filter((it) => it && typeof it.str === 'string' && it.str.trim() !== '')
         .map((it) => {
           const tr = it.transform || [1, 0, 0, 1, 0, 0];
@@ -532,7 +1281,7 @@ async function getOrLoadPdfDocument(filePath) {
         });
     } catch (_) {}
   }
-  const entry = { pdfDoc, extractedText: pageTexts.join('\n\n'), pageAspect, pageTextsByPage, pageTextItems };
+  const entry = { pdfDoc, docKind: 'pdf', numPages: pdfDoc.numPages, extractedText: pageTexts.join('\n\n'), pageAspect, pageTextsByPage, pageTextItems };
   pdfDocCache.set(filePath, entry);
   return entry;
 }
@@ -4496,9 +5245,13 @@ function createObjectDOM(obj) {
     body.appendChild(card);
   } else if (obj.type === 'file' || obj.type === 'pdf') {
     const sizeKb = obj.fileSize ? `${Math.max(1, Math.round(obj.fileSize / 1024))} KB` : '첨부 문서';
+    const docKind = getDocumentViewerKind(obj) || 'pdf';
+    const badgeInfo = getDocumentBadgeInfo(docKind);
+    const isSpreadsheetDoc = docKind === 'xlsx' || docKind === 'csv';
+
     if (isPdf && (obj.pdfViewMode || 'viewer') === 'viewer') {
       // ======================================================================
-      // INLINE PDF VIEWER MODE (내용 보기: 창크기 맞춤 기본, 휠 스크롤, Ctrl+휠 확대/축소, 기본앱 '열기')
+      // INLINE DOCUMENT VIEWER MODE (PDF / XLSX / CSV / DOCX / PPTX 내용 보기: 한 페이지 고정 비율)
       // ======================================================================
       body.style.padding = '0';
       body.style.overflow = 'hidden';
@@ -4521,13 +5274,14 @@ function createObjectDOM(obj) {
           <button class="ff-pdf-btn" data-pdf-act="zoom-out" title="축소 (Ctrl + 마우스 휠 아래로)">${SVG_ICONS.minus}</button>
           <button class="ff-pdf-btn" data-pdf-act="zoom-reset" data-pdf-zoom title="클릭 시 창크기에 맞춤 (100%)">${Math.round(currentPdfZoom * 100)}%</button>
           <button class="ff-pdf-btn" data-pdf-act="zoom-in" title="확대 (Ctrl + 마우스 휠 위로)">${SVG_ICONS.plus}</button>
-          <button class="ff-pdf-btn" data-pdf-act="open-default" title="윈도우에 설정된 기본 PDF 프로그램으로 열기">${SVG_ICONS.externalLink}<span>열기</span></button>
+          ${isSpreadsheetDoc ? `<button class="ff-pdf-btn" data-pdf-act="extract-table" title="이 시트를 편집 가능한 프리폼 표(Table) 객체로 추출"><span>📊 표 추출</span></button>` : ''}
+          <button class="ff-pdf-btn" data-pdf-act="open-default" title="윈도우에 설정된 기본 프로그램으로 열기">${SVG_ICONS.externalLink}<span>열기</span></button>
         </div>
       `;
 
       const pagesContainer = document.createElement('div');
       pagesContainer.className = 'ff-pdf-pages-container';
-      pagesContainer.innerHTML = `<div class="ff-pdf-loading">PDF 문서를 불러오는 중...</div>`;
+      pagesContainer.innerHTML = `<div class="ff-pdf-loading">${escapeHtml(badgeInfo.name)}를 불러오는 중...</div>`;
 
       pdfWrap.appendChild(pdfBar);
       pdfWrap.appendChild(pagesContainer);
@@ -4536,25 +5290,27 @@ function createObjectDOM(obj) {
       const pageIndicatorEl = pdfBar.querySelector('[data-pdf-pages]');
       const zoomIndicatorEl = pdfBar.querySelector('[data-pdf-zoom]');
 
-      let loadedPdfDoc = null;
+      let loadedDocEntry = null;
+      let totalDocPages = 1;
       let currentVisiblePage = 1;
       let renderTicket = 0;
 
       const renderPdfPages = async () => {
         const myTicket = ++renderTicket;
         if (!obj.resolvedFilePath) {
-          pagesContainer.innerHTML = `<div class="ff-pdf-loading">PDF 파일 경로를 찾을 수 없습니다.</div>`;
+          pagesContainer.innerHTML = `<div class="ff-pdf-loading">문서 파일 경로를 찾을 수 없습니다.</div>`;
           return;
         }
         try {
           const entry = await getOrLoadPdfDocument(obj.resolvedFilePath);
           if (myTicket !== renderTicket) return;
-          if (!entry || !entry.pdfDoc) {
-            pagesContainer.innerHTML = `<div class="ff-pdf-loading">PDF를 불러올 수 없습니다.</div>`;
+          if (!entry || (!entry.pdfDoc && !entry.isOfficeDoc)) {
+            pagesContainer.innerHTML = `<div class="ff-pdf-loading">${escapeHtml(badgeInfo.name)}를 불러올 수 없습니다.</div>`;
             return;
           }
-          loadedPdfDoc = entry.pdfDoc;
-          const total = loadedPdfDoc.numPages;
+          loadedDocEntry = entry;
+          const total = entry.isOfficeDoc ? Math.max(1, entry.numPages || entry.pages?.length || 1) : entry.pdfDoc.numPages;
+          totalDocPages = total;
           if (pageIndicatorEl) pageIndicatorEl.textContent = `${currentVisiblePage} / ${total} p`;
           if (zoomIndicatorEl) zoomIndicatorEl.textContent = `${Math.round(currentPdfZoom * 100)}%`;
 
@@ -4562,13 +5318,16 @@ function createObjectDOM(obj) {
           pagesContainer.style.overflowY = total > 1 || currentPdfZoom > 1 ? 'scroll' : 'hidden';
           pagesContainer.style.overflowX = currentPdfZoom > 1 ? 'auto' : 'hidden';
 
-          const firstPageForAspect = await loadedPdfDoc.getPage(1);
-          if (myTicket !== renderTicket) return;
-          const vp1 = firstPageForAspect.getViewport({ scale: 1 });
-          const docAspect =
-            vp1 && vp1.width > 0 && vp1.height > 0
-              ? vp1.width / vp1.height
-              : entry.pageAspect || 595.28 / 841.89;
+          let docAspect = entry.pageAspect || 595.28 / 841.89;
+          let firstPageForAspect = null;
+          if (!entry.isOfficeDoc && entry.pdfDoc) {
+            firstPageForAspect = await entry.pdfDoc.getPage(1);
+            if (myTicket !== renderTicket) return;
+            const vp1 = firstPageForAspect.getViewport({ scale: 1 });
+            if (vp1 && vp1.width > 0 && vp1.height > 0) {
+              docAspect = vp1.width / vp1.height;
+            }
+          }
           entry.pageAspect = docAspect;
 
           obj.pdfChromeW = 0;
@@ -4586,42 +5345,87 @@ function createObjectDOM(obj) {
 
           pagesContainer.innerHTML = '';
           const dpr = Math.min(2, window.devicePixelRatio || 1);
-          // Fit cleanly to 1 full page inside the PDF viewer window
+          // Fit cleanly to 1 full page inside the viewer window
           const innerWidth = pagesContainer.clientWidth || obj.width || 480;
           const targetContainerWidth = Math.max(180, innerWidth);
 
-          for (let pageNum = 1; pageNum <= total; pageNum++) {
-            if (myTicket !== renderTicket) return;
-            const page = pageNum === 1 ? firstPageForAspect : await loadedPdfDoc.getPage(pageNum);
-            const unscaledVp = page.getViewport({ scale: 1 });
-            const pageAspect = unscaledVp.width / Math.max(1, unscaledVp.height);
-            const fitScale = (targetContainerWidth / unscaledVp.width) * currentPdfZoom;
-            const vp = page.getViewport({ scale: fitScale * dpr });
+          if (entry.isOfficeDoc && Array.isArray(entry.pages)) {
+            for (let pIdx = 0; pIdx < entry.pages.length; pIdx++) {
+              if (myTicket !== renderTicket) return;
+              const pInfo = entry.pages[pIdx];
+              const pageNum = pInfo.pageNumber || pIdx + 1;
+              const pageAspect = Number(pInfo.aspect) || docAspect;
+              const baseW = pageAspect > 1.02 ? 800 : 620;
+              const baseH = Math.round(baseW / Math.max(0.15, pageAspect));
+              const dispW = Math.round(targetContainerWidth * currentPdfZoom);
+              const dispH = Math.round((targetContainerWidth / Math.max(0.15, pageAspect)) * currentPdfZoom);
+              const scale = dispW / baseW;
 
-            const pageCard = document.createElement('div');
-            pageCard.className = 'ff-pdf-page-card';
-            pageCard.dataset.pageNumber = String(pageNum);
+              const pageCard = document.createElement('div');
+              pageCard.className = 'ff-pdf-page-card';
+              pageCard.dataset.pageNumber = String(pageNum);
 
-            const canvas = document.createElement('canvas');
-            canvas.className = 'ff-pdf-page-canvas';
-            canvas.dataset.pageAspect = String(pageAspect);
-            canvas.width = Math.round(vp.width);
-            canvas.height = Math.round(vp.height);
-            canvas.style.width = `${Math.round(vp.width / dpr)}px`;
-            canvas.style.height = `${Math.round(vp.height / dpr)}px`;
+              const viewportBox = document.createElement('div');
+              viewportBox.className = 'ff-pdf-page-canvas ff-office-page-viewport';
+              viewportBox.dataset.pageAspect = String(pageAspect);
+              viewportBox.style.width = `${dispW}px`;
+              viewportBox.style.height = `${dispH}px`;
 
-            const badge = document.createElement('span');
-            badge.className = 'ff-pdf-page-badge';
-            badge.textContent = `${pageNum} / ${total}`;
+              const surface = document.createElement('div');
+              surface.className = 'ff-office-page-surface';
+              surface.dataset.baseWidth = String(baseW);
+              surface.style.width = `${baseW}px`;
+              surface.style.height = `${baseH}px`;
+              surface.style.transform = `scale(${scale.toFixed(4)})`;
+              surface.innerHTML = pInfo.html;
 
-            pageCard.appendChild(canvas);
-            pageCard.appendChild(badge);
-            pagesContainer.appendChild(pageCard);
+              const badge = document.createElement('span');
+              badge.className = 'ff-pdf-page-badge';
+              badge.textContent = `${pageNum} / ${total}`;
 
-            const ctx = canvas.getContext('2d');
-            await page.render({ canvasContext: ctx, viewport: vp }).promise;
-            if (typeof renderPdfPageSearchHighlights === 'function') {
-              renderPdfPageSearchHighlights(pageCard, obj, pageNum);
+              viewportBox.appendChild(surface);
+              pageCard.appendChild(viewportBox);
+              pageCard.appendChild(badge);
+              pagesContainer.appendChild(pageCard);
+
+              if (typeof renderPdfPageSearchHighlights === 'function') {
+                renderPdfPageSearchHighlights(pageCard, obj, pageNum);
+              }
+            }
+          } else if (entry.pdfDoc) {
+            for (let pageNum = 1; pageNum <= total; pageNum++) {
+              if (myTicket !== renderTicket) return;
+              const page = pageNum === 1 && firstPageForAspect ? firstPageForAspect : await entry.pdfDoc.getPage(pageNum);
+              const unscaledVp = page.getViewport({ scale: 1 });
+              const pageAspect = unscaledVp.width / Math.max(1, unscaledVp.height);
+              const fitScale = (targetContainerWidth / unscaledVp.width) * currentPdfZoom;
+              const vp = page.getViewport({ scale: fitScale * dpr });
+
+              const pageCard = document.createElement('div');
+              pageCard.className = 'ff-pdf-page-card';
+              pageCard.dataset.pageNumber = String(pageNum);
+
+              const canvas = document.createElement('canvas');
+              canvas.className = 'ff-pdf-page-canvas';
+              canvas.dataset.pageAspect = String(pageAspect);
+              canvas.width = Math.round(vp.width);
+              canvas.height = Math.round(vp.height);
+              canvas.style.width = `${Math.round(vp.width / dpr)}px`;
+              canvas.style.height = `${Math.round(vp.height / dpr)}px`;
+
+              const badge = document.createElement('span');
+              badge.className = 'ff-pdf-page-badge';
+              badge.textContent = `${pageNum} / ${total}`;
+
+              pageCard.appendChild(canvas);
+              pageCard.appendChild(badge);
+              pagesContainer.appendChild(pageCard);
+
+              const ctx = canvas.getContext('2d');
+              await page.render({ canvasContext: ctx, viewport: vp }).promise;
+              if (typeof renderPdfPageSearchHighlights === 'function') {
+                renderPdfPageSearchHighlights(pageCard, obj, pageNum);
+              }
             }
           }
 
@@ -4629,14 +5433,14 @@ function createObjectDOM(obj) {
             pagesContainer.scrollTop = Math.round(prevScrollRatio * pagesContainer.scrollHeight);
           }
         } catch (err) {
-          console.error('PDF inline render error:', err);
-          pagesContainer.innerHTML = `<div class="ff-pdf-loading">PDF 렌더링 오류: ${escapeHtml(err.message)}</div>`;
+          console.error('Document inline render error:', err);
+          pagesContainer.innerHTML = `<div class="ff-pdf-loading">문서 렌더링 오류: ${escapeHtml(err.message)}</div>`;
         }
       };
 
       requestAnimationFrame(() => renderPdfPages());
 
-      // Natural Wheel Scroll for Pages & Ctrl+Wheel for PDF Zoom
+      // Natural Wheel Scroll for Pages & Ctrl+Wheel for Document Zoom
       pagesContainer.addEventListener(
         'wheel',
         (e) => {
@@ -4650,13 +5454,12 @@ function createObjectDOM(obj) {
             renderPdfPages();
             scheduleSaveBoard();
           }
-          // When Ctrl is NOT pressed, native scrolling inside pagesContainer smoothly scrolls through all pages!
         },
         { passive: false }
       );
 
       pagesContainer.addEventListener('scroll', () => {
-        if (!loadedPdfDoc) return;
+        if (!loadedDocEntry) return;
         const cards = Array.from(pagesContainer.querySelectorAll('.ff-pdf-page-card'));
         const scrollMid = pagesContainer.scrollTop + pagesContainer.clientHeight / 3;
         for (const c of cards) {
@@ -4666,7 +5469,7 @@ function createObjectDOM(obj) {
           }
         }
         if (pageIndicatorEl) {
-          pageIndicatorEl.textContent = `${currentVisiblePage} / ${loadedPdfDoc.numPages} p`;
+          pageIndicatorEl.textContent = `${currentVisiblePage} / ${totalDocPages} p`;
         }
       });
 
@@ -4675,14 +5478,14 @@ function createObjectDOM(obj) {
         if (!btn) return;
         e.stopPropagation();
         const act = btn.dataset.pdfAct;
-        if (act === 'prev' && loadedPdfDoc) {
+        if (act === 'prev' && loadedDocEntry) {
           const targetP = Math.max(1, currentVisiblePage - 1);
           const card = pagesContainer.querySelector(`.ff-pdf-page-card[data-page-number="${targetP}"]`);
           if (card) {
             pagesContainer.scrollTo({ top: Math.max(0, card.offsetTop), behavior: 'smooth' });
           }
-        } else if (act === 'next' && loadedPdfDoc) {
-          const targetP = Math.min(loadedPdfDoc.numPages, currentVisiblePage + 1);
+        } else if (act === 'next' && loadedDocEntry) {
+          const targetP = Math.min(totalDocPages, currentVisiblePage + 1);
           const card = pagesContainer.querySelector(`.ff-pdf-page-card[data-page-number="${targetP}"]`);
           if (card) {
             pagesContainer.scrollTo({ top: Math.max(0, card.offsetTop), behavior: 'smooth' });
@@ -4702,7 +5505,19 @@ function createObjectDOM(obj) {
           obj.pdfZoom = 1.0;
           renderPdfPages();
           scheduleSaveBoard();
-          showToast('PDF 배율이 창크기에 맞춤(100%)으로 설정되었습니다');
+          showToast('문서 배율이 창크기에 맞춤(100%)으로 설정되었습니다');
+        } else if (act === 'extract-table' && loadedDocEntry?.rawTableData?.length) {
+          addObjectToBoard({
+            type: 'table',
+            title: `${obj.title || obj.fileName || 'Excel'} (표)`,
+            x: (obj.x || 100) + (obj.width || 480) + 32,
+            y: obj.y || 100,
+            width: 520,
+            height: 320,
+            color: 'blue',
+            tableData: loadedDocEntry.rawTableData.slice(0, 80)
+          });
+          showToast('📊 시트 데이터가 편집 가능한 프리폼 표(Table) 객체로 추출되었습니다!');
         } else if (act === 'open-default') {
           if (obj.resolvedFilePath) {
             window.freeformAPI.openPath(obj.resolvedFilePath);
@@ -4711,17 +5526,20 @@ function createObjectDOM(obj) {
       });
     } else if (isPdf) {
       // ======================================================================
-      // COMPACT PDF ICON MODE (아이콘 보기: 버튼 없이 클릭 시 바로 내용보기로 전환, 좌상단 고정!)
+      // COMPACT DOCUMENT ICON MODE (파일링크 / 아이콘 보기: 클릭 시 바로 내용보기로 전환)
       // ======================================================================
       const box = document.createElement('div');
       box.className = 'ff-file-box';
       box.style.cursor = 'pointer';
-      box.title = '클릭하여 PDF 문서 내용 보기';
+      box.title = `클릭하여 ${badgeInfo.name} 내용 보기`;
       box.innerHTML = `
-        <div class="ff-file-icon" style="display:flex;align-items:center;justify-content:center;color:#ff453a;">${SVG_ICONS.fileDoc}</div>
+        <div class="ff-file-icon" style="display:flex;flex-direction:column;align-items:center;justify-content:center;color:${badgeInfo.color};gap:2px;">
+          ${SVG_ICONS.fileDoc}
+          <span style="font-size:9px;font-weight:800;letter-spacing:0.3px;">${escapeHtml(badgeInfo.label)}</span>
+        </div>
         <div class="ff-file-info">
-          <div class="ff-file-name">${escapeHtml(obj.fileName || obj.title || 'PDF 문서')}</div>
-          <div class="ff-file-size">${escapeHtml(sizeKb)} · 클릭하여 내용 보기</div>
+          <div class="ff-file-name">${escapeHtml(obj.fileName || obj.title || badgeInfo.name)}</div>
+          <div class="ff-file-size">${escapeHtml(sizeKb)} · ${escapeHtml(badgeInfo.name)} · 클릭하여 내용 보기</div>
         </div>
       `;
       let downPos = null;
@@ -6280,8 +7098,15 @@ window.addEventListener('pointermove', (e) => {
       const canvases = resizingObjState.el.querySelectorAll('.ff-pdf-page-canvas');
       canvases.forEach((cv) => {
         const cvAspect = Number(cv.dataset.pageAspect) || aspect;
-        cv.style.width = `${Math.round(nextPageW * zoomFactor)}px`;
-        cv.style.height = `${Math.round((nextPageW / Math.max(0.15, cvAspect)) * zoomFactor)}px`;
+        const targetW = Math.round(nextPageW * zoomFactor);
+        const targetH = Math.round((nextPageW / Math.max(0.15, cvAspect)) * zoomFactor);
+        cv.style.width = `${targetW}px`;
+        cv.style.height = `${targetH}px`;
+        const officeSurface = cv.querySelector('.ff-office-page-surface');
+        if (officeSurface) {
+          const baseW = Number(officeSurface.dataset.baseWidth) || 620;
+          officeSurface.style.transform = `scale(${(targetW / baseW).toFixed(4)})`;
+        }
       });
     } else {
       const isSmallKind = rObj.type === 'stroke' || rObj.type === 'shape';
@@ -6548,43 +7373,22 @@ window.addEventListener('drop', async (e) => {
           });
         }
 
-        // If CSV/TSV file dropped, also offer/create a Table card!
-        if (/\.(csv|tsv)$/i.test(file.name)) {
-          const textContent = await file.text();
-          const sep = file.name.toLowerCase().endsWith('.tsv') ? '\t' : ',';
-          const rows = textContent
-            .trim()
-            .split(/\r?\n/)
-            .slice(0, 60)
-            .map((line) => line.split(sep).map((c) => c.replace(/^"|"$/g, '').trim()));
-          if (rows.length >= 1) {
-            addObjectToBoard({
-              type: 'table',
-              title: file.name,
-              x: dropPos.x - 220 + offset,
-              y: dropPos.y - 120 + offset,
-              width: 480,
-              height: 260,
-              color: 'blue',
-              tableData: rows
-            });
-            offset += 28;
-            continue;
-          }
-        }
-
         const isImg = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(file.name) || (file.type && file.type.startsWith('image/'));
-        const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+        const docKind = getDocumentViewerKind(file.name);
+        const isDocViewer = Boolean(docKind);
+        const isLandscapeDoc = docKind === 'pptx' || docKind === 'xlsx' || docKind === 'csv';
+        const initW = isImg ? 360 : isDocViewer ? (isLandscapeDoc ? 620 : 480) : 330;
+        const initH = isImg ? 270 : isDocViewer ? (isLandscapeDoc ? 380 : 679) : 135;
         addObjectToBoard({
           type: isImg ? 'image' : 'file',
           title: file.name,
           fileName: file.name,
           fileSize: saved.size || file.size,
-          pdfViewMode: isPdf ? 'viewer' : undefined,
-          x: dropPos.x - (isPdf ? 240 : 160) + offset,
-          y: dropPos.y - (isPdf ? 280 : 110) + offset,
-          width: isImg ? 360 : isPdf ? 480 : 330,
-          height: isImg ? 270 : isPdf ? 580 : 135,
+          pdfViewMode: isDocViewer ? 'viewer' : undefined,
+          x: dropPos.x - Math.round(initW / 2) + offset,
+          y: dropPos.y - Math.round(initH / 2) + offset,
+          width: initW,
+          height: initH,
           color: 'dark',
           assetFileName: saved.assetFileName,
           resolvedFilePath: saved.resolvedFilePath,
@@ -7103,15 +7907,17 @@ document.getElementById('captureScreenBtn')?.addEventListener('click', async () 
 document.getElementById('addFileBtn')?.addEventListener('click', async () => {
   const assets = await window.freeformAPI.pickFiles({ imagesOnly: false });
   assets.forEach((a) => {
-    const isPdf = /\.pdf$/i.test(a.name || a.resolvedFilePath || '');
+    const docKind = getDocumentViewerKind(a.name || a.resolvedFilePath || '');
+    const isDocViewer = Boolean(docKind);
+    const isLandscapeDoc = docKind === 'pptx' || docKind === 'xlsx' || docKind === 'csv';
     addObjectToBoard({
       type: 'file',
       title: a.name,
       fileName: a.name,
       fileSize: a.size,
-      pdfViewMode: isPdf ? 'viewer' : undefined,
-      width: isPdf ? 480 : 330,
-      height: isPdf ? 580 : 135,
+      pdfViewMode: isDocViewer ? 'viewer' : undefined,
+      width: isDocViewer ? (isLandscapeDoc ? 620 : 480) : 330,
+      height: isDocViewer ? (isLandscapeDoc ? 380 : 679) : 135,
       color: 'dark',
       assetFileName: a.assetFileName,
       resolvedFilePath: a.resolvedFilePath,

@@ -21,7 +21,7 @@
 ## 🇰🇷 한국어 가이드 (Korean)
 
 **BossFreeForm**은 Windows 데스크톱과 웹 브라우저 환경에서 자유롭게 아이디어를 정리하고 시각화할 수 있는 **오픈소스 무한 캔버스(Infinite Canvas) 화이트보드 및 지식 관리 앱**입니다.  
-노트, 체크리스트, 엑셀 호환 표, 벡터 스티커, 스마트 펜/도형, 내장 PDF 문서 뷰어를 하나의 끝없는 캔버스 위에 자유롭게 배치하고 **Google Drive**를 통해 PC와 웹(`https://boss-freeform-web.vercel.app`) 어디서든 이어서 작업할 수 있습니다.
+노트, 체크리스트, 엑셀 호환 표, 벡터 스티커, 스마트 펜/도형, 그리고 **내장 문서 뷰어(`PDF`, `XLSX`, `CSV`, `DOCX`, `PPTX`)**를 하나의 끝없는 캔버스 위에 자유롭게 배치하고 **Google Drive**를 통해 PC와 웹(`https://boss-freeform-web.vercel.app`) 어디서든 이어서 작업할 수 있습니다.
 
 ### ✨ 주요 기능 (Key Features)
 
@@ -47,7 +47,7 @@
 | **`C`** | **체크리스트** | 랜덤 컬러 할 일 카드 + **완료 항목만 복사 / 미완료 항목만 복사** 원클릭 버튼 |
 | **`G`** (보조 `R`) | **표 (시트)** | 엑셀·구글 시트 복사/붙여넣기 호환, 다중 셀 드래그 선택 및 CSV 내보내기 |
 | **`X`** | **화면 캡처** | 현재 PC 화면을 즉시 캡처하여 캔버스 이미지 객체로 삽입 |
-| **`Ctrl + F`** | **통합 검색** | 노트, 타이틀, 객체 이름, 그룹 이름, **PDF 본문 텍스트**까지 실시간 하이라이트 검색 |
+| **`Ctrl + F`** | **통합 검색** | 노트, 타이틀, 객체 이름, 그룹 이름, **PDF·엑셀·워드·PPT 문서 본문**까지 실시간 검색 |
 | **`Ctrl + G`** | **그룹화 / 그룹명** | 다중 선택된 객체들을 하나의 그룹 프레임으로 묶고 **그룹 이름** 지정 |
 
 #### 3. 🌟 벡터 스티커 객체 (30종 기본 제공 + PNG 자동 벡터화)
@@ -55,15 +55,20 @@
 - **투명 PNG 추가 시 자동 벡터화**: 사용자가 투명 배경 PNG 파일을 스티커로 등록하면 자동으로 SVG 벡터 패스로 변환되어, 아무리 크게 확대해도 픽셀 깨짐 없이 선명하게 유지됩니다.
 - **자유 회전 & 비율 고정/왜곡 리사이즈**: 선택 시 내부에 자동 숨김 컨트롤 바가 나타나며, 상단 회전 핸들로 360° 회전하거나 비율 고정을 해제해 자유롭게 늘이고 줄일 수 있습니다.
 
-#### 4. 📄 내장 PDF 문서 뷰어 객체
-- **한 페이지 비율 자동 맞춤**: 가로형(Landscape)·세로형(Portrait) PDF 문서의 실제 페이지 비율을 자동 감지하여 여백 없이 깔끔하게 렌더링하며, 크기 조절 시에도 페이지 비율이 엄격하게 유지됩니다.
-- **자동 숨김 컨트롤 & 외곽선**: 마우스를 올렸을 때만 페이지 이동·확대/축소·모드 전환 바가 부드럽게 나타나며, 이미지 객체와 동일하게 외곽선(테두리) 두께 및 색상을 지정할 수 있습니다.
-- **PDF 본문 통합 검색**: PDF 내부의 모든 페이지 텍스트를 자동 인덱싱하여 `Ctrl + F` 검색 시 PDF 안의 단어까지 즉시 찾아줍니다.
+#### 4. 📄 내장 문서 뷰어 객체 (`PDF` · `XLSX` · `CSV` · `DOCX` · `PPTX`)
+- **파일링크(아이콘보기) ↔ 내용보기 2가지 모드 지원**:
+  - **파일링크 모드**: 문서 포맷별 컬러 배지(`PDF`, `XLSX`, `CSV`, `DOCX`, `PPTX`)가 표시되는 컴팩트 링크 카드로 깔끔하게 정리하고 클릭 시 즉시 내용보기로 전환.
+  - **내용보기 모드**: 문서를 별도 프로그램 없이 캔버스 위에서 바로 읽고 탐색(`◀` `1 / N p` `▶`)할 수 있는 인라인 뷰어 제공.
+- **한 페이지 기준 고정 비율(Aspect-Ratio Lock) 표기**:
+  - `PDF` 실제 페이지 비율, `DOCX` A4 세로 비율, `PPTX` 16:9 슬라이드 비율, `XLSX`/`CSV` 시트 페이지 비율을 자동 산출하여 **내용보기 상태에서 한 페이지 기준으로 빈틈없이 렌더링하고 리사이즈 시에도 페이지 비율을 엄격하게 고정**합니다.
+- **엑셀 시트 → 편집 가능한 표 객체 원클릭 추출 (`[📊 표 추출]`)**:
+  - `XLSX` / `CSV` 문서를 내용보기 모드로 열었을 때 상단 **`[📊 표 추출]`** 버튼을 누르면 현재 페이지의 시트 데이터가 캔버스 위에서 바로 편집 가능한 `표(Table)` 객체로 복제됩니다.
+- **문서 본문 통합 검색**: `PDF`, `XLSX`, `CSV`, `DOCX`, `PPTX` 내부의 모든 페이지·슬라이드·시트 텍스트를 자동 인덱싱하여 `Ctrl + F` 검색 시 문서 안의 단어까지 즉시 찾아줍니다.
 
 #### 5. ☁️ Google Drive & 웹 버전 클라우드 동기화
 - **단일 경로 통합 관리**: `G:\내 드라이브\BossFreeForm` (보드 `.json` 및 `assets/` 첨부 파일) 단일 경로로 깔끔하게 통합 관리합니다.
 - **웹 버전 연동 (`https://boss-freeform-web.vercel.app`)**:
-  - 이벤트 기반(보드 저장 시, 창/탭 포커스 시, 수동 동기화 시) 클라우드 동기화 아키텍처로 서버 부하 없이 PC 상태와 무관하게 모든 보드와 첨부 파일(이미지, PDF, 스티커)을 동기화합니다.
+  - 이벤트 기반(보드 저장 시, 창/탭 포커스 시, 수동 동기화 시) 클라우드 동기화 아키텍처로 서버 부하 없이 PC 상태와 무관하게 모든 보드와 첨부 파일(이미지, PDF, 오피스 문서, 스티커)을 동기화합니다.
 
 ### 🚀 설치 및 실행 방법 (Getting Started)
 
@@ -88,7 +93,7 @@ npm run build:setup
 ## 🇺🇸 English Guide
 
 **BossFreeForm** is a modern, open-source **Infinite Canvas Whiteboard & Visual Workspace** built for Windows Desktop and the Web.  
-Combine sticky notes, checklists, Excel-compatible tables, vector stickers, smart pen strokes, and interactive PDF viewers on a boundless canvas—seamlessly synced via **Google Drive** across Desktop and Web (`https://boss-freeform-web.vercel.app`).
+Combine sticky notes, checklists, Excel-compatible tables, vector stickers, smart pen strokes, and **built-in document viewers (`PDF`, `XLSX`, `CSV`, `DOCX`, `PPTX`)** on a boundless canvas—seamlessly synced via **Google Drive** across Desktop and Web (`https://boss-freeform-web.vercel.app`).
 
 ### ✨ Key Features
 
@@ -114,7 +119,7 @@ Switch tools or spawn new objects instantly with a single left-hand keystroke wh
 | **`C`** | **Checklist** | Randomized color task card with one-click **Copy Checked Only** & **Copy Unchecked Only** buttons |
 | **`G`** (`R`) | **Table (Sheet)** | Interactive table with Excel/Google Sheets copy-paste, multi-cell selection & CSV export |
 | **`X`** | **Screen Capture** | Instantly capture your screen and drop it onto the canvas as an image object |
-| **`Ctrl + F`** | **Unified Search** | Live search across notes, vectorized titles, object names, group names & **full PDF text** |
+| **`Ctrl + F`** | **Unified Search** | Live search across notes, titles, object/group names & **full PDF/Office document text** |
 | **`Ctrl + G`** | **Group & Naming** | Group selected objects together with a customizable **Group Title Badge** |
 
 #### 3. 🌟 Vector Sticker Objects (30 Built-in Stickers + Auto PNG Vectorization)
@@ -122,10 +127,15 @@ Switch tools or spawn new objects instantly with a single left-hand keystroke wh
 - **Automatic PNG-to-SVG Vectorization**: Register any transparent PNG as a custom sticker—BossFreeForm automatically vectorizes it so it stays razor-sharp at any zoom level or scale.
 - **Rotation & Free Aspect Stretch**: Features an auto-hiding interior header bar with a 360° rotation handle and toggleable aspect-ratio lock for free non-proportional stretching.
 
-#### 4. 📄 Built-in Interactive PDF Viewer Object
-- **Single-Page Aspect-Ratio Lock**: Automatically detects portrait or landscape PDF page dimensions, fitting the viewer cleanly to a single page and locking resize proportions to the page's exact aspect ratio.
-- **Auto-Hiding Chrome & Custom Borders**: Top title and page navigation controls auto-hide until hovered, and you can style PDF cards with customizable border outlines just like image objects.
-- **Full-Text PDF Search**: Automatically indexes text across all PDF pages so `Ctrl + F` highlights and counts matches inside your PDF documents.
+#### 4. 📄 Built-in Document Viewer Objects (`PDF` · `XLSX` · `CSV` · `DOCX` · `PPTX`)
+- **Dual View Modes (File Link Card ↔ Inline Content Viewer)**:
+  - **File Link Mode**: Compact card (`330 × 135`) with color-coded format badges (`PDF`, `XLSX`, `CSV`, `DOCX`, `PPTX`). Click to expand into the inline content viewer.
+  - **Content View Mode**: Read and flip through pages/slides/sheets (`◀` `1 / N p` `▶`) directly on the canvas with zero external dependencies.
+- **Single-Page Aspect-Ratio Lock**:
+  - Automatically locks viewer dimensions and resizing to the exact single-page aspect ratio of the document (`PDF` page ratio, `DOCX` A4 portrait, `PPTX` 16:9 widescreen slide, and `XLSX`/`CSV` sheet page ratio).
+- **One-Click Spreadsheet Table Extraction (`[📊 Extract Table]`)**:
+  - When viewing `.xlsx` or `.csv` files, click **`[📊 표 추출]`** in the viewer toolbar to instantly spawn an editable Freeform `Table` object from the current sheet page.
+- **Full-Text Document Search**: Automatically indexes text across all pages, slides, and sheets of `PDF`, `XLSX`, `CSV`, `DOCX`, and `PPTX` files for instant `Ctrl + F` search highlighting.
 
 #### 5. ☁️ Google Drive & Web Cloud Synchronization
 - **Unified Storage**: Stores boards (`.json`) and attachments (`assets/`) cleanly in a single `Google Drive/BossFreeForm` directory.
