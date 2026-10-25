@@ -498,6 +498,61 @@ function getDocumentBadgeInfo(docKind) {
   }
 }
 
+function formatFileSizeText(bytes) {
+  const num = Number(bytes);
+  if (!Number.isFinite(num) || num <= 0) return 'Google Drive 저장됨';
+  if (num >= 1024 * 1024) {
+    return `${(num / (1024 * 1024)).toFixed(num >= 10 * 1024 * 1024 ? 1 : 2)} MB`;
+  }
+  return `${Math.max(1, Math.round(num / 1024))} KB`;
+}
+
+function getGeneralFileBadgeInfo(fileNameOrPath = '') {
+  const clean = String(fileNameOrPath || '').trim();
+  const extMatch = clean.match(/\.([a-zA-Z0-9]+)$/);
+  const ext = extMatch ? extMatch[1].toLowerCase() : '';
+  const upperExt = (ext || 'FILE').toUpperCase().slice(0, 5);
+  if (['exe', 'msi', 'bat', 'cmd', 'dmg', 'pkg', 'apk', 'appx'].includes(ext)) {
+    return { label: upperExt, name: '실행/설치 파일', color: '#ff9f0a' };
+  }
+  if (['zip', '7z', 'rar', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'alz', 'egg'].includes(ext)) {
+    return { label: upperExt, name: '압축 아카이브', color: '#bf5af2' };
+  }
+  if (['mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg'].includes(ext)) {
+    return { label: upperExt, name: '오디오 파일', color: '#ff375f' };
+  }
+  if (['mp4', 'mkv', 'mov', 'avi', 'webm'].includes(ext)) {
+    return { label: upperExt, name: '동영상 파일', color: '#5e5ce6' };
+  }
+  return { label: upperExt, name: '첨부 파일', color: '#0a84ff' };
+}
+
+async function triggerObjectFileDownload(obj) {
+  if (!obj) return;
+  const cleanName = obj.fileName || obj.title || obj.assetFileName || 'downloaded_file';
+  if (typeof window.freeformAPI?.downloadAssetFile === 'function') {
+    const res = await window.freeformAPI.downloadAssetFile({
+      filePath: obj.resolvedFilePath || obj.resolvedFileUrl || '',
+      assetFileName: obj.assetFileName || '',
+      fileName: cleanName
+    });
+    if (res && res.canceled) return;
+    if (res && res.success) {
+      showToast(`📥 '${res.fileName || cleanName}' 다운로드가 완료되었습니다`);
+    } else {
+      showToast(`⚠️ 파일 다운로드 실패: ${res?.error || '원본 파일을 찾을 수 없습니다'}`);
+    }
+  } else if (obj.resolvedFileUrl || obj.resolvedFilePath) {
+    const a = document.createElement('a');
+    a.href = obj.resolvedFileUrl || obj.resolvedFilePath;
+    a.download = cleanName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    showToast(`📥 '${cleanName}' 다운로드를 시작합니다`);
+  }
+}
+
 function isPdfObject(obj) {
   return Boolean(getDocumentViewerKind(obj));
 }
@@ -4464,6 +4519,19 @@ function createObjectDOM(obj) {
     headerActions.appendChild(copyCheckedBtn);
   }
 
+  // Download button in Header for File / Document Objects
+  if (obj.type === 'file' || obj.type === 'pdf') {
+    const dlHeaderBtn = document.createElement('button');
+    dlHeaderBtn.className = 'ff-header-copy-btn ff-header-download-btn';
+    dlHeaderBtn.title = '구글 드라이브에 저장된 이 파일을 내 PC로 다운로드 (다른 이름으로 저장)';
+    dlHeaderBtn.innerHTML = `${SVG_ICONS.download}<span>다운로드</span>`;
+    dlHeaderBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      triggerObjectFileDownload(obj);
+    });
+    headerActions.appendChild(dlHeaderBtn);
+  }
+
   // Copy All Content Button at the far right end of the title bar
   const copyAllBtn = document.createElement('button');
   copyAllBtn.className = 'ff-header-copy-btn';
@@ -5640,7 +5708,7 @@ function createObjectDOM(obj) {
     }
     body.appendChild(card);
   } else if (obj.type === 'file' || obj.type === 'pdf') {
-    const sizeKb = obj.fileSize ? `${Math.max(1, Math.round(obj.fileSize / 1024))} KB` : '첨부 문서';
+    const sizeKb = formatFileSizeText(obj.fileSize);
     const docKind = getDocumentViewerKind(obj) || 'pdf';
     const badgeInfo = getDocumentBadgeInfo(docKind);
     const isSpreadsheetDoc = docKind === 'xlsx' || docKind === 'csv';
@@ -5674,6 +5742,7 @@ function createObjectDOM(obj) {
           <button class="ff-pdf-btn" data-pdf-act="zoom-in" title="확대 (Ctrl + 마우스 휠 위로)">${SVG_ICONS.plus}</button>
           ${isSpreadsheetDoc ? `<button class="ff-pdf-btn" data-pdf-act="xlsx-autofit" title="열과 행 간격을 내용에 맞춰 자동 최적화">${SVG_ICONS.colFit}<span>간격맞춤</span></button>` : ''}
           ${isSpreadsheetDoc ? `<button class="ff-pdf-btn" data-pdf-act="extract-table" title="이 시트를 편집 가능한 프리폼 표(Table) 객체로 추출">${SVG_ICONS.table}<span>표 추출</span></button>` : ''}
+          <button class="ff-pdf-btn" data-pdf-act="download-file" title="원본 파일 다운로드 (다른 이름으로 저장)">${SVG_ICONS.download}<span>다운로드</span></button>
           <button class="ff-pdf-btn" data-pdf-act="open-default" title="윈도우에 설정된 기본 프로그램으로 열기">${SVG_ICONS.externalLink}<span>열기</span></button>
         </div>
         <div class="ff-doc-local-search-bar hidden" data-doc-search-bar>
@@ -6275,9 +6344,11 @@ function createObjectDOM(obj) {
             tableData: loadedDocEntry.rawTableData.slice(0, 80)
           });
           showToast('시트 데이터가 편집 가능한 프리폼 표(Table) 객체로 추출되었습니다');
+        } else if (act === 'download-file') {
+          triggerObjectFileDownload(obj);
         } else if (act === 'open-default') {
-          if (obj.resolvedFilePath) {
-            window.freeformAPI.openPath(obj.resolvedFilePath);
+          if (obj.resolvedFilePath || obj.assetFileName) {
+            window.freeformAPI.openPath(obj.resolvedFilePath || obj.assetFileName);
           }
         }
       });
@@ -6298,13 +6369,21 @@ function createObjectDOM(obj) {
           <div class="ff-file-name">${escapeHtml(obj.fileName || obj.title || badgeInfo.name)}</div>
           <div class="ff-file-size">${escapeHtml(sizeKb)} · ${escapeHtml(badgeInfo.name)} · 클릭하여 내용 보기</div>
         </div>
+        <div class="ff-file-actions">
+          <button class="ff-link-open-btn ff-file-download-btn" data-file-act="download" title="구글 드라이브에 저장된 원본 파일 다운로드">${SVG_ICONS.download}<span>다운로드</span></button>
+        </div>
       `;
+      box.querySelector('[data-file-act="download"]')?.addEventListener('pointerdown', (e) => e.stopPropagation());
+      box.querySelector('[data-file-act="download"]')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerObjectFileDownload(obj);
+      });
       let downPos = null;
       box.addEventListener('pointerdown', (e) => {
-        if (e.button === 0) downPos = { x: e.clientX, y: e.clientY };
+        if (e.button === 0 && !e.target.closest('button')) downPos = { x: e.clientX, y: e.clientY };
       });
       box.addEventListener('pointerup', (e) => {
-        if (e.button === 0 && downPos) {
+        if (e.button === 0 && downPos && !e.target.closest('button')) {
           const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
           downPos = null;
           if (dist < 5) {
@@ -6316,25 +6395,40 @@ function createObjectDOM(obj) {
       body.appendChild(box);
     } else {
       // ======================================================================
-      // GENERAL NON-PDF FILE ATTACHMENT
+      // GENERAL NON-PDF FILE ATTACHMENT (실행 파일 .exe/.msi, 압축 파일 .zip/.7z/.rar 등)
       // ======================================================================
+      const fileBadge = getGeneralFileBadgeInfo(obj.fileName || obj.title || obj.assetFileName || '');
       const box = document.createElement('div');
       box.className = 'ff-file-box';
       box.innerHTML = `
-        <div class="ff-file-icon" style="display:flex;align-items:center;justify-content:center;color:var(--apple-bright-blue);">${SVG_ICONS.fileDoc}</div>
-        <div class="ff-file-info">
-          <div class="ff-file-name">${escapeHtml(obj.fileName || obj.title || '파일')}</div>
-          <div class="ff-file-size">${escapeHtml(sizeKb)}</div>
+        <div class="ff-file-icon" style="display:flex;flex-direction:column;align-items:center;justify-content:center;color:${fileBadge.color};gap:2px;">
+          ${SVG_ICONS.fileDoc}
+          <span style="font-size:9px;font-weight:800;letter-spacing:0.3px;">${escapeHtml(fileBadge.label)}</span>
         </div>
-        <button class="ff-link-open-btn" data-file-act="open">${SVG_ICONS.externalLink}<span>열기</span></button>
+        <div class="ff-file-info">
+          <div class="ff-file-name" title="${escapeHtml(obj.fileName || obj.title || '파일')}">${escapeHtml(obj.fileName || obj.title || '파일')}</div>
+          <div class="ff-file-size">${escapeHtml(sizeKb)} · ${escapeHtml(fileBadge.name)} · Google Drive 저장됨</div>
+        </div>
+        <div class="ff-file-actions">
+          <button class="ff-link-open-btn ff-file-download-btn" data-file-act="download" title="구글 드라이브에 저장된 원본 파일을 내 컴퓨터로 다운로드">${SVG_ICONS.download}<span>다운로드</span></button>
+          <button class="ff-link-open-btn ff-file-exec-btn" data-file-act="open" title="파일 열기 / 실행">${SVG_ICONS.externalLink}<span>열기</span></button>
+        </div>
       `;
+      box.querySelector('[data-file-act="download"]')?.addEventListener('pointerdown', (e) => e.stopPropagation());
+      box.querySelector('[data-file-act="download"]')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerObjectFileDownload(obj);
+      });
+      box.querySelector('[data-file-act="open"]')?.addEventListener('pointerdown', (e) => e.stopPropagation());
       box.querySelector('[data-file-act="open"]')?.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (obj.resolvedFilePath) window.freeformAPI.openPath(obj.resolvedFilePath);
+        if (obj.resolvedFilePath || obj.assetFileName) {
+          window.freeformAPI.openPath(obj.resolvedFilePath || obj.assetFileName);
+        }
       });
       box.addEventListener('dblclick', (e) => {
         e.stopPropagation();
-        if (obj.resolvedFilePath) window.freeformAPI.openPath(obj.resolvedFilePath);
+        triggerObjectFileDownload(obj);
       });
       body.appendChild(box);
     }
@@ -7583,7 +7677,31 @@ async function handleSmartPaste(atWorldPos = null, preferObjectBuffer = false) {
 
   const pos = atWorldPos || getViewportCenterWorld();
 
-  if (clip.kind === 'image') {
+  if (clip.kind === 'file' && clip.asset) {
+    const a = clip.asset;
+    const isImg = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(a.name || '');
+    const docKind = getDocumentViewerKind(a.name || a.resolvedFilePath || '');
+    const isDocViewer = Boolean(docKind);
+    const isLandscapeDoc = docKind === 'pptx' || docKind === 'xlsx' || docKind === 'csv';
+    const initW = isImg ? 360 : isDocViewer ? (isLandscapeDoc ? 620 : 480) : 360;
+    const initH = isImg ? 270 : isDocViewer ? (isLandscapeDoc ? 380 : 679) : 135;
+    addObjectToBoard({
+      type: isImg ? 'image' : 'file',
+      title: a.name || '첨부 파일',
+      fileName: a.name || '첨부 파일',
+      fileSize: a.size,
+      pdfViewMode: isDocViewer ? 'viewer' : undefined,
+      x: pos.x - Math.round(initW / 2),
+      y: pos.y - Math.round(initH / 2),
+      width: initW,
+      height: initH,
+      color: 'dark',
+      assetFileName: a.assetFileName,
+      resolvedFilePath: a.resolvedFilePath,
+      resolvedFileUrl: a.resolvedFileUrl
+    });
+    showToast(`📁 '${a.name}' 파일이 Google Drive에 저장되고 보드에 추가되었습니다`);
+  } else if (clip.kind === 'image') {
     const ratio = clip.height && clip.width ? clip.height / clip.width : 0.75;
     const w = Math.min(460, Math.max(240, clip.width || 360));
     const h = Math.min(460, Math.max(180, Math.round(w * ratio) + 46));
@@ -8411,7 +8529,7 @@ window.addEventListener('drop', async (e) => {
         const docKind = getDocumentViewerKind(file.name);
         const isDocViewer = Boolean(docKind);
         const isLandscapeDoc = docKind === 'pptx' || docKind === 'xlsx' || docKind === 'csv';
-        const initW = isImg ? 360 : isDocViewer ? (isLandscapeDoc ? 620 : 480) : 330;
+        const initW = isImg ? 360 : isDocViewer ? (isLandscapeDoc ? 620 : 480) : 360;
         const initH = isImg ? 270 : isDocViewer ? (isLandscapeDoc ? 380 : 679) : 135;
         addObjectToBoard({
           type: isImg ? 'image' : 'file',
@@ -8563,8 +8681,15 @@ window.addEventListener('contextmenu', (e) => {
       const curMode = primary.pdfViewMode || 'viewer';
       html += `
         <div class="ctx-divider"></div>
-        <button class="ctx-item" data-ctx="pdf-toggle-view"><span class="ctx-item-left">${curMode === 'viewer' ? SVG_ICONS.fileIconMode : SVG_ICONS.bookOpen}<span>${curMode === 'viewer' ? 'PDF 아이콘으로 보기 전환' : 'PDF 내용 보기(뷰어) 전환'}</span></span></button>
-        <button class="ctx-item" data-ctx="pdf-open-default"><span class="ctx-item-left">${SVG_ICONS.externalLink}<span>열기 (기본 PDF 프로그램)</span></span></button>
+        <button class="ctx-item" data-ctx="pdf-toggle-view"><span class="ctx-item-left">${curMode === 'viewer' ? SVG_ICONS.fileIconMode : SVG_ICONS.bookOpen}<span>${curMode === 'viewer' ? '문서 아이콘으로 보기 전환' : '문서 내용 보기(뷰어) 전환'}</span></span></button>
+        <button class="ctx-item" data-ctx="file-download"><span class="ctx-item-left">${SVG_ICONS.download}<span>파일 다운로드 (다른 이름으로 저장)</span></span></button>
+        <button class="ctx-item" data-ctx="pdf-open-default"><span class="ctx-item-left">${SVG_ICONS.externalLink}<span>열기 (기본 프로그램)</span></span></button>
+      `;
+    } else if (primary.type === 'file' || (primary.type === 'image' && primary.assetFileName)) {
+      html += `
+        <div class="ctx-divider"></div>
+        <button class="ctx-item" data-ctx="file-download"><span class="ctx-item-left">${SVG_ICONS.download}<span>파일 다운로드 (다른 이름으로 저장)</span></span></button>
+        ${primary.type === 'file' ? `<button class="ctx-item" data-ctx="pdf-open-default"><span class="ctx-item-left">${SVG_ICONS.externalLink}<span>파일 열기 / 실행</span></span></button>` : ''}
       `;
     }
 
@@ -8667,10 +8792,12 @@ window.addEventListener('contextmenu', (e) => {
       duplicateSelectedObjects();
     } else if (act === 'pdf-toggle-view') {
       if (primary) togglePdfObjectViewMode(primary);
+    } else if (act === 'file-download') {
+      if (primary) triggerObjectFileDownload(primary);
     } else if (act === 'pdf-open-default') {
-      if (primary && primary.resolvedFilePath) {
-        await window.freeformAPI.openPath(primary.resolvedFilePath);
-        showToast('기본 PDF 프로그램으로 문서를 열었습니다');
+      if (primary && (primary.resolvedFilePath || primary.assetFileName)) {
+        await window.freeformAPI.openPath(primary.resolvedFilePath || primary.assetFileName);
+        showToast('파일을 기본 프로그램으로 열었습니다');
       }
     } else if (act === 'obj-toggle-vector' || act === 'label-toggle-vector') {
       if (primary && isVectorizableObject(primary)) {
@@ -8950,7 +9077,7 @@ document.getElementById('addFileBtn')?.addEventListener('click', async () => {
       fileName: a.name,
       fileSize: a.size,
       pdfViewMode: isDocViewer ? 'viewer' : undefined,
-      width: isDocViewer ? (isLandscapeDoc ? 620 : 480) : 330,
+      width: isDocViewer ? (isLandscapeDoc ? 620 : 480) : 360,
       height: isDocViewer ? (isLandscapeDoc ? 380 : 679) : 135,
       color: 'dark',
       assetFileName: a.assetFileName,

@@ -860,12 +860,13 @@ body.theme-light .ff-table-sel-badge {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px;
+  padding: 8px 10px;
   background: rgba(128, 128, 135, 0.12);
   border-radius: 10px;
 }
 .ff-file-icon {
   font-size: 28px;
+  flex-shrink: 0;
 }
 .ff-file-info {
   flex: 1;
@@ -881,6 +882,35 @@ body.theme-light .ff-table-sel-badge {
 .ff-file-size {
   font-size: 11px;
   opacity: 0.65;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ff-file-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.ff-file-actions .ff-link-open-btn {
+  margin-top: 0;
+  align-self: center;
+  white-space: nowrap;
+}
+.ff-file-download-btn {
+  background: var(--apple-blue);
+  color: #ffffff;
+}
+.ff-file-download-btn:hover {
+  background: var(--apple-bright-blue);
+}
+.ff-file-exec-btn {
+  background: rgba(128, 128, 135, 0.22);
+  color: inherit;
+  border: 1px solid rgba(128, 128, 135, 0.3);
+}
+.ff-file-exec-btn:hover {
+  background: rgba(128, 128, 135, 0.38);
 }
 
 /* Resize Handle & Connector Handle on Objects */

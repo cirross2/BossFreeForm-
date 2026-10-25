@@ -609,6 +609,76 @@ function setupIpc() {
     };
   });
 
+  ipcMain.handle('asset:download-file', async (_, { filePath, assetFileName, fileName } = {}) => {
+    try {
+      const assetsDir = driveSync.getAssetsDir();
+      const safeAssetName = path.basename(String(assetFileName || filePath || ''));
+      let srcPath = '';
+      if (filePath && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        srcPath = filePath;
+      } else if (safeAssetName) {
+        const candidate = path.join(assetsDir, safeAssetName);
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+          srcPath = candidate;
+        }
+      }
+
+      // If not yet downloaded locally from Cloud Relay / Google Drive, fetch on demand
+      if (!srcPath && safeAssetName) {
+        const fetchedPath = await fetchAssetFromVercelCloudRelayAsync(safeAssetName);
+        if (fetchedPath && fs.existsSync(fetchedPath)) {
+          srcPath = fetchedPath;
+        } else if (driveSync.isOAuthConnected()) {
+          await driveSync.syncToGoogleCloud().catch(() => {});
+          const candidateAfterSync = path.join(assetsDir, safeAssetName);
+          if (fs.existsSync(candidateAfterSync)) {
+            srcPath = candidateAfterSync;
+          }
+        }
+      }
+
+      if (!srcPath || !fs.existsSync(srcPath)) {
+        return { success: false, error: '원본 파일을 찾을 수 없습니다.' };
+      }
+
+      const fallbackName = safeAssetName.replace(/^\d{10,14}_/, '') || 'downloaded_file';
+      const cleanFileName = String(fileName || fallbackName)
+        .replace(/[\\/:*?"<>|]/g, '_')
+        .trim() || fallbackName;
+      const ext = path.extname(cleanFileName).replace(/^\./, '').toLowerCase();
+      let defaultDir = app.getPath('downloads');
+      try {
+        if (!defaultDir || !fs.existsSync(defaultDir)) defaultDir = app.getPath('desktop');
+      } catch (_) {
+        defaultDir = os.homedir();
+      }
+
+      const filters = ext
+        ? [
+            { name: `${ext.toUpperCase()} 파일 (*.${ext})`, extensions: [ext] },
+            { name: '모든 파일 (*.*)', extensions: ['*'] }
+          ]
+        : [{ name: '모든 파일 (*.*)', extensions: ['*'] }];
+
+      const res = await dialog.showSaveDialog(mainWindow, {
+        title: '구글 드라이브 첨부 파일 다운로드 (다른 이름으로 저장)',
+        defaultPath: path.join(defaultDir, cleanFileName),
+        filters
+      });
+      if (res.canceled || !res.filePath) {
+        return { canceled: true };
+      }
+      fs.copyFileSync(srcPath, res.filePath);
+      return {
+        success: true,
+        savedPath: res.filePath,
+        fileName: path.basename(res.filePath)
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('dialog:pick-files', async (_, opts = {}) => {
     const filters = opts.imagesOnly
       ? [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'] }]
@@ -626,6 +696,21 @@ function setupIpc() {
   });
 
   ipcMain.handle('clipboard:read-smart', () => {
+    try {
+      const fnBuf = clipboard.readBuffer('FileNameW');
+      if (fnBuf && fnBuf.length > 2) {
+        const copiedPath = fnBuf.toString('utf16le').replace(/\0.*$/, '').trim();
+        if (copiedPath && fs.existsSync(copiedPath) && fs.statSync(copiedPath).isFile()) {
+          const saved = driveSync.saveAssetFromPath(copiedPath, path.basename(copiedPath));
+          if (saved?.assetFileName) pushAssetToVercelCloudRelay(saved.assetFileName);
+          return {
+            kind: 'file',
+            asset: saved
+          };
+        }
+      }
+    } catch (_) {}
+
     const img = clipboard.readImage();
     if (!img.isEmpty()) {
       const pngBuf = img.toPNG();
@@ -745,7 +830,21 @@ function setupIpc() {
 
   ipcMain.handle('url:fetch-metadata', (_, url) => fetchUrlMetadata(url));
   ipcMain.handle('shell:open-external', (_, url) => shell.openExternal(url));
-  ipcMain.handle('shell:open-path', (_, p) => shell.openPath(p));
+  ipcMain.handle('shell:open-path', async (_, p) => {
+    if (!p) return '';
+    let targetPath = p;
+    if (!fs.existsSync(targetPath)) {
+      const safeName = path.basename(String(p));
+      const candidate = path.join(driveSync.getAssetsDir(), safeName);
+      if (fs.existsSync(candidate)) {
+        targetPath = candidate;
+      } else {
+        const fetched = await fetchAssetFromVercelCloudRelayAsync(safeName);
+        if (fetched && fs.existsSync(fetched)) targetPath = fetched;
+      }
+    }
+    return shell.openPath(targetPath);
+  });
 
   ipcMain.handle('export:table-csv', async (_, { title, tableData }) => {
     const res = await dialog.showSaveDialog(mainWindow, {
@@ -965,44 +1064,55 @@ async function pushAssetToVercelCloudRelay(assetFileName) {
   } catch (_) {}
 }
 
-function downloadAssetFromVercelCloudRelay(assetFileName) {
-  if (!assetFileName) return;
-  try {
-    const safeName = path.basename(assetFileName);
-    const destPath = path.join(driveSync.getAssetsDir(), safeName);
-    if (fs.existsSync(destPath)) return;
-    const urlObj = new URL(`${VERCEL_CLOUD_SYNC_URL}?asset=${encodeURIComponent(safeName)}`);
-    const req = https.request(
-      {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname + urlObj.search,
-        method: 'GET',
-        timeout: 15000
-      },
-      (res) => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          return;
-        }
-        const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => {
-          try {
-            const buf = Buffer.concat(chunks);
-            if (buf.length > 0) {
-              fs.mkdirSync(driveSync.getAssetsDir(), { recursive: true });
-              fs.writeFileSync(destPath, buf);
-              if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('board:external-update', driveSync.config.lastActiveBoardId);
+function fetchAssetFromVercelCloudRelayAsync(assetFileName) {
+  return new Promise((resolve) => {
+    if (!assetFileName) return resolve(null);
+    try {
+      const safeName = path.basename(assetFileName);
+      const destPath = path.join(driveSync.getAssetsDir(), safeName);
+      if (fs.existsSync(destPath)) return resolve(destPath);
+      const urlObj = new URL(`${VERCEL_CLOUD_SYNC_URL}?asset=${encodeURIComponent(safeName)}`);
+      const req = https.request(
+        {
+          hostname: urlObj.hostname,
+          path: urlObj.pathname + urlObj.search,
+          method: 'GET',
+          timeout: 15000
+        },
+        (res) => {
+          if (res.statusCode !== 200) {
+            res.resume();
+            return resolve(null);
+          }
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => {
+            try {
+              const buf = Buffer.concat(chunks);
+              if (buf.length > 0) {
+                fs.mkdirSync(driveSync.getAssetsDir(), { recursive: true });
+                fs.writeFileSync(destPath, buf);
+                return resolve(destPath);
               }
-            }
-          } catch (_) {}
-        });
-      }
-    );
-    req.on('error', () => {});
-    req.end();
-  } catch (_) {}
+            } catch (_) {}
+            resolve(null);
+          });
+        }
+      );
+      req.on('error', () => resolve(null));
+      req.end();
+    } catch (_) {
+      resolve(null);
+    }
+  });
+}
+
+function downloadAssetFromVercelCloudRelay(assetFileName) {
+  fetchAssetFromVercelCloudRelayAsync(assetFileName).then((savedPath) => {
+    if (savedPath && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('board:external-update', driveSync.config.lastActiveBoardId);
+    }
+  });
 }
 
 function syncWithVercelCloudRelay() {

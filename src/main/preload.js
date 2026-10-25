@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('freeformAPI', {
   },
   saveAssetFromPath: (filePath, name) => ipcRenderer.invoke('asset:save-path', { filePath, name }),
   saveAssetFromBuffer: (data) => ipcRenderer.invoke('asset:save-buffer', data),
+  downloadAssetFile: (payload) => ipcRenderer.invoke('asset:download-file', payload),
   pickFiles: (opts) => ipcRenderer.invoke('dialog:pick-files', opts),
   readClipboardSmart: () => ipcRenderer.invoke('clipboard:read-smart'),
   writeClipboardText: (text) => ipcRenderer.invoke('clipboard:write-text', text),

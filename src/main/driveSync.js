@@ -862,9 +862,14 @@ class DriveSyncManager {
           }
         },
         (res) => {
-          let body = '';
-          res.on('data', (d) => (body += d));
+          const chunks = [];
+          res.on('data', (d) => chunks.push(Buffer.isBuffer(d) ? d : Buffer.from(d)));
           res.on('end', () => {
+            const buf = Buffer.concat(chunks);
+            if (options.responseType === 'buffer') {
+              return resolve(buf);
+            }
+            const body = buf.toString('utf-8');
             try {
               resolve(body ? JSON.parse(body) : {});
             } catch (_) {
@@ -877,6 +882,46 @@ class DriveSyncManager {
       if (options.body) req.write(options.body);
       req.end();
     });
+  }
+
+  getMimeTypeForExtension(extInput = '') {
+    const ext = String(extInput || '').toLowerCase();
+    const map = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml',
+      '.bmp': 'image/bmp',
+      '.ico': 'image/x-icon',
+      '.pdf': 'application/pdf',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.xls': 'application/vnd.ms-excel',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.doc': 'application/msword',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      '.ppt': 'application/vnd.ms-powerpoint',
+      '.csv': 'text/csv',
+      '.tsv': 'text/tab-separated-values',
+      '.txt': 'text/plain',
+      '.json': 'application/json',
+      '.zip': 'application/zip',
+      '.7z': 'application/x-7z-compressed',
+      '.rar': 'application/vnd.rar',
+      '.tar': 'application/x-tar',
+      '.gz': 'application/gzip',
+      '.tgz': 'application/gzip',
+      '.exe': 'application/x-msdownload',
+      '.msi': 'application/x-msi',
+      '.dmg': 'application/x-apple-diskimage',
+      '.apk': 'application/vnd.android.package-archive',
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.mp4': 'video/mp4',
+      '.webm': 'video/webm'
+    };
+    return map[ext] || 'application/octet-stream';
   }
 
   async fetchGoogleUserInfo() {
@@ -980,44 +1025,53 @@ class DriveSyncManager {
       }
     }
 
-    // 2. Sync Assets (BossFreeForm/assets) so added images/PDFs are always backed up to Google Drive Cloud
+    // 2. Sync Assets (BossFreeForm/assets) so added images/PDFs/executables/archives are always backed up to & restored from Google Drive Cloud
     try {
       const aq = encodeURIComponent(`'${assetsFolderId}' in parents and trashed = false`);
       const remoteAssetList = await this.googleApiRequest(`https://www.googleapis.com/drive/v3/files?q=${aq}&fields=files(id,name)&pageSize=200`);
       const remoteAssets = new Map((remoteAssetList?.files || []).map((f) => [f.name, f]));
       const assetsDir = this.getAssetsDir();
-      if (fs.existsSync(assetsDir)) {
-        const localAssets = fs.readdirSync(assetsDir);
-        for (const assetName of localAssets) {
-          if (remoteAssets.has(assetName)) continue;
-          const assetPath = path.join(assetsDir, assetName);
-          if (!fs.statSync(assetPath).isFile()) continue;
-          const buf = fs.readFileSync(assetPath);
-          const ext = path.extname(assetName).toLowerCase();
-          const mime =
-            ext === '.pdf'
-              ? 'application/pdf'
-              : ext === '.jpg' || ext === '.jpeg'
-                ? 'image/jpeg'
-                : ext === '.webp'
-                  ? 'image/webp'
-                  : ext === '.svg'
-                    ? 'image/svg+xml'
-                    : 'image/png';
-          const boundary = '-------BossAssetBoundary' + Date.now();
-          const metadata = JSON.stringify({ name: assetName, parents: [assetsFolderId], mimeType: mime });
-          const headerBuf = Buffer.from(
-            `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`,
-            'utf-8'
+      if (!fs.existsSync(assetsDir)) {
+        fs.mkdirSync(assetsDir, { recursive: true });
+      }
+      const localAssets = fs.readdirSync(assetsDir);
+      const localAssetSet = new Set(localAssets);
+
+      // Upload local assets missing on Google Drive Cloud
+      for (const assetName of localAssets) {
+        if (remoteAssets.has(assetName)) continue;
+        const assetPath = path.join(assetsDir, assetName);
+        if (!fs.statSync(assetPath).isFile()) continue;
+        const buf = fs.readFileSync(assetPath);
+        const ext = path.extname(assetName).toLowerCase();
+        const mime = this.getMimeTypeForExtension(ext);
+        const boundary = '-------BossAssetBoundary' + Date.now();
+        const metadata = JSON.stringify({ name: assetName, parents: [assetsFolderId], mimeType: mime });
+        const headerBuf = Buffer.from(
+          `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`,
+          'utf-8'
+        );
+        const footerBuf = Buffer.from(`\r\n--${boundary}--`, 'utf-8');
+        const multipartBuf = Buffer.concat([headerBuf, buf, footerBuf]);
+        await this.googleApiRequest('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+          method: 'POST',
+          headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+          body: multipartBuf
+        });
+      }
+
+      // Download remote assets from Google Drive Cloud that are missing locally
+      for (const [remoteAssetName, remoteMeta] of remoteAssets.entries()) {
+        if (localAssetSet.has(remoteAssetName) || !remoteMeta?.id) continue;
+        try {
+          const downloadedBuf = await this.googleApiRequest(
+            `https://www.googleapis.com/drive/v3/files/${remoteMeta.id}?alt=media`,
+            { responseType: 'buffer' }
           );
-          const footerBuf = Buffer.from(`\r\n--${boundary}--`, 'utf-8');
-          const multipartBuf = Buffer.concat([headerBuf, buf, footerBuf]);
-          await this.googleApiRequest('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-            method: 'POST',
-            headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-            body: multipartBuf
-          });
-        }
+          if (Buffer.isBuffer(downloadedBuf) && downloadedBuf.length > 0) {
+            fs.writeFileSync(path.join(assetsDir, path.basename(remoteAssetName)), downloadedBuf);
+          }
+        } catch (_) {}
       }
     } catch (_) {}
 
