@@ -507,7 +507,14 @@ class DriveSyncManager {
       .slice(0, 40);
     const fileName = `${Date.now()}_${base}${ext}`;
     const destPath = path.join(this.getAssetsDir(), fileName);
-    fs.copyFileSync(sourcePath, destPath);
+    if (ext.toLowerCase() === '.csv') {
+      const rawBuf = fs.readFileSync(sourcePath);
+      const hasBom = rawBuf.length >= 3 && rawBuf[0] === 0xef && rawBuf[1] === 0xbb && rawBuf[2] === 0xbf;
+      const outBuf = hasBom ? rawBuf : Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), rawBuf]);
+      fs.writeFileSync(destPath, outBuf);
+    } else {
+      fs.copyFileSync(sourcePath, destPath);
+    }
     const stat = fs.statSync(destPath);
     if (this.config.autoSyncCloud && this.isOAuthConnected()) {
       this.syncToGoogleCloud().catch(() => {});
@@ -530,14 +537,21 @@ class DriveSyncManager {
       .slice(0, 40);
     const fileName = `${Date.now()}_${baseLabel}${cleanExt}`;
     const destPath = path.join(this.getAssetsDir(), fileName);
-    fs.writeFileSync(destPath, buffer);
+    let outBuf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    if (cleanExt.toLowerCase() === '.csv') {
+      const hasBom = outBuf.length >= 3 && outBuf[0] === 0xef && outBuf[1] === 0xbb && outBuf[2] === 0xbf;
+      if (!hasBom) {
+        outBuf = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), outBuf]);
+      }
+    }
+    fs.writeFileSync(destPath, outBuf);
     if (this.config.autoSyncCloud && this.isOAuthConnected()) {
       this.syncToGoogleCloud().catch(() => {});
     }
     return {
       assetFileName: fileName,
       name: label || fileName,
-      size: buffer.length,
+      size: outBuf.length,
       resolvedFilePath: destPath,
       resolvedFileUrl: `file:///${destPath.replace(/\\/g, '/')}`
     };

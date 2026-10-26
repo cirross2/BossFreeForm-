@@ -668,7 +668,14 @@ function setupIpc() {
       if (res.canceled || !res.filePath) {
         return { canceled: true };
       }
-      fs.copyFileSync(srcPath, res.filePath);
+      if (ext === 'csv' || path.extname(res.filePath).toLowerCase() === '.csv') {
+        const rawBuf = fs.readFileSync(srcPath);
+        const hasBom = rawBuf.length >= 3 && rawBuf[0] === 0xef && rawBuf[1] === 0xbb && rawBuf[2] === 0xbf;
+        const outBuf = hasBom ? rawBuf : Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), rawBuf]);
+        fs.writeFileSync(res.filePath, outBuf);
+      } else {
+        fs.copyFileSync(srcPath, res.filePath);
+      }
       return {
         success: true,
         savedPath: res.filePath,
