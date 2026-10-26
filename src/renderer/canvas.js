@@ -5211,6 +5211,22 @@ function createObjectDOM(obj) {
         row.dataset.checked = nextChecked ? '1' : '0';
         row.classList.toggle('checked', nextChecked);
         widget.classList.toggle('checked', nextChecked);
+
+        // 상위 항목 완료/취소 시 직속 및 하위 계층(level > parentLevel) 항목도 함께 일괄 완료/취소 처리
+        const parentLevel = Math.min(5, Math.max(0, Number(row.dataset.level) || 0));
+        const allRows = Array.from(checklistContainer.querySelectorAll('.ff-check-row'));
+        const curIdx = allRows.indexOf(row);
+        if (curIdx >= 0) {
+          for (let i = curIdx + 1; i < allRows.length; i++) {
+            const subRow = allRows[i];
+            const subLevel = Math.min(5, Math.max(0, Number(subRow.dataset.level) || 0));
+            if (subLevel <= parentLevel) break;
+            subRow.dataset.checked = nextChecked ? '1' : '0';
+            subRow.classList.toggle('checked', nextChecked);
+            subRow.querySelector('.ff-chk-widget')?.classList.toggle('checked', nextChecked);
+          }
+        }
+
         applyObjectTypography(el, obj);
         syncChecklistAndMemoToObj();
       });
@@ -5641,10 +5657,19 @@ function createObjectDOM(obj) {
         const lineIdx = Number(taskChk.dataset.mdTaskLine);
         const lines = String(obj.content || '').replace(/\r/g, '').split('\n');
         if (lines[lineIdx] !== undefined) {
-          lines[lineIdx] = lines[lineIdx].replace(
-            /^(\s*[-*+]\s+\[)([ xX])(\]\s*.*)$/,
-            (_, p1, cur, p3) => `${p1}${cur.trim() ? ' ' : 'x'}${p3}`
-          );
+          const match = lines[lineIdx].match(/^(\s*)([-*+]\s+\[)([ xX])(\]\s*.*)$/);
+          if (match) {
+            const parentIndentLen = match[1].replace(/\t/g, '  ').length;
+            const nextMark = match[3].trim() ? ' ' : 'x';
+            lines[lineIdx] = `${match[1]}${match[2]}${nextMark}${match[4]}`;
+            for (let i = lineIdx + 1; i < lines.length; i++) {
+              const subMatch = lines[i].match(/^(\s*)([-*+]\s+\[)([ xX])(\]\s*.*)$/);
+              if (!subMatch) break;
+              const subIndentLen = subMatch[1].replace(/\t/g, '  ').length;
+              if (subIndentLen <= parentIndentLen) break;
+              lines[i] = `${subMatch[1]}${subMatch[2]}${nextMark}${subMatch[4]}`;
+            }
+          }
           obj.content = lines.join('\n');
           textarea.value = obj.content;
           updatePreviewDOM();
