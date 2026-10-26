@@ -519,12 +519,19 @@ class DriveSyncManager {
     if (this.config.autoSyncCloud && this.isOAuthConnected()) {
       this.syncToGoogleCloud().catch(() => {});
     }
+    let textContent = undefined;
+    if (/\.(md|markdown|txt)$/i.test(ext) && stat.size <= 5 * 1024 * 1024) {
+      try {
+        textContent = fs.readFileSync(destPath, 'utf-8').replace(/^\uFEFF/, '');
+      } catch (_) {}
+    }
     return {
       assetFileName: fileName,
       name: originalName || path.basename(sourcePath),
       size: stat.size,
       resolvedFilePath: destPath,
-      resolvedFileUrl: `file:///${destPath.replace(/\\/g, '/')}`
+      resolvedFileUrl: `file:///${destPath.replace(/\\/g, '/')}`,
+      ...(textContent !== undefined ? { textContent } : {})
     };
   }
 
@@ -548,12 +555,19 @@ class DriveSyncManager {
     if (this.config.autoSyncCloud && this.isOAuthConnected()) {
       this.syncToGoogleCloud().catch(() => {});
     }
+    let textContent = undefined;
+    if (/\.(md|markdown|txt)$/i.test(cleanExt) && outBuf.length <= 5 * 1024 * 1024) {
+      try {
+        textContent = outBuf.toString('utf-8').replace(/^\uFEFF/, '');
+      } catch (_) {}
+    }
     return {
       assetFileName: fileName,
       name: label || fileName,
       size: outBuf.length,
       resolvedFilePath: destPath,
-      resolvedFileUrl: `file:///${destPath.replace(/\\/g, '/')}`
+      resolvedFileUrl: `file:///${destPath.replace(/\\/g, '/')}`,
+      ...(textContent !== undefined ? { textContent } : {})
     };
   }
 

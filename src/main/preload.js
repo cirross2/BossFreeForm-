@@ -41,6 +41,9 @@ contextBridge.exposeInMainWorld('freeformAPI', {
 
   // Export & Import
   exportTableCsv: (payload) => ipcRenderer.invoke('export:table-csv', payload),
+  exportMarkdownMd: (payload) => ipcRenderer.invoke('export:markdown-md', payload),
+  exportMarkdownPdf: (payload) => ipcRenderer.invoke('export:markdown-pdf', payload),
+  readTextFile: (payload) => ipcRenderer.invoke('asset:read-text', payload),
   exportBoardJson: (board) => ipcRenderer.invoke('export:board-json', board),
   importBoardJson: () => ipcRenderer.invoke('import:board-json'),
 

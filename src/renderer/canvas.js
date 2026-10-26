@@ -1662,7 +1662,7 @@ function applyObjectTypography(el, obj) {
   }
 
   el.querySelectorAll(
-    '.ff-sticky-textarea, .ff-note-memo-area, .ff-table th, .ff-table td, .ff-label-editor, .ff-link-title, .ff-link-desc, .ff-file-name'
+    '.ff-sticky-textarea, .ff-note-memo-area, .ff-md-preview-pane, .ff-md-textarea, .ff-table th, .ff-table td, .ff-label-editor, .ff-link-title, .ff-link-desc, .ff-file-name'
   ).forEach((node) => {
     if (node.tagName === 'TD' && node.dataset.cellKey) {
       const ck = node.dataset.cellKey;
@@ -2552,9 +2552,11 @@ function renderUniversalVectorizedObjectInto(wrapEl, obj) {
 
     let curY = headerH + 34;
     checks.forEach((chk) => {
+      const lvOffset = Math.min(5, Math.max(0, Number(chk.level) || 0)) * 24;
+      const boxX = padX + lvOffset;
       const boxY = curY - 20;
       const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      rect.setAttribute('x', String(padX));
+      rect.setAttribute('x', String(boxX));
       rect.setAttribute('y', String(boxY));
       rect.setAttribute('width', chk.style === 'toggle' ? '34' : '22');
       rect.setAttribute('height', '22');
@@ -2565,14 +2567,14 @@ function renderUniversalVectorizedObjectInto(wrapEl, obj) {
       contentGroup.appendChild(rect);
 
       if (chk.checked) {
-        addText('✓', padX + (chk.style === 'toggle' ? 17 : 11), curY - 3, 16, {
+        addText('✓', boxX + (chk.style === 'toggle' ? 17 : 11), curY - 3, 16, {
           anchor: 'middle',
           fill: '#ffffff',
           weight: '800',
           decoration: 'none'
         });
       }
-      const textX = padX + (chk.style === 'toggle' ? 46 : 34);
+      const textX = boxX + (chk.style === 'toggle' ? 46 : 34);
       addText(chk.text || '', textX, curY, baseFs, {
         fill: pal.text,
         opacity: chk.checked ? 0.6 : 1,
@@ -2856,7 +2858,8 @@ async function copyEntireObjectContent(obj, copyBtnEl = null) {
       .map((it) => {
         if (it.isCheck) {
           if (!it.text.trim()) return '';
-          return `${it.checked ? '☑' : '☐'} ${it.text}`;
+          const indent = '  '.repeat(Math.min(5, Math.max(0, Number(it.level) || 0)));
+          return `${indent}${it.checked ? '☑' : '☐'} ${it.text}`;
         }
         return it.text;
       })
@@ -2864,6 +2867,10 @@ async function copyEntireObjectContent(obj, copyBtnEl = null) {
     const out = lines.join('\n') || obj.title || '';
     await window.freeformAPI.writeClipboardText(out);
     flashSuccess('체크리스트 및 메모 내용이 모두 복사되었습니다');
+  } else if (obj.type === 'markdown') {
+    const out = obj.content || obj.title || '';
+    await window.freeformAPI.writeClipboardText(out);
+    flashSuccess('마크다운(MD) 문서 전체 내용이 클립보드에 복사되었습니다');
   } else if (obj.type === 'table') {
     const tsv = (obj.tableData || [])
       .map((r) =>
@@ -2921,7 +2928,12 @@ async function copyChecklistFilteredItems(obj, checkedOnly = false, btnEl = null
     showToast(checkedOnly ? '☑ 복사할 체크 완료 항목이 없습니다' : '☐ 복사할 미체크 항목이 없습니다');
     return;
   }
-  const out = matched.map((it) => `${checkedOnly ? '☑' : '☐'} ${it.text.trim()}`).join('\n');
+  const out = matched
+    .map((it) => {
+      const indent = '  '.repeat(Math.min(5, Math.max(0, Number(it.level) || 0)));
+      return `${indent}${checkedOnly ? '☑' : '☐'} ${it.text.trim()}`;
+    })
+    .join('\n');
   await window.freeformAPI.writeClipboardText(out);
   if (btnEl) {
     const origHtml = btnEl.innerHTML;
@@ -3661,29 +3673,428 @@ function rotateSelectedObjects(deltaDeg, absoluteDeg = null) {
 }
 
 // ============================================================================
+// Lightweight Antigravity / GitHub Flavored Markdown Engine (Zero Heavy Libs)
+// Supports: Headings, Callouts ([!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]),
+// Tables, Interactive Task Lists, Code Blocks, Images (Web + Drive Assets),
+// Links (Web + Local Files), Highlights (==...==), and Colorful Text ({red:...})
+// ============================================================================
+function resolveMarkdownAssetUrl(rawHref = '', obj = null) {
+  const trimmed = String(rawHref || '').trim();
+  if (!trimmed) return '';
+  if (/^(https?:\/\/|data:|file:\/\/\/|blob:)/i.test(trimmed)) return trimmed;
+  const cleanAssetName = trimmed.replace(/^asset:/i, '').replace(/\\/g, '/').split('/').pop();
+  if (obj && obj.mdAssets && obj.mdAssets[cleanAssetName]) {
+    const entry = obj.mdAssets[cleanAssetName];
+    if (entry.resolvedFileUrl) return entry.resolvedFileUrl;
+    if (entry.resolvedFilePath) return `file:///${String(entry.resolvedFilePath).replace(/\\/g, '/')}`;
+  }
+  if (currentBoard && Array.isArray(currentBoard.objects)) {
+    const found = currentBoard.objects.find(
+      (o) => o && (o.assetFileName === cleanAssetName || o.fileName === cleanAssetName)
+    );
+    if (found) {
+      if (found.resolvedFileUrl) return found.resolvedFileUrl;
+      if (found.resolvedFilePath) return `file:///${String(found.resolvedFilePath).replace(/\\/g, '/')}`;
+    }
+  }
+  if (/^[A-Za-z]:[\\/]/.test(trimmed)) {
+    return `file:///${trimmed.replace(/\\/g, '/')}`;
+  }
+  if (trimmed.startsWith('asset:') || /\.(png|jpe?g|gif|webp|svg|bmp|pdf|xlsx|csv|docx|pptx|zip|exe|md)$/i.test(cleanAssetName)) {
+    return `/api/cloud-sync?asset=${encodeURIComponent(cleanAssetName)}`;
+  }
+  return trimmed;
+}
+
+function formatMarkdownInline(rawText = '', obj = null) {
+  const codePlaceholders = [];
+  let text = String(rawText || '');
+
+  // 1. Protect inline code `...`
+  text = text.replace(/`([^`\n]+)`/g, (_, codeStr) => {
+    const idx = codePlaceholders.length;
+    codePlaceholders.push(`<code class="ff-md-inline-code">${escapeHtml(codeStr)}</code>`);
+    return `\x00MDCODE${idx}\x00`;
+  });
+
+  // 2. Escape HTML entities safely
+  text = escapeHtml(text);
+
+  // 3. Images: ![alt](src)
+  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, rawSrc) => {
+    const resolved = resolveMarkdownAssetUrl(rawSrc, obj);
+    return `<img class="ff-md-img" src="${escapeHtml(resolved)}" data-raw-src="${escapeHtml(rawSrc)}" alt="${escapeHtml(alt)}" title="${escapeHtml(alt || '클릭하여 크게 보기')}" loading="lazy" />`;
+  });
+
+  // 4. Links: [label](href)
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, rawHref) => {
+    const resolved = resolveMarkdownAssetUrl(rawHref, obj);
+    const isFileLink = /^asset:|^file:\/\/\/|^[A-Za-z]:[\\/]/i.test(rawHref.trim());
+    const iconPrefix = isFileLink ? '📎 ' : '';
+    return `<a class="ff-md-link" href="${escapeHtml(resolved)}" data-raw-href="${escapeHtml(rawHref.trim())}" data-is-file="${isFileLink ? '1' : '0'}" title="${escapeHtml(rawHref.trim())}">${iconPrefix}${label}</a>`;
+  });
+
+  // 5. Colorful text tags: {red:텍스트}, {blue:텍스트}, {green:텍스트}, {yellow:텍스트}, {purple:텍스트}, {orange:텍스트}
+  text = text.replace(/\{(red|blue|green|yellow|purple|orange):([^{}\n]+)\}/gi, (_, col, inner) => {
+    return `<span class="ff-md-color-${col.toLowerCase()}">${inner}</span>`;
+  });
+
+  // 6. Highlight ==text==, Bold **text**, Italic *text*, Strikethrough ~~text~~
+  text = text.replace(/==([^=\n]+)==/g, '<mark class="ff-md-mark">$1</mark>');
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+
+  // 7. Restore inline code placeholders
+  text = text.replace(/\x00MDCODE(\d+)\x00/g, (_, idx) => codePlaceholders[Number(idx)] || '');
+  return text;
+}
+
+function renderMarkdownToHtml(rawMd = '', obj = null) {
+  const lines = String(rawMd ?? '').replace(/\r/g, '').split('\n');
+  const htmlParts = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // 1. Fenced Code Block ```lang
+    const fenceMatch = line.match(/^```([A-Za-z0-9_+-]*)\s*$/);
+    if (fenceMatch) {
+      const lang = fenceMatch[1] || 'code';
+      const codeLines = [];
+      i++;
+      while (i < lines.length && !/^```\s*$/.test(lines[i])) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) i++; // skip closing ```
+      const rawCode = codeLines.join('\n');
+      htmlParts.push(`
+        <div class="ff-md-code-block">
+          <div class="ff-md-code-header">
+            <span>${escapeHtml(lang.toUpperCase())}</span>
+            <button class="ff-md-code-copy-btn" data-md-copy-code="${encodeURIComponent(rawCode)}">복사</button>
+          </div>
+          <pre><code>${escapeHtml(rawCode)}</code></pre>
+        </div>
+      `);
+      continue;
+    }
+
+    // 2. Empty line
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+
+    // 3. Horizontal Rule (---, ***, ___)
+    if (/^(?:---|\*\*\*|___)\s*$/.test(line.trim())) {
+      htmlParts.push('<hr />');
+      i++;
+      continue;
+    }
+
+    // 4. Headings (# ~ ######)
+    const hMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    if (hMatch) {
+      const level = hMatch[1].length;
+      htmlParts.push(`<h${level}>${formatMarkdownInline(hMatch[2], obj)}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    // 5. Blockquotes & Antigravity/GitHub Callout Alerts (> [!NOTE], > [!TIP], > [!IMPORTANT], > [!WARNING], > [!CAUTION])
+    if (/^\s*>\s?/.test(line)) {
+      const quoteLines = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+        quoteLines.push(lines[i].replace(/^\s*>\s?/, ''));
+        i++;
+      }
+      const firstLine = (quoteLines[0] || '').trim();
+      const calloutMatch = firstLine.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i);
+      if (calloutMatch) {
+        const kind = calloutMatch[1].toLowerCase();
+        const customTitle = calloutMatch[2] || calloutMatch[1].toUpperCase();
+        const iconMap = {
+          note: 'ℹ️',
+          tip: '💡',
+          important: '📌',
+          warning: '⚠️',
+          caution: '🚨'
+        };
+        const bodyLines = quoteLines.slice(1).map((l) => formatMarkdownInline(l, obj)).join('<br/>');
+        htmlParts.push(`
+          <div class="ff-md-callout callout-${kind}">
+            <div class="ff-md-callout-title">${iconMap[kind] || 'ℹ️'} <span>${escapeHtml(customTitle)}</span></div>
+            <div class="ff-md-callout-body">${bodyLines}</div>
+          </div>
+        `);
+      } else {
+        const bodyHtml = quoteLines.map((l) => formatMarkdownInline(l, obj)).join('<br/>');
+        htmlParts.push(`<blockquote>${bodyHtml}</blockquote>`);
+      }
+      continue;
+    }
+
+    // 6. Markdown Table (| col1 | col2 |)
+    if (
+      line.includes('|') &&
+      i + 1 < lines.length &&
+      /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(lines[i + 1])
+    ) {
+      const parseTableRow = (rowStr) => {
+        const trimmed = rowStr.trim().replace(/^\|/, '').replace(/\|$/, '');
+        return trimmed.split('|').map((c) => c.trim());
+      };
+      const headers = parseTableRow(lines[i]);
+      const aligns = parseTableRow(lines[i + 1]).map((sep) => {
+        if (/^:-+:$/.test(sep)) return 'center';
+        if (/^-+:$/.test(sep)) return 'right';
+        return 'left';
+      });
+      i += 2;
+      const bodyRows = [];
+      while (i < lines.length && lines[i].trim().includes('|')) {
+        bodyRows.push(parseTableRow(lines[i]));
+        i++;
+      }
+      const thHtml = headers
+        .map((h, cIdx) => `<th style="text-align:${aligns[cIdx] || 'left'}">${formatMarkdownInline(h, obj)}</th>`)
+        .join('');
+      const trHtml = bodyRows
+        .map(
+          (r) =>
+            `<tr>${headers
+              .map(
+                (_, cIdx) =>
+                  `<td style="text-align:${aligns[cIdx] || 'left'}">${formatMarkdownInline(r[cIdx] || '', obj)}</td>`
+              )
+              .join('')}</tr>`
+        )
+        .join('');
+      htmlParts.push(`<table class="ff-md-table"><thead><tr>${thHtml}</tr></thead><tbody>${trHtml}</tbody></table>`);
+      continue;
+    }
+
+    // 7. Task Lists & Bullet/Numbered Lists
+    if (/^(\s*)(?:[-*+]|\d+\.)\s+/.test(line)) {
+      const isOrdered = /^\s*\d+\.\s+/.test(line);
+      const tag = isOrdered ? 'ol' : 'ul';
+      const itemsHtml = [];
+      while (i < lines.length && /^(\s*)(?:[-*+]|\d+\.)\s+/.test(lines[i])) {
+        const curLine = lines[i];
+        const lineIdx = i;
+        const taskMatch = curLine.match(/^(\s*)[-*+]\s+\[([ xX])\]\s*(.*)$/);
+        if (taskMatch) {
+          const indentSpaces = (taskMatch[1] || '').replace(/\t/g, '  ').length;
+          const indentLevel = Math.min(5, Math.floor(indentSpaces / 2));
+          const checked = taskMatch[2].toLowerCase() === 'x';
+          const padPx = indentLevel * 20;
+          itemsHtml.push(`
+            <li class="ff-md-task-item ${checked ? 'is-checked' : ''}" style="padding-left:${padPx}px">
+              <input type="checkbox" data-md-task-line="${lineIdx}" ${checked ? 'checked' : ''} />
+              <span>${formatMarkdownInline(taskMatch[3], obj)}</span>
+            </li>
+          `);
+        } else {
+          const itemMatch = curLine.match(/^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/);
+          const indentSpaces = (itemMatch?.[1] || '').replace(/\t/g, '  ').length;
+          const indentLevel = Math.min(5, Math.floor(indentSpaces / 2));
+          const padPx = indentLevel * 20;
+          itemsHtml.push(
+            `<li style="margin-left:${padPx}px">${formatMarkdownInline(itemMatch ? itemMatch[2] : curLine, obj)}</li>`
+          );
+        }
+        i++;
+      }
+      htmlParts.push(`<${tag}>${itemsHtml.join('')}</${tag}>`);
+      continue;
+    }
+
+    // 8. Standard Paragraph
+    const paraLines = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() !== '' &&
+      !/^```/.test(lines[i]) &&
+      !/^(#{1,6})\s+/.test(lines[i]) &&
+      !/^\s*>\s?/.test(lines[i]) &&
+      !/^(?:---|\*\*\*|___)\s*$/.test(lines[i].trim()) &&
+      !/^(\s*)(?:[-*+]|\d+\.)\s+/.test(lines[i])
+    ) {
+      paraLines.push(formatMarkdownInline(lines[i], obj));
+      i++;
+    }
+    if (paraLines.length > 0) {
+      htmlParts.push(`<p>${paraLines.join('<br/>')}</p>`);
+    } else {
+      i++;
+    }
+  }
+
+  return htmlParts.join('\n');
+}
+
+function buildStandaloneMarkdownHtmlForPdf(obj) {
+  const title = obj?.title || 'Markdown Document';
+  const renderedBody = renderMarkdownToHtml(obj?.content || '', obj);
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Pretendard", "Malgun Gothic", "맑은 고딕", sans-serif;
+      color: #1d1d1f;
+      background: #ffffff;
+      line-height: 1.65;
+      font-size: 13.5px;
+      margin: 0;
+      padding: 0;
+      word-break: break-word;
+    }
+    .doc-title-header {
+      font-size: 24px;
+      font-weight: 800;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #1d1d1f;
+    }
+    h1, h2, h3, h4 { margin: 16px 0 8px; font-weight: 800; line-height: 1.3; color: #111113; }
+    h1 { font-size: 21px; border-bottom: 1.5px solid #e5e5ea; padding-bottom: 5px; }
+    h2 { font-size: 17.5px; border-bottom: 1px solid #efeff4; padding-bottom: 4px; }
+    h3 { font-size: 15px; }
+    p { margin: 6px 0 10px; }
+    hr { border: 0; height: 1px; background: #d1d1d6; margin: 14px 0; }
+    ul, ol { margin: 6px 0 10px; padding-left: 22px; }
+    li { margin: 3px 0; }
+    li.ff-md-task-item { list-style: none; margin-left: -18px; display: flex; align-items: flex-start; gap: 7px; }
+    li.ff-md-task-item.is-checked > span { text-decoration: line-through; color: #8e8e93; }
+    code.ff-md-inline-code {
+      font-family: "JetBrains Mono", "Consolas", monospace;
+      font-size: 0.9em;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: #f2f2f7;
+      color: #c93400;
+    }
+    .ff-md-code-block {
+      margin: 10px 0;
+      border-radius: 8px;
+      background: #1c1c1e;
+      color: #f5f5f7;
+      overflow: hidden;
+    }
+    .ff-md-code-header {
+      padding: 4px 10px;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #aeaeb2;
+      background: #2c2c2e;
+    }
+    .ff-md-code-copy-btn { display: none; }
+    .ff-md-code-block pre {
+      margin: 0;
+      padding: 10px 12px;
+      font-family: "JetBrains Mono", "Consolas", monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    blockquote, .ff-md-callout {
+      margin: 10px 0;
+      padding: 9px 14px;
+      border-left: 4px solid #0071e3;
+      background: #f2f7ff;
+      border-radius: 0 8px 8px 0;
+    }
+    .ff-md-callout-title { font-weight: 800; font-size: 12.5px; margin-bottom: 4px; color: #0071e3; }
+    .ff-md-callout.callout-tip { border-left-color: #28cd41; background: #f2fbf4; }
+    .ff-md-callout.callout-tip .ff-md-callout-title { color: #1d8338; }
+    .ff-md-callout.callout-important { border-left-color: #af52de; background: #faf2ff; }
+    .ff-md-callout.callout-important .ff-md-callout-title { color: #8944ab; }
+    .ff-md-callout.callout-warning { border-left-color: #ff9500; background: #fff9f0; }
+    .ff-md-callout.callout-warning .ff-md-callout-title { color: #c93400; }
+    .ff-md-callout.callout-caution { border-left-color: #ff3b30; background: #fff2f2; }
+    .ff-md-callout.callout-caution .ff-md-callout-title { color: #d70015; }
+    table.ff-md-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12.5px; }
+    table.ff-md-table th, table.ff-md-table td { border: 1px solid #c7c7cc; padding: 6px 10px; }
+    table.ff-md-table th { background: #f2f2f7; font-weight: 700; }
+    img.ff-md-img { max-width: 100%; height: auto; border-radius: 6px; margin: 6px 0; }
+    a.ff-md-link { color: #0066cc; text-decoration: underline; font-weight: 600; }
+    mark.ff-md-mark { background: #fff3a8; padding: 1px 4px; border-radius: 3px; }
+    .ff-md-color-red { color: #d70015; font-weight: 600; }
+    .ff-md-color-blue { color: #0066cc; font-weight: 600; }
+    .ff-md-color-green { color: #1d8338; font-weight: 600; }
+    .ff-md-color-yellow { color: #b25000; font-weight: 600; }
+    .ff-md-color-purple { color: #8944ab; font-weight: 600; }
+    .ff-md-color-orange { color: #c93400; font-weight: 600; }
+  </style>
+</head>
+<body>
+  ${renderedBody}
+</body>
+</html>`;
+}
+
+async function exportObjectMarkdownMd(obj) {
+  if (!obj) return;
+  const res = await window.freeformAPI.exportMarkdownMd({
+    title: obj.title || 'Markdown_Doc',
+    content: obj.content || ''
+  });
+  if (res && res.success) {
+    showToast(`💾 마크다운(.md) 파일 저장 완료: ${res.filePath}`);
+  }
+}
+
+async function exportObjectMarkdownPdf(obj) {
+  if (!obj) return;
+  showToast('📄 마크다운 문서를 PDF로 변환하고 있습니다...');
+  const htmlContent = buildStandaloneMarkdownHtmlForPdf(obj);
+  const res = await window.freeformAPI.exportMarkdownPdf({
+    title: obj.title || 'Markdown_Doc',
+    htmlContent
+  });
+  if (res && res.success) {
+    showToast(`📄 PDF 변환 저장 완료: ${res.filePath}`);
+  } else if (res && res.error) {
+    showToast(`⚠️ PDF 변환 실패: ${res.error}`);
+  }
+}
+
+// ============================================================================
 // 3-Style Interactive Checkbox Parser & Builder (Checklist Cards & Table Cells)
+// Supports Nested Sub-Items (:L0 ~ :L5) via Ctrl+Enter / Enter / Shift+Enter
 // ============================================================================
 function parseNoteLines(rawContent) {
   // Strip Windows CR characters (pasted text) so "[square:0] text\r" is still recognized as a checklist line
   const lines = String(rawContent ?? '').replace(/\r/g, '').split('\n');
   return lines.map((line) => {
-    let m = line.match(/^\[(square|circle|toggle):(0|1)(?::(left|center|right))?\]\s?(.*)$/);
+    let m = line.match(/^\[(square|circle|toggle):(0|1)(?::(left|center|right))?(?::L([0-5]))?\]\s?(.*)$/);
     if (m) {
       return {
         isCheck: true,
         style: m[1],
         checked: m[2] === '1',
         align: m[3] || 'left',
-        text: m[4]
+        level: m[4] ? Number(m[4]) : 0,
+        text: m[5]
       };
     }
-    m = line.match(/^(?:-\s*\[\s*\]|☐)\s?(.*)$/);
+    m = line.match(/^(\s*)(?:-\s*\[\s*\]|☐)\s?(.*)$/);
     if (m) {
-      return { isCheck: true, style: 'square', checked: false, align: 'left', text: m[1] };
+      const lv = Math.min(5, Math.floor((m[1] || '').replace(/\t/g, '  ').length / 2));
+      return { isCheck: true, style: 'square', checked: false, align: 'left', level: lv, text: m[2] };
     }
-    m = line.match(/^(?:-\s*\[[xX]\]|☑)\s?(.*)$/);
+    m = line.match(/^(\s*)(?:-\s*\[[xX]\]|☑)\s?(.*)$/);
     if (m) {
-      return { isCheck: true, style: 'square', checked: true, align: 'left', text: m[1] };
+      const lv = Math.min(5, Math.floor((m[1] || '').replace(/\t/g, '  ').length / 2));
+      return { isCheck: true, style: 'square', checked: true, align: 'left', level: lv, text: m[2] };
     }
     return { isCheck: false, text: line };
   });
@@ -3696,7 +4107,9 @@ function serializeNoteLines(items) {
         const st = item.style || 'square';
         const ck = item.checked ? '1' : '0';
         const al = item.align && item.align !== 'left' ? `:${item.align}` : '';
-        return `[${st}:${ck}${al}] ${item.text || ''}`;
+        const lvNum = Math.min(5, Math.max(0, Number(item.level) || 0));
+        const lv = lvNum > 0 ? `:L${lvNum}` : '';
+        return `[${st}:${ck}${al}${lv}] ${item.text || ''}`;
       }
       return item.text || '';
     })
@@ -4700,6 +5113,7 @@ function createObjectDOM(obj) {
       <button class="ff-chk-Insert-btn" data-chk="square" title="네모 체크박스 항목 추가 (빈 줄에선 모양 변경)">${SVG_ICONS.chkSquare}<span>네모체크</span></button>
       <button class="ff-chk-Insert-btn" data-chk="circle" title="원형 체크박스 항목 추가 (빈 줄에선 모양 변경)">${SVG_ICONS.chkCircle}<span>원형체크</span></button>
       <button class="ff-chk-Insert-btn" data-chk="toggle" title="슬라이드 토글 항목 추가 (빈 줄에선 모양 변경)">${SVG_ICONS.chkToggle}<span>슬라이드</span></button>
+      <button class="ff-chk-Insert-btn" data-chk="sub-item" title="현재 항목의 하위 체크리스트 추가 (단축키: Ctrl+Enter / 상위복귀: Shift+Enter)"><span>↳ 하위목록</span></button>
       <button class="ff-chk-Insert-btn" data-chk="memo" title="하단 자유 메모 입력란으로 포커스 이동">${SVG_ICONS.plus}<span>자유메모</span></button>
       <button class="ff-chk-Insert-btn ${isAutoWrap ? 'is-active' : ''}" data-chk="autowrap" title="체크리스트 자동줄바꿈 ON/OFF (긴 문장을 다음 항목으로 분리하지 않고 줄바꿈 표시)">${SVG_ICONS.wrapText}<span>자동줄바꿈</span></button>
     `;
@@ -4719,7 +5133,7 @@ function createObjectDOM(obj) {
 
     // If completely new/empty checklist, start with 1 clean empty checkbox row
     if (initialChecks.length === 0 && initialMemoLines.every((l) => !l.trim())) {
-      initialChecks.push({ isCheck: true, style: 'square', checked: false, text: '' });
+      initialChecks.push({ isCheck: true, style: 'square', checked: false, level: 0, text: '' });
       initialMemoLines.length = 0;
     }
 
@@ -4755,8 +5169,10 @@ function createObjectDOM(obj) {
         const st = r.dataset.style || 'square';
         const ck = r.dataset.checked === '1' ? '1' : '0';
         const al = r.dataset.align && r.dataset.align !== 'left' ? `:${r.dataset.align}` : '';
+        const lvNum = Math.min(5, Math.max(0, Number(r.dataset.level) || 0));
+        const lv = lvNum > 0 ? `:L${lvNum}` : '';
         const val = getCheckRowText(r.querySelector('.ff-check-input'));
-        serializedLines.push(`[${st}:${ck}${al}] ${val}`);
+        serializedLines.push(`[${st}:${ck}${al}${lv}] ${val}`);
       });
       if (currentMemoText) {
         serializedLines.push(...currentMemoText.split('\n'));
@@ -4775,13 +5191,15 @@ function createObjectDOM(obj) {
       syncChecklistAndMemoToObj();
     };
 
-    const createCheckRowDOM = ({ style = 'square', checked = false, align = 'left', text = '' }) => {
+    const createCheckRowDOM = ({ style = 'square', checked = false, align = 'left', level = 0, text = '' }) => {
       const normAlign = ['left', 'center', 'right'].includes(align) ? align : 'left';
+      const normLevel = Math.min(5, Math.max(0, Number(level) || 0));
       const row = document.createElement('div');
       row.className = `ff-check-row ${checked ? 'checked' : ''}`;
       row.dataset.style = style;
       row.dataset.checked = checked ? '1' : '0';
       row.dataset.align = normAlign;
+      row.dataset.level = String(normLevel);
 
       const widget = document.createElement('span');
       widget.className = `ff-chk-widget style-${style} ${checked ? 'checked' : ''}`;
@@ -4811,7 +5229,7 @@ function createObjectDOM(obj) {
       input.className = `ff-check-input ${obj.checkAutoWrap === false ? 'nowrap-mode' : ''}`;
       setCheckRowText(input, text || '');
       input.style.textAlign = normAlign;
-      input.dataset.placeholder = '할 일 입력 (Enter: 항목 추가, 자동줄바꿈 지원)...';
+      input.dataset.placeholder = '할 일 입력 (Enter: 같은단계 · Ctrl+Enter: 하위목록 · Shift+Enter: 최상위)...';
       input.spellcheck = false;
 
       // Immediately apply current object typography so newly created rows always inherit font size & family!
@@ -4863,6 +5281,7 @@ function createObjectDOM(obj) {
           e.key === 'Backspace' ||
           e.key === 'Delete' ||
           e.key === 'Enter' ||
+          e.key === 'Tab' ||
           e.code === 'Space' ||
           e.key === 'ArrowUp' ||
           e.key === 'ArrowDown' ||
@@ -4872,6 +5291,15 @@ function createObjectDOM(obj) {
           e.stopPropagation();
         }
         if (e.isComposing || e.keyCode === 229) return;
+
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const curLv = Math.min(5, Math.max(0, Number(row.dataset.level) || 0));
+          const nextLv = e.shiftKey ? Math.max(0, curLv - 1) : Math.min(5, curLv + 1);
+          row.dataset.level = String(nextLv);
+          syncChecklistAndMemoToObj();
+          return;
+        }
 
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -4885,10 +5313,23 @@ function createObjectDOM(obj) {
           const afterText = fullStr.slice(pos);
           setCheckRowText(input, beforeText);
 
+          // Determine target level:
+          // - Ctrl+Enter (or Cmd+Enter): create child sub-item (curLevel + 1)
+          // - Shift+Enter: create top-level root item (level = 0)
+          // - Plain Enter: create sibling item at the same level (curLevel)
+          const curLv = Math.min(5, Math.max(0, Number(row.dataset.level) || 0));
+          let nextLv = curLv;
+          if (e.ctrlKey || e.metaKey) {
+            nextLv = Math.min(5, curLv + 1);
+          } else if (e.shiftKey) {
+            nextLv = 0;
+          }
+
           const newRow = createCheckRowDOM({
             style: row.dataset.style || 'square',
             checked: false,
             align: row.dataset.align || 'left',
+            level: nextLv,
             text: afterText
           });
           row.after(newRow);
@@ -4903,6 +5344,13 @@ function createObjectDOM(obj) {
           const sel = window.getSelection();
           const caretPos = getCaretOffsetInLine(input);
           if (sel && sel.isCollapsed && caretPos === 0) {
+            const curLv = Math.min(5, Math.max(0, Number(row.dataset.level) || 0));
+            if (curLv > 0) {
+              e.preventDefault();
+              row.dataset.level = String(curLv - 1);
+              syncChecklistAndMemoToObj();
+              return;
+            }
             const allRows = Array.from(checklistContainer.querySelectorAll('.ff-check-row'));
             const idx = allRows.indexOf(row);
             const curVal = getCheckRowText(input);
@@ -4997,6 +5445,31 @@ function createObjectDOM(obj) {
       if (['square', 'circle', 'toggle'].includes(kind) && convertSelectedLinesToChecklist(obj, kind)) {
         return;
       }
+      if (kind === 'sub-item') {
+        const allRows = Array.from(checklistContainer.querySelectorAll('.ff-check-row'));
+        const anchorRow =
+          (lastFocusedCheckRow && lastFocusedCheckRow.isConnected ? lastFocusedCheckRow : null) ||
+          allRows[allRows.length - 1] ||
+          null;
+        const curLv = anchorRow ? Math.min(5, Math.max(0, Number(anchorRow.dataset.level) || 0)) : 0;
+        const nextLv = anchorRow ? Math.min(5, curLv + 1) : 1;
+        const newRow = createCheckRowDOM({
+          style: anchorRow?.dataset.style || 'square',
+          checked: false,
+          align: anchorRow?.dataset.align || 'left',
+          level: nextLv,
+          text: ''
+        });
+        if (anchorRow) {
+          anchorRow.after(newRow);
+        } else {
+          checklistContainer.appendChild(newRow);
+        }
+        applyObjectTypography(el, obj);
+        syncChecklistAndMemoToObj();
+        newRow.querySelector('.ff-check-input')?.focus();
+        return;
+      }
       if (kind === 'autowrap') {
         obj.checkAutoWrap = obj.checkAutoWrap === false ? true : false;
         const wrapOn = obj.checkAutoWrap !== false;
@@ -5024,13 +5497,306 @@ function createObjectDOM(obj) {
           return;
         }
         pushUndoSnapshot('체크박스 항목 추가');
-        const newRow = createCheckRowDOM({ style: kind, checked: false, text: '' });
+        const curLv = candidateRow ? Math.min(5, Math.max(0, Number(candidateRow.dataset.level) || 0)) : 0;
+        const newRow = createCheckRowDOM({ style: kind, checked: false, level: curLv, text: '' });
         checklistContainer.appendChild(newRow);
         applyObjectTypography(el, obj);
         syncChecklistAndMemoToObj();
         newRow.querySelector('.ff-check-input')?.focus();
       }
     });
+  } else if (obj.type === 'markdown') {
+    // ========================================================================
+    // 2-B. RICH MARKDOWN (.md) DOCUMENT OBJECT (Antigravity / GitHub / Apple Style)
+    //      Supports View / Split / Edit modes, Tables, Images, Links, Callouts,
+    //      Colorful Text, Interactive Checkboxes, and .md / .pdf Export!
+    // ========================================================================
+    if (typeof obj.content !== 'string') {
+      obj.content =
+        '# 📝 마크다운(MD) 문서\n\n> [!TIP] 안티그래비티 스타일 마크다운 뷰어·편집기\n> 표, 이미지, 웹/파일 링크, 컬러 텍스트, 체크리스트를 가볍고 빠르게 작성하고 **.md** 또는 **.pdf**로 바로 변환 저장할 수 있습니다.\n\n## 1. 주요 기능 요약\n- [x] **실시간 분할 편집** 및 깔끔한 **미리보기** 전환\n- [ ] {blue:파란색 강조}, {red:빨간색 포인트}, {green:초록색 완료}, ==형광펜 하이라이트==\n- [ ] 이미지 첨부 및 웹/로컬 파일 링크 연결\n\n| 구분 | 문법 예시 | 동작 방식 |\n| :--- | :--- | :--- |\n| **표(Table)** | `| 열1 | 열2 |` | 자동 정렬 표 렌더링 |\n| **콜아웃 박스** | `> [!NOTE]` | 강조 알림 박스 표시 |\n| **컬러 텍스트** | `{blue:텍스트}` | 컬러풀 포인트 텍스트 |\n';
+    }
+    const curMode = ['view', 'split', 'edit'].includes(obj.mdMode) ? obj.mdMode : 'split';
+    obj.mdMode = curMode;
+
+    const mdContainer = document.createElement('div');
+    mdContainer.className = 'ff-md-container';
+
+    const topBar = document.createElement('div');
+    topBar.className = 'ff-md-topbar';
+    topBar.innerHTML = `
+      <div class="ff-md-mode-group">
+        <button class="ff-md-mode-btn ${curMode === 'view' ? 'active' : ''}" data-md-mode="view" title="완성된 마크다운 문서 미리보기 (더블클릭 시 편집 전환)">👁️ 미리보기</button>
+        <button class="ff-md-mode-btn ${curMode === 'split' ? 'active' : ''}" data-md-mode="split" title="좌측 원본 편집 + 우측 실시간 미리보기 동시 표시">⚡ 분할편집</button>
+        <button class="ff-md-mode-btn ${curMode === 'edit' ? 'active' : ''}" data-md-mode="edit" title="마크다운 텍스트 전체 화면 편집">✏️ 편집</button>
+      </div>
+      <div class="ff-md-export-group">
+        <button class="ff-md-export-btn is-md" data-md-act="export-md" title="이 문서를 마크다운(.md) 파일로 저장">💾 MD 저장</button>
+        <button class="ff-md-export-btn is-pdf" data-md-act="export-pdf" title="이 문서를 깔끔한 A4 PDF(.pdf) 파일로 변환 저장">📄 PDF 변환</button>
+      </div>
+    `;
+
+    const formatBar = document.createElement('div');
+    formatBar.className = `ff-md-format-bar ${curMode === 'view' ? 'hidden' : ''}`;
+    formatBar.innerHTML = `
+      <button class="ff-md-tool-btn" data-md-ins="h1" title="대제목 (# H1)">H1</button>
+      <button class="ff-md-tool-btn" data-md-ins="h2" title="중제목 (## H2)">H2</button>
+      <button class="ff-md-tool-btn" data-md-ins="h3" title="소제목 (### H3)">H3</button>
+      <button class="ff-md-tool-btn" data-md-ins="bold" title="굵게 (**텍스트**)"><b>B</b></button>
+      <button class="ff-md-tool-btn" data-md-ins="mark" title="형광펜 하이라이트 (==텍스트==)">🖍️형광펜</button>
+      <button class="ff-md-tool-btn" data-md-ins="color" title="컬러 텍스트 삽입 ({blue:텍스트}, {red:텍스트}, {green:텍스트} 등)">🎨컬러</button>
+      <button class="ff-md-tool-btn" data-md-ins="check" title="체크박스 항목 (- [ ] 할 일)">☑체크</button>
+      <button class="ff-md-tool-btn" data-md-ins="table" title="마크다운 표(Table) 삽입">📊표</button>
+      <button class="ff-md-tool-btn" data-md-ins="callout" title="안티그래비티 스타일 콜아웃 알림 박스 (> [!NOTE])">💡콜아웃</button>
+      <button class="ff-md-tool-btn" data-md-ins="code" title="코드 블록 삽입">💻코드</button>
+      <button class="ff-md-tool-btn" data-md-ins="link" title="웹사이트 주소 링크 삽입 ([이름](https://...))">🔗링크</button>
+      <button class="ff-md-tool-btn" data-md-ins="image" title="내 PC 이미지를 첨부하여 마크다운 문서 안에 바로 표시">🖼️이미지</button>
+      <button class="ff-md-tool-btn" data-md-ins="file" title="내 PC 파일을 첨부하여 마크다운 문서에 클릭 가능한 파일 링크로 삽입">📎파일링크</button>
+    `;
+
+    const workArea = document.createElement('div');
+    workArea.className = `ff-md-workarea mode-${curMode}`;
+
+    const editorPane = document.createElement('div');
+    editorPane.className = 'ff-md-editor-pane';
+    const textarea = document.createElement('textarea');
+    textarea.className = 'ff-md-textarea';
+    textarea.value = obj.content || '';
+    textarea.placeholder = '# 제목을 입력하고 마크다운 문서를 작성해 보세요...';
+    textarea.spellcheck = false;
+    editorPane.appendChild(textarea);
+
+    const previewPane = document.createElement('div');
+    previewPane.className = 'ff-md-preview-pane';
+
+    const updatePreviewDOM = () => {
+      previewPane.innerHTML = renderMarkdownToHtml(obj.content || '', obj);
+    };
+    updatePreviewDOM();
+
+    const setMdMode = (nextMode) => {
+      obj.mdMode = nextMode;
+      workArea.className = `ff-md-workarea mode-${nextMode}`;
+      formatBar.classList.toggle('hidden', nextMode === 'view');
+      topBar.querySelectorAll('.ff-md-mode-btn').forEach((b) => {
+        b.classList.toggle('active', b.dataset.mdMode === nextMode);
+      });
+      scheduleSaveBoard();
+      if (nextMode === 'edit' || nextMode === 'split') {
+        requestAnimationFrame(() => textarea.focus());
+      }
+    };
+
+    // Stop canvas shortcuts & pan while typing or scrolling inside Markdown editor/preview
+    textarea.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      if (!selectedObjectIds.has(obj.id)) selectObject(obj.id, { additive: false });
+    });
+    textarea.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const val = textarea.value;
+        textarea.value = val.slice(0, start) + '  ' + val.slice(end);
+        textarea.selectionStart = textarea.selectionEnd = start + 2;
+        obj.content = textarea.value;
+        updatePreviewDOM();
+        scheduleSaveBoard();
+      }
+    });
+    textarea.addEventListener('input', () => {
+      obj.content = textarea.value;
+      updatePreviewDOM();
+      scheduleSaveBoard();
+    });
+
+    // Double-click on preview in 'view' mode switches to 'split' mode for instant editing
+    previewPane.addEventListener('dblclick', (e) => {
+      if (e.target.closest('a, input, button, img')) return;
+      e.stopPropagation();
+      if (obj.mdMode === 'view') {
+        setMdMode('split');
+        showToast('⚡ 마크다운 분할 편집 모드로 전환되었습니다');
+      }
+    });
+
+    // Interactive clicks inside rendered Markdown preview (Checkboxes, Links, Images, Code Copy)
+    previewPane.addEventListener('click', async (e) => {
+      const copyCodeBtn = e.target.closest('[data-md-copy-code]');
+      if (copyCodeBtn) {
+        e.stopPropagation();
+        const rawCode = decodeURIComponent(copyCodeBtn.dataset.mdCopyCode || '');
+        await window.freeformAPI.writeClipboardText(rawCode);
+        copyCodeBtn.textContent = '✓ 복사됨';
+        setTimeout(() => {
+          if (copyCodeBtn.isConnected) copyCodeBtn.textContent = '복사';
+        }, 1200);
+        return;
+      }
+
+      const taskChk = e.target.closest('input[data-md-task-line]');
+      if (taskChk) {
+        e.stopPropagation();
+        const lineIdx = Number(taskChk.dataset.mdTaskLine);
+        const lines = String(obj.content || '').replace(/\r/g, '').split('\n');
+        if (lines[lineIdx] !== undefined) {
+          lines[lineIdx] = lines[lineIdx].replace(
+            /^(\s*[-*+]\s+\[)([ xX])(\]\s*.*)$/,
+            (_, p1, cur, p3) => `${p1}${cur.trim() ? ' ' : 'x'}${p3}`
+          );
+          obj.content = lines.join('\n');
+          textarea.value = obj.content;
+          updatePreviewDOM();
+          scheduleSaveBoard();
+        }
+        return;
+      }
+
+      const linkEl = e.target.closest('a.ff-md-link');
+      if (linkEl) {
+        e.preventDefault();
+        e.stopPropagation();
+        const rawHref = (linkEl.dataset.rawHref || linkEl.getAttribute('href') || '').trim();
+        if (!rawHref) return;
+        if (/^asset:/i.test(rawHref)) {
+          const assetName = rawHref.replace(/^asset:/i, '').trim();
+          const entry = obj.mdAssets?.[assetName];
+          await window.freeformAPI.openPath(entry?.resolvedFilePath || assetName);
+        } else if (/^file:\/\/\/|^[A-Za-z]:[\\/]/i.test(rawHref)) {
+          const cleanPath = rawHref.replace(/^file:\/\/\//i, '').replace(/\//g, '\\');
+          await window.freeformAPI.openPath(cleanPath);
+        } else {
+          const url = /^https?:\/\//i.test(rawHref) ? rawHref : `https://${rawHref}`;
+          await window.freeformAPI.openExternal(url);
+        }
+        return;
+      }
+
+      const imgEl = e.target.closest('img.ff-md-img');
+      if (imgEl && imgEl.src) {
+        e.stopPropagation();
+        const lb = document.getElementById('lightboxModal');
+        const lbImg = document.getElementById('lightboxImage');
+        if (lb && lbImg) {
+          lbImg.src = imgEl.src;
+          lb.classList.remove('hidden');
+        }
+      }
+    });
+
+    const insertMarkdownSnippet = (before, after = '', sample = '텍스트') => {
+      textarea.focus();
+      const start = textarea.selectionStart ?? textarea.value.length;
+      const end = textarea.selectionEnd ?? textarea.value.length;
+      const selected = textarea.value.slice(start, end) || sample;
+      const replacement = `${before}${selected}${after}`;
+      textarea.value = textarea.value.slice(0, start) + replacement + textarea.value.slice(end);
+      textarea.selectionStart = start + before.length;
+      textarea.selectionEnd = start + before.length + selected.length;
+      obj.content = textarea.value;
+      updatePreviewDOM();
+      scheduleSaveBoard();
+    };
+
+    const colorCycleList = ['blue', 'red', 'green', 'purple', 'orange', 'yellow'];
+    let colorCycleIdx = 0;
+
+    topBar.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button')) e.stopPropagation();
+    });
+    topBar.addEventListener('click', (e) => {
+      const modeBtn = e.target.closest('[data-md-mode]');
+      if (modeBtn) {
+        e.stopPropagation();
+        setMdMode(modeBtn.dataset.mdMode);
+        return;
+      }
+      const actBtn = e.target.closest('[data-md-act]');
+      if (actBtn) {
+        e.stopPropagation();
+        const act = actBtn.dataset.mdAct;
+        if (act === 'export-md') {
+          exportObjectMarkdownMd(obj);
+        } else if (act === 'export-pdf') {
+          exportObjectMarkdownPdf(obj);
+        }
+      }
+    });
+
+    formatBar.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+    formatBar.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-md-ins]');
+      if (!btn) return;
+      e.stopPropagation();
+      const kind = btn.dataset.mdIns;
+      if (kind === 'h1') insertMarkdownSnippet('\n# ', '\n', '대제목');
+      else if (kind === 'h2') insertMarkdownSnippet('\n## ', '\n', '중제목');
+      else if (kind === 'h3') insertMarkdownSnippet('\n### ', '\n', '소제목');
+      else if (kind === 'bold') insertMarkdownSnippet('**', '**', '굵은 텍스트');
+      else if (kind === 'mark') insertMarkdownSnippet('==', '==', '하이라이트 텍스트');
+      else if (kind === 'color') {
+        const col = colorCycleList[colorCycleIdx % colorCycleList.length];
+        colorCycleIdx++;
+        insertMarkdownSnippet(`{${col}:`, '}', '컬러 텍스트');
+      } else if (kind === 'check') {
+        insertMarkdownSnippet('\n- [ ] ', '', '할 일 항목');
+      } else if (kind === 'table') {
+        insertMarkdownSnippet(
+          '\n| 항목 | 설명 | 비고 |\n| :--- | :--- | :--- |\n| ',
+          ' | 내용 입력 | 참고 |\n',
+          '데이터 1'
+        );
+      } else if (kind === 'callout') {
+        insertMarkdownSnippet('\n> [!NOTE] 핵심 안내\n> ', '\n', '여기에 강조할 내용을 입력하세요.');
+      } else if (kind === 'code') {
+        insertMarkdownSnippet('\n```javascript\n', '\n```\n', '// 코드를 입력하세요');
+      } else if (kind === 'link') {
+        insertMarkdownSnippet('[', '](https://example.com)', '링크 제목');
+      } else if (kind === 'image') {
+        const assets = await window.freeformAPI.pickFiles({ imagesOnly: true });
+        if (assets && assets.length > 0) {
+          if (!obj.mdAssets) obj.mdAssets = {};
+          const snippets = assets.map((a) => {
+            obj.mdAssets[a.assetFileName] = {
+              name: a.name,
+              resolvedFilePath: a.resolvedFilePath,
+              resolvedFileUrl: a.resolvedFileUrl
+            };
+            return `\n![${a.name || '이미지'}](asset:${a.assetFileName})\n`;
+          });
+          insertMarkdownSnippet(snippets.join(''), '', '');
+          showToast('🖼️ 마크다운 문서에 이미지가 첨부되었습니다');
+        }
+      } else if (kind === 'file') {
+        const assets = await window.freeformAPI.pickFiles({ imagesOnly: false });
+        if (assets && assets.length > 0) {
+          if (!obj.mdAssets) obj.mdAssets = {};
+          const snippets = assets.map((a) => {
+            obj.mdAssets[a.assetFileName] = {
+              name: a.name,
+              resolvedFilePath: a.resolvedFilePath,
+              resolvedFileUrl: a.resolvedFileUrl
+            };
+            return `[${a.name || '첨부파일'}](asset:${a.assetFileName}) `;
+          });
+          insertMarkdownSnippet(snippets.join(''), '', '');
+          showToast('📎 마크다운 문서에 파일 링크가 연결되었습니다 (클릭 시 바로 실행/열기)');
+        }
+      }
+    });
+
+    workArea.appendChild(editorPane);
+    workArea.appendChild(previewPane);
+    mdContainer.appendChild(topBar);
+    mdContainer.appendChild(formatBar);
+    mdContainer.appendChild(workArea);
+    body.appendChild(mdContainer);
   } else if (obj.type === 'table') {
     if (!Array.isArray(obj.tableData) || obj.tableData.length === 0) {
       obj.tableData = [
@@ -6217,10 +6983,13 @@ function createObjectDOM(obj) {
         bindScrollLinkSync(obj.id, pagesContainer);
       }
 
-      // Natural Wheel Scroll for Pages, Shift+Wheel for Horizontal Scroll & Ctrl+Wheel for Document Zoom
+      // Natural Wheel Scroll for Pages, Shift+Wheel for Horizontal Scroll, Ctrl+Wheel for Document Zoom & Alt+Wheel for Canvas Zoom
       pagesContainer.addEventListener(
         'wheel',
         (e) => {
+          if (e.altKey) {
+            return;
+          }
           e.stopPropagation();
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
@@ -7570,7 +8339,9 @@ function addObjectToBoard(partial, panToNew = false, recordUndo = true) {
     'groupName',
     'stickerSvgUrl',
     'stickerPresetId',
-    'imageUrl'
+    'imageUrl',
+    'mdMode',
+    'mdAssets'
   ].forEach((k) => {
     if (partial[k] !== undefined && partial[k] !== null) newObj[k] = partial[k];
   });
@@ -7679,6 +8450,27 @@ async function handleSmartPaste(atWorldPos = null, preferObjectBuffer = false) {
 
   if (clip.kind === 'file' && clip.asset) {
     const a = clip.asset;
+    const isMdFile = /\.(md|markdown)$/i.test(a.name || a.resolvedFilePath || '');
+    if (isMdFile) {
+      addObjectToBoard({
+        type: 'markdown',
+        title: a.name || 'Markdown.md',
+        fileName: a.name || 'Markdown.md',
+        fileSize: a.size,
+        content: a.textContent || `# ${a.name || 'Markdown'}\n`,
+        mdMode: 'view',
+        x: pos.x - 310,
+        y: pos.y - 220,
+        width: 620,
+        height: 440,
+        color: 'dark',
+        assetFileName: a.assetFileName,
+        resolvedFilePath: a.resolvedFilePath,
+        resolvedFileUrl: a.resolvedFileUrl
+      });
+      showToast(`📝 '${a.name}' 마크다운 문서가 뷰어·편집기로 추가되었습니다`);
+      return;
+    }
     const isImg = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(a.name || '');
     const docKind = getDocumentViewerKind(a.name || a.resolvedFilePath || '');
     const isDocViewer = Boolean(docKind);
@@ -8437,13 +9229,31 @@ window.addEventListener('pointerup', (e) => {
   }
 });
 
-// Smooth Zoom on Mouse Wheel (Always anchored to Mouse Cursor Position!)
+// Smooth Zoom on Mouse Wheel (Strictly ONLY on empty canvas space, backgrounded shape objects, or Alt+Wheel anywhere!)
 canvasViewport.addEventListener(
   'wheel',
   (e) => {
     lastCanvasMousePos = { x: e.clientX, y: e.clientY };
-    if (!e.ctrlKey && !e.metaKey) {
-      const scrollEl = e.target.closest('.ff-pdf-pages-container, .ff-table-wrap, .ff-obj-body');
+
+    // Dedicated Canvas Zoom Key: Alt + Wheel ALWAYS zooms the canvas anywhere (even over focused/scrollable objects)!
+    if (e.altKey) {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      zoomAtScreenPoint(zoom * factor, e.clientX, e.clientY);
+      return;
+    }
+
+    // Without Alt: Canvas zoom is ONLY allowed when the pointer is over empty space or a backgrounded shape (.is-background-shape).
+    // When the pointer is over any normal object, NEVER trigger canvas zoom (even when scroll reaches top/bottom end).
+    const hoverObjEl = e.target.closest('.ff-object:not(.is-background-shape)');
+    if (hoverObjEl) {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        return;
+      }
+      const scrollEl = e.target.closest(
+        '.ff-pdf-pages-container, .ff-table-wrap, .ff-md-textarea, .ff-md-preview-pane, .ff-obj-body'
+      );
       if (scrollEl) {
         if (e.shiftKey && scrollEl.scrollWidth > scrollEl.clientWidth + 2 && Math.abs(e.deltaY) > 0) {
           e.preventDefault();
@@ -8462,7 +9272,11 @@ canvasViewport.addEventListener(
           }
         }
       }
+      // Scroll reached top/bottom boundary (or object has no scrollbar): do NOT zoom canvas!
+      e.preventDefault();
+      return;
     }
+
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
     zoomAtScreenPoint(zoom * factor, e.clientX, e.clientY);
@@ -8523,6 +9337,36 @@ window.addEventListener('drop', async (e) => {
             ext: extMatch ? extMatch[1] : '.bin',
             name: file.name || 'dropped_file'
           });
+        }
+
+        const isMdFile = /\.(md|markdown)$/i.test(file.name || '');
+        if (isMdFile) {
+          let mdText = saved?.textContent;
+          if (typeof mdText !== 'string') {
+            try {
+              mdText = (await file.text()).replace(/^\uFEFF/, '');
+            } catch (_) {
+              mdText = '';
+            }
+          }
+          addObjectToBoard({
+            type: 'markdown',
+            title: file.name,
+            fileName: file.name,
+            fileSize: saved?.size || file.size,
+            content: mdText || `# ${file.name}\n`,
+            mdMode: 'view',
+            x: dropPos.x - 310 + offset,
+            y: dropPos.y - 220 + offset,
+            width: 620,
+            height: 440,
+            color: 'dark',
+            assetFileName: saved?.assetFileName,
+            resolvedFilePath: saved?.resolvedFilePath,
+            resolvedFileUrl: saved?.resolvedFileUrl
+          });
+          offset += 28;
+          continue;
         }
 
         const isImg = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(file.name) || (file.type && file.type.startsWith('image/'));
@@ -8685,9 +9529,17 @@ window.addEventListener('contextmenu', (e) => {
         <button class="ctx-item" data-ctx="file-download"><span class="ctx-item-left">${SVG_ICONS.download}<span>파일 다운로드 (다른 이름으로 저장)</span></span></button>
         <button class="ctx-item" data-ctx="pdf-open-default"><span class="ctx-item-left">${SVG_ICONS.externalLink}<span>열기 (기본 프로그램)</span></span></button>
       `;
-    } else if (primary.type === 'file' || (primary.type === 'image' && primary.assetFileName)) {
+    } else if (primary.type === 'markdown') {
       html += `
         <div class="ctx-divider"></div>
+        <button class="ctx-item" data-ctx="md-export-md"><span class="ctx-item-left">${SVG_ICONS.download}<span>마크다운(.md) 파일로 저장</span></span></button>
+        <button class="ctx-item" data-ctx="md-export-pdf"><span class="ctx-item-left">${SVG_ICONS.fileDoc}<span>PDF(.pdf) 파일로 변환 저장</span></span></button>
+      `;
+    } else if (primary.type === 'file' || (primary.type === 'image' && primary.assetFileName)) {
+      const isMdFileCard = /\.(md|markdown)$/i.test(primary.fileName || primary.title || primary.assetFileName || '');
+      html += `
+        <div class="ctx-divider"></div>
+        ${isMdFileCard ? `<button class="ctx-item" data-ctx="file-open-as-md"><span class="ctx-item-left">${SVG_ICONS.bookOpen}<span>MD 뷰어·편집기로 열기</span></span></button>` : ''}
         <button class="ctx-item" data-ctx="file-download"><span class="ctx-item-left">${SVG_ICONS.download}<span>파일 다운로드 (다른 이름으로 저장)</span></span></button>
         ${primary.type === 'file' ? `<button class="ctx-item" data-ctx="pdf-open-default"><span class="ctx-item-left">${SVG_ICONS.externalLink}<span>파일 열기 / 실행</span></span></button>` : ''}
       `;
@@ -8749,6 +9601,7 @@ window.addEventListener('contextmenu', (e) => {
       <button class="ctx-item" data-ctx="new-sticky"><span class="ctx-item-left">${SVG_ICONS.sticky}<span>여기에 포스트잇 생성</span></span></button>
       <button class="ctx-item" data-ctx="new-text"><span class="ctx-item-left">${SVG_ICONS.chkSquare}<span>여기에 체크리스트 생성</span></span></button>
       <button class="ctx-item" data-ctx="new-table"><span class="ctx-item-left">${SVG_ICONS.table}<span>여기에 스프레드시트 표 생성</span></span></button>
+      <button class="ctx-item" data-ctx="new-markdown"><span class="ctx-item-left">${SVG_ICONS.fileDoc}<span>여기에 마크다운(MD) 문서 생성</span></span></button>
       <div class="ctx-divider"></div>
       <button class="ctx-item" data-ctx="fit-view"><span class="ctx-item-left">${SVG_ICONS.fit}<span>모든 객체 한눈에 맞춤</span></span></button>
       <button class="ctx-item" data-ctx="reset-win"><span class="ctx-item-left">${SVG_ICONS.resetWin}<span>메인 창 위치/크기 초기화</span></span></button>
@@ -8792,6 +9645,26 @@ window.addEventListener('contextmenu', (e) => {
       duplicateSelectedObjects();
     } else if (act === 'pdf-toggle-view') {
       if (primary) togglePdfObjectViewMode(primary);
+    } else if (act === 'md-export-md') {
+      if (primary) exportObjectMarkdownMd(primary);
+    } else if (act === 'md-export-pdf') {
+      if (primary) exportObjectMarkdownPdf(primary);
+    } else if (act === 'file-open-as-md') {
+      if (primary && window.freeformAPI.readTextFile) {
+        const res = await window.freeformAPI.readTextFile({
+          filePath: primary.resolvedFilePath,
+          assetFileName: primary.assetFileName
+        });
+        pushUndoSnapshot('MD 뷰어·편집기로 전환');
+        primary.type = 'markdown';
+        primary.content = res && res.ok ? res.text : `# ${primary.title || 'Markdown'}\n`;
+        primary.mdMode = 'view';
+        primary.width = Math.max(580, primary.width || 620);
+        primary.height = Math.max(400, primary.height || 440);
+        rerenderSingleObjectDOM(primary);
+        scheduleSaveBoard();
+        showToast('📝 마크다운(MD) 뷰어·편집기 카드로 열렸습니다');
+      }
     } else if (act === 'file-download') {
       if (primary) triggerObjectFileDownload(primary);
     } else if (act === 'pdf-open-default') {
@@ -8919,6 +9792,21 @@ window.addEventListener('contextmenu', (e) => {
         const firstTd = objectLayer.querySelector(`.ff-object[data-id="${created.id}"] .ff-table td`);
         firstTd?.focus();
       }
+    } else if (act === 'new-markdown') {
+      const created = addObjectToBoard({
+        type: 'markdown',
+        title: '📝 마크다운 문서.md',
+        mdMode: 'split',
+        x: worldPos.x - 320,
+        y: worldPos.y - 220,
+        width: 640,
+        height: 440,
+        color: 'dark'
+      });
+      if (created) {
+        const ta = objectLayer.querySelector(`.ff-object[data-id="${created.id}"] .ff-md-textarea`);
+        ta?.focus();
+      }
     } else if (act === 'fit-view') {
       document.getElementById('fitViewBtn')?.click();
     } else if (act === 'reset-win') {
@@ -9032,6 +9920,21 @@ document.getElementById('addTableBtn')?.addEventListener('click', () => {
   }
 });
 
+document.getElementById('addMarkdownBtn')?.addEventListener('click', () => {
+  const created = addObjectToBoard({
+    type: 'markdown',
+    title: '📝 마크다운 문서.md',
+    mdMode: 'split',
+    width: 640,
+    height: 440,
+    color: 'dark'
+  });
+  if (created) {
+    const ta = objectLayer.querySelector(`.ff-object[data-id="${created.id}"] .ff-md-textarea`);
+    ta?.focus();
+  }
+});
+
 document.getElementById('addImageBtn')?.addEventListener('click', async () => {
   const assets = await window.freeformAPI.pickFiles({ imagesOnly: true });
   assets.forEach((a) => {
@@ -9067,7 +9970,33 @@ document.getElementById('captureScreenBtn')?.addEventListener('click', async () 
 
 document.getElementById('addFileBtn')?.addEventListener('click', async () => {
   const assets = await window.freeformAPI.pickFiles({ imagesOnly: false });
-  assets.forEach((a) => {
+  for (const a of assets) {
+    const isMdFile = /\.(md|markdown)$/i.test(a.name || a.resolvedFilePath || '');
+    if (isMdFile) {
+      let mdText = a.textContent;
+      if (typeof mdText !== 'string' && window.freeformAPI.readTextFile) {
+        const r = await window.freeformAPI.readTextFile({
+          filePath: a.resolvedFilePath,
+          assetFileName: a.assetFileName
+        });
+        if (r && r.ok) mdText = r.text;
+      }
+      addObjectToBoard({
+        type: 'markdown',
+        title: a.name,
+        fileName: a.name,
+        fileSize: a.size,
+        content: mdText || `# ${a.name}\n`,
+        mdMode: 'view',
+        width: 620,
+        height: 440,
+        color: 'dark',
+        assetFileName: a.assetFileName,
+        resolvedFilePath: a.resolvedFilePath,
+        resolvedFileUrl: a.resolvedFileUrl
+      });
+      continue;
+    }
     const docKind = getDocumentViewerKind(a.name || a.resolvedFilePath || '');
     const isDocViewer = Boolean(docKind);
     const isLandscapeDoc = docKind === 'pptx' || docKind === 'xlsx' || docKind === 'csv';
@@ -9084,7 +10013,7 @@ document.getElementById('addFileBtn')?.addEventListener('click', async () => {
       resolvedFilePath: a.resolvedFilePath,
       resolvedFileUrl: a.resolvedFileUrl
     });
-  });
+  }
 });
 
 // Link Modal
@@ -10677,6 +11606,10 @@ window.addEventListener('keydown', (e) => {
       e.preventDefault();
       setToolMode('select');
       document.getElementById('addTableBtn')?.click();
+    } else if (code === 'KeyM' || key === 'm') {
+      e.preventDefault();
+      setToolMode('select');
+      document.getElementById('addMarkdownBtn')?.click();
     } else if (code === 'KeyX' || key === 'x') {
       e.preventDefault();
       setToolMode('select');
@@ -11890,8 +12823,8 @@ function performCanvasUnifiedSearch(rawQuery, opts = {}) {
             label: obj.type === 'label' ? `타이틀: ${vecText.slice(h.start, h.end)}` : `벡터 텍스트`
           });
         });
-      } else if (obj.type === 'sticky' || obj.type === 'text') {
-        // 2-C. Sticky Note or Checklist + Note
+      } else if (obj.type === 'sticky' || obj.type === 'text' || obj.type === 'markdown') {
+        // 2-C. Sticky Note, Checklist + Note, or Markdown Document
         const rawBody =
           obj.type === 'text'
             ? parseNoteLines(obj.content || '')
@@ -11906,7 +12839,7 @@ function performCanvasUnifiedSearch(rawQuery, opts = {}) {
             occIdx,
             start: h.start,
             end: h.end,
-            label: `본문 텍스트`
+            label: obj.type === 'markdown' ? `MD 문서 본문` : `본문 텍스트`
           });
         });
       } else if (obj.type === 'table' && Array.isArray(obj.tableData)) {

@@ -867,6 +867,97 @@ function setupIpc() {
     return { success: true, filePath: res.filePath };
   });
 
+  ipcMain.handle('asset:read-text', async (_, { filePath, assetFileName } = {}) => {
+    try {
+      let srcPath = '';
+      if (filePath && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        srcPath = filePath;
+      } else {
+        const safeName = path.basename(String(assetFileName || filePath || ''));
+        if (safeName) {
+          const candidate = path.join(driveSync.getAssetsDir(), safeName);
+          if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+            srcPath = candidate;
+          } else {
+            const fetched = await fetchAssetFromVercelCloudRelayAsync(safeName);
+            if (fetched && fs.existsSync(fetched)) srcPath = fetched;
+          }
+        }
+      }
+      if (!srcPath || !fs.existsSync(srcPath)) {
+        return { ok: false, error: '파일을 찾을 수 없습니다.' };
+      }
+      const text = fs.readFileSync(srcPath, 'utf-8').replace(/^\uFEFF/, '');
+      return { ok: true, text, filePath: srcPath };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('export:markdown-md', async (_, { title, content } = {}) => {
+    const safeTitle = String(title || 'BossFreeForm_Doc')
+      .replace(/\.md$/i, '')
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .trim() || 'BossFreeForm_Doc';
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: '마크다운(MD) 파일로 저장',
+      defaultPath: `${safeTitle}.md`,
+      filters: [
+        { name: 'Markdown 문서 (*.md)', extensions: ['md', 'markdown'] },
+        { name: '텍스트 파일 (*.txt)', extensions: ['txt'] }
+      ]
+    });
+    if (res.canceled || !res.filePath) return { canceled: true };
+    fs.writeFileSync(res.filePath, String(content ?? ''), 'utf-8');
+    return { success: true, filePath: res.filePath };
+  });
+
+  ipcMain.handle('export:markdown-pdf', async (_, { title, htmlContent } = {}) => {
+    const safeTitle = String(title || 'BossFreeForm_Doc')
+      .replace(/\.(md|pdf)$/i, '')
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .trim() || 'BossFreeForm_Doc';
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: '마크다운(MD) 문서를 PDF 파일로 변환 저장',
+      defaultPath: `${safeTitle}.pdf`,
+      filters: [{ name: 'PDF 문서 (*.pdf)', extensions: ['pdf'] }]
+    });
+    if (res.canceled || !res.filePath) return { canceled: true };
+
+    const tempHtmlPath = path.join(os.tmpdir(), `bossfreeform_md_pdf_${Date.now()}.html`);
+    let pdfWin = null;
+    try {
+      fs.writeFileSync(tempHtmlPath, String(htmlContent || ''), 'utf-8');
+      pdfWin = new BrowserWindow({
+        show: false,
+        width: 900,
+        height: 1200,
+        webPreferences: {
+          sandbox: false,
+          webSecurity: false
+        }
+      });
+      await pdfWin.loadFile(tempHtmlPath);
+      await new Promise((r) => setTimeout(r, 350));
+      const pdfBuffer = await pdfWin.webContents.printToPDF({
+        printBackground: true,
+        pageSize: 'A4',
+        margins: { top: 0.45, bottom: 0.45, left: 0.45, right: 0.45 }
+      });
+      fs.writeFileSync(res.filePath, pdfBuffer);
+      return { success: true, filePath: res.filePath };
+    } catch (err) {
+      return { success: false, error: err.message };
+    } finally {
+      try {
+        if (pdfWin && !pdfWin.isDestroyed()) pdfWin.destroy();
+      } catch (_) {}
+      try {
+        if (fs.existsSync(tempHtmlPath)) fs.unlinkSync(tempHtmlPath);
+      } catch (_) {}
+    }
+  });
+
   ipcMain.handle('export:board-json', async (_, board) => {
     const res = await dialog.showSaveDialog(mainWindow, {
       title: '프리폼 보드 백업 파일(.json) 저장',

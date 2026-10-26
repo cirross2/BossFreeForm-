@@ -4577,3 +4577,489 @@ mark.ff-search-hl {
 .ff-conn-pop-btn.is-scroll-link:hover {
   background: rgba(48, 209, 88, 0.26);
 }
+
+/* ============================================================================
+   13. Nested Sub-Checklist Hierarchy (Ctrl+Enter child / Enter sibling / Shift+Enter root)
+   ============================================================================ */
+.ff-check-row {
+  position: relative;
+  transition: padding-left 0.14s ease, background 0.12s ease;
+}
+.ff-check-row[data-level="1"] {
+  padding-left: 26px !important;
+}
+.ff-check-row[data-level="2"] {
+  padding-left: 48px !important;
+}
+.ff-check-row[data-level="3"] {
+  padding-left: 70px !important;
+}
+.ff-check-row[data-level="4"] {
+  padding-left: 92px !important;
+}
+.ff-check-row[data-level="5"] {
+  padding-left: 114px !important;
+}
+.ff-check-row[data-level="1"]::before,
+.ff-check-row[data-level="2"]::before,
+.ff-check-row[data-level="3"]::before,
+.ff-check-row[data-level="4"]::before,
+.ff-check-row[data-level="5"]::before {
+  content: '└';
+  position: absolute;
+  top: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.42;
+  pointer-events: none;
+  user-select: none;
+}
+.ff-check-row[data-level="1"]::before { left: 11px; }
+.ff-check-row[data-level="2"]::before { left: 33px; }
+.ff-check-row[data-level="3"]::before { left: 55px; }
+.ff-check-row[data-level="4"]::before { left: 77px; }
+.ff-check-row[data-level="5"]::before { left: 99px; }
+
+.ff-check-sub-hint {
+  font-size: 10.5px;
+  opacity: 0.56;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+  margin-left: auto;
+  user-select: none;
+}
+body.theme-light .ff-check-sub-hint {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* ============================================================================
+   14. Rich Markdown (.md) Document Object (Antigravity / GitHub / Apple Style)
+   ============================================================================ */
+.ff-object.type-markdown .ff-obj-body {
+  padding: 0 !important;
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 34px);
+  overflow: hidden;
+}
+
+.ff-md-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ff-md-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.24);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+body.theme-light .ff-object.type-markdown .ff-md-topbar {
+  background: rgba(0, 0, 0, 0.04);
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+
+.ff-md-mode-group,
+.ff-md-export-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ff-md-mode-btn,
+.ff-md-tool-btn,
+.ff-md-export-btn {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.13s ease, border-color 0.13s ease, color 0.13s ease;
+  white-space: nowrap;
+}
+body.theme-light .ff-md-mode-btn,
+body.theme-light .ff-md-tool-btn,
+body.theme-light .ff-md-export-btn {
+  border-color: rgba(0, 0, 0, 0.14);
+  background: rgba(0, 0, 0, 0.04);
+}
+.ff-md-mode-btn:hover,
+.ff-md-tool-btn:hover,
+.ff-md-export-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+body.theme-light .ff-md-mode-btn:hover,
+body.theme-light .ff-md-tool-btn:hover,
+body.theme-light .ff-md-export-btn:hover {
+  background: rgba(0, 0, 0, 0.09);
+}
+.ff-md-mode-btn.active {
+  background: #0071e3 !important;
+  border-color: #2997ff !important;
+  color: #ffffff !important;
+}
+.ff-md-export-btn.is-pdf {
+  background: rgba(255, 69, 58, 0.16);
+  border-color: rgba(255, 69, 58, 0.45);
+  color: #ff6961;
+}
+body.theme-light .ff-md-export-btn.is-pdf {
+  color: #d70015;
+}
+.ff-md-export-btn.is-md {
+  background: rgba(48, 209, 88, 0.15);
+  border-color: rgba(48, 209, 88, 0.45);
+  color: #30d158;
+}
+body.theme-light .ff-md-export-btn.is-md {
+  color: #1d8338;
+}
+
+.ff-md-format-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: rgba(0, 0, 0, 0.16);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+body.theme-light .ff-md-format-bar {
+  background: rgba(0, 0, 0, 0.025);
+  border-bottom-color: rgba(0, 0, 0, 0.07);
+}
+.ff-md-format-bar.hidden {
+  display: none !important;
+}
+
+.ff-md-workarea {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.ff-md-workarea.mode-view .ff-md-editor-pane {
+  display: none !important;
+}
+.ff-md-workarea.mode-edit .ff-md-preview-pane {
+  display: none !important;
+}
+.ff-md-workarea.mode-split .ff-md-editor-pane,
+.ff-md-workarea.mode-split .ff-md-preview-pane {
+  width: 50%;
+  flex: 1 1 50%;
+}
+.ff-md-workarea.mode-split .ff-md-editor-pane {
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+body.theme-light .ff-md-workarea.mode-split .ff-md-editor-pane {
+  border-right-color: rgba(0, 0, 0, 0.1);
+}
+
+.ff-md-editor-pane {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ff-md-textarea {
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  border: 0;
+  outline: none;
+  resize: none;
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.18);
+  color: inherit;
+  font-family: "JetBrains Mono", "Cascadia Code", "Consolas", "SF Pro Text", "Pretendard", monospace;
+  font-size: 13.5px;
+  line-height: 1.62;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+body.theme-light .ff-md-textarea {
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.ff-md-preview-pane {
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 22px;
+  box-sizing: border-box;
+  font-size: 14px;
+  line-height: 1.65;
+  word-break: break-word;
+  user-select: text;
+}
+
+/* Antigravity / GitHub Markdown Rendered Typography & Elements */
+.ff-md-preview-pane h1,
+.ff-md-preview-pane h2,
+.ff-md-preview-pane h3,
+.ff-md-preview-pane h4 {
+  margin: 14px 0 8px;
+  font-weight: 800;
+  line-height: 1.28;
+  letter-spacing: -0.3px;
+}
+.ff-md-preview-pane h1:first-child,
+.ff-md-preview-pane h2:first-child,
+.ff-md-preview-pane h3:first-child {
+  margin-top: 2px;
+}
+.ff-md-preview-pane h1 {
+  font-size: 1.55em;
+  padding-bottom: 6px;
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.16);
+}
+body.theme-light .ff-md-preview-pane h1 {
+  border-bottom-color: rgba(0, 0, 0, 0.12);
+}
+.ff-md-preview-pane h2 {
+  font-size: 1.3em;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+body.theme-light .ff-md-preview-pane h2 {
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+.ff-md-preview-pane h3 {
+  font-size: 1.12em;
+}
+.ff-md-preview-pane p {
+  margin: 6px 0 10px;
+}
+.ff-md-preview-pane hr {
+  border: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.16);
+  margin: 14px 0;
+}
+body.theme-light .ff-md-preview-pane hr {
+  background: rgba(0, 0, 0, 0.12);
+}
+.ff-md-preview-pane ul,
+.ff-md-preview-pane ol {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+.ff-md-preview-pane li {
+  margin: 3px 0;
+}
+.ff-md-preview-pane li.ff-md-task-item {
+  list-style: none;
+  margin-left: -18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.ff-md-preview-pane li.ff-md-task-item input[type="checkbox"] {
+  margin-top: 4px;
+  width: 15px;
+  height: 15px;
+  accent-color: #0071e3;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ff-md-preview-pane li.ff-md-task-item.is-checked > span {
+  text-decoration: line-through;
+  opacity: 0.58;
+}
+
+.ff-md-preview-pane code.ff-md-inline-code {
+  font-family: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 0.88em;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ff9f0a;
+}
+body.theme-light .ff-md-preview-pane code.ff-md-inline-code {
+  background: rgba(0, 0, 0, 0.07);
+  color: #c93400;
+}
+
+.ff-md-code-block {
+  margin: 10px 0;
+  border-radius: 9px;
+  overflow: hidden;
+  background: rgba(12, 13, 18, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.ff-md-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(245, 245, 247, 0.65);
+  background: rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ff-md-code-copy-btn {
+  border: 0;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f5f5f7;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.ff-md-code-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.ff-md-code-block pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #f5f5f7;
+}
+
+.ff-md-preview-pane blockquote {
+  margin: 10px 0;
+  padding: 8px 14px;
+  border-left: 3.5px solid #2997ff;
+  background: rgba(41, 151, 255, 0.09);
+  border-radius: 0 8px 8px 0;
+}
+
+/* Antigravity / GitHub Callouts: [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION] */
+.ff-md-callout {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border-left: 4px solid #2997ff;
+  border-radius: 0 9px 9px 0;
+  background: rgba(41, 151, 255, 0.11);
+}
+.ff-md-callout-title {
+  font-weight: 800;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ff-md-callout.callout-tip {
+  border-left-color: #30d158;
+  background: rgba(48, 209, 88, 0.11);
+}
+.ff-md-callout.callout-tip .ff-md-callout-title { color: #30d158; }
+.ff-md-callout.callout-important {
+  border-left-color: #bf5af2;
+  background: rgba(191, 90, 242, 0.11);
+}
+.ff-md-callout.callout-important .ff-md-callout-title { color: #bf5af2; }
+.ff-md-callout.callout-warning {
+  border-left-color: #ff9f0a;
+  background: rgba(255, 159, 10, 0.12);
+}
+.ff-md-callout.callout-warning .ff-md-callout-title { color: #ff9f0a; }
+.ff-md-callout.callout-caution {
+  border-left-color: #ff453a;
+  background: rgba(255, 69, 58, 0.12);
+}
+.ff-md-callout.callout-caution .ff-md-callout-title { color: #ff453a; }
+
+.ff-md-preview-pane table.ff-md-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 13px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ff-md-preview-pane table.ff-md-table th,
+.ff-md-preview-pane table.ff-md-table td {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 7px 10px;
+  text-align: left;
+}
+body.theme-light .ff-md-preview-pane table.ff-md-table th,
+body.theme-light .ff-md-preview-pane table.ff-md-table td {
+  border-color: rgba(0, 0, 0, 0.14);
+}
+.ff-md-preview-pane table.ff-md-table th {
+  background: rgba(255, 255, 255, 0.1);
+  font-weight: 700;
+}
+body.theme-light .ff-md-preview-pane table.ff-md-table th {
+  background: rgba(0, 0, 0, 0.06);
+}
+.ff-md-preview-pane table.ff-md-table tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ff-md-preview-pane img.ff-md-img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 6px 0;
+  display: block;
+  cursor: zoom-in;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.ff-md-preview-pane a.ff-md-link {
+  color: #2997ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 600;
+  cursor: pointer;
+}
+body.theme-light .ff-md-preview-pane a.ff-md-link {
+  color: #0066cc;
+}
+
+.ff-md-preview-pane mark.ff-md-mark {
+  background: rgba(255, 214, 10, 0.34);
+  color: inherit;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* Inline Colorful Text Badges ({red:...}, {blue:...}, {green:...}, {yellow:...}, {purple:...}) */
+.ff-md-color-red { color: #ff554a; font-weight: 600; }
+.ff-md-color-blue { color: #2997ff; font-weight: 600; }
+.ff-md-color-green { color: #30d158; font-weight: 600; }
+.ff-md-color-yellow { color: #ffd60a; font-weight: 600; }
+.ff-md-color-purple { color: #bf5af2; font-weight: 600; }
+.ff-md-color-orange { color: #ff9f0a; font-weight: 600; }
+body.theme-light .ff-md-color-red { color: #d70015; }
+body.theme-light .ff-md-color-blue { color: #0066cc; }
+body.theme-light .ff-md-color-green { color: #1d8338; }
+body.theme-light .ff-md-color-yellow { color: #b25000; }
+body.theme-light .ff-md-color-purple { color: #8944ab; }
+body.theme-light .ff-md-color-orange { color: #c93400; }
+
