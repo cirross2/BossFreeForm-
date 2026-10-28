@@ -33,6 +33,20 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.boss.bossfreeform');
 }
 
+// Prevent Electron's intrusive native modal dialog on transient FSWatcher / Google Drive virtual mount errors
+process.on('uncaughtException', (err) => {
+  console.warn('[Main] Caught uncaughtException:', err?.stack || err?.message || err);
+  if (err && /watch|FSWatcher|UNKNOWN|ENOENT|EPERM|EACCES|EBUSY/i.test(String(err.message || err.stack || ''))) {
+    try {
+      driveSync.startWatching();
+    } catch (_) {}
+  }
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Main] Caught unhandledRejection:', reason?.stack || reason?.message || reason);
+});
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();

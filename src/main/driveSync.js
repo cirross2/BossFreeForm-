@@ -50,6 +50,7 @@ class DriveSyncManager {
     this.config = this.loadConfig();
     this.oauthTokens = this.loadOAuthTokens();
     this.watcher = null;
+    this.watchRetryTimer = null;
     this.onExternalChange = null;
     this.selfWriteTimestamps = new Map();
     this.ensureStorageDirectories();
@@ -243,27 +244,31 @@ class DriveSyncManager {
   }
 
   ensureStorageDirectories() {
-    const activeRoot = this.getActiveStorageRoot();
-    const boardsDir = path.join(activeRoot, 'boards');
-    const assetsDir = path.join(activeRoot, 'assets');
-    if (
-      this._ensuredStorageRoot === activeRoot &&
-      fs.existsSync(boardsDir) &&
-      fs.existsSync(assetsDir)
-    ) {
-      return;
-    }
-    if (!fs.existsSync(boardsDir)) fs.mkdirSync(boardsDir, { recursive: true });
-    if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
+    try {
+      const activeRoot = this.getActiveStorageRoot();
+      const boardsDir = path.join(activeRoot, 'boards');
+      const assetsDir = path.join(activeRoot, 'assets');
+      if (
+        this._ensuredStorageRoot === activeRoot &&
+        fs.existsSync(boardsDir) &&
+        fs.existsSync(assetsDir)
+      ) {
+        return;
+      }
+      if (!fs.existsSync(boardsDir)) fs.mkdirSync(boardsDir, { recursive: true });
+      if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
 
-    // Create initial starter board if no boards exist yet
-    const files = fs.readdirSync(boardsDir).filter((f) => f.endsWith('.json'));
-    if (files.length === 0) {
-      const welcomeBoard = this.createWelcomeBoard();
-      const welcomePath = path.join(boardsDir, `${welcomeBoard.id}.json`);
-      fs.writeFileSync(welcomePath, JSON.stringify(welcomeBoard, null, 2), 'utf-8');
+      // Create initial starter board if no boards exist yet
+      const files = fs.readdirSync(boardsDir).filter((f) => f.endsWith('.json'));
+      if (files.length === 0) {
+        const welcomeBoard = this.createWelcomeBoard();
+        const welcomePath = path.join(boardsDir, `${welcomeBoard.id}.json`);
+        fs.writeFileSync(welcomePath, JSON.stringify(welcomeBoard, null, 2), 'utf-8');
+      }
+      this._ensuredStorageRoot = activeRoot;
+    } catch (err) {
+      console.warn('[DriveSync] ensureStorageDirectories warning:', err?.message || err);
     }
-    this._ensuredStorageRoot = activeRoot;
   }
 
   createWelcomeBoard() {
@@ -620,16 +625,35 @@ class DriveSyncManager {
     if (onChangeCallback) {
       this.onExternalChange = onChangeCallback;
     }
+    if (this.watchRetryTimer) {
+      clearTimeout(this.watchRetryTimer);
+      this.watchRetryTimer = null;
+    }
     if (this.watcher) {
       try {
+        this.watcher.removeAllListeners();
         this.watcher.close();
       } catch (_) {}
       this.watcher = null;
     }
+    const scheduleReconnect = (delayMs = 3000) => {
+      if (this.watchRetryTimer) clearTimeout(this.watchRetryTimer);
+      this.watchRetryTimer = setTimeout(() => {
+        this.watchRetryTimer = null;
+        this.startWatching();
+      }, delayMs);
+      if (typeof this.watchRetryTimer.unref === 'function') {
+        this.watchRetryTimer.unref();
+      }
+    };
     try {
       const boardsDir = this.getBoardsDir();
+      if (!boardsDir || !fs.existsSync(boardsDir)) {
+        scheduleReconnect(5000);
+        return;
+      }
       let debounceTimer = null;
-      this.watcher = fs.watch(boardsDir, (eventType, filename) => {
+      const watcher = fs.watch(boardsDir, (eventType, filename) => {
         if (filename && filename.endsWith('.json')) {
           const boardId = filename.replace(/\.json$/, '');
           const lastSelfWrite = this.selfWriteTimestamps?.get(boardId) || 0;
@@ -648,7 +672,27 @@ class DriveSyncManager {
           }, 350);
         }
       });
-    } catch (_) {}
+      // Google Drive 가상 드라이브(G:\) 절전 복귀·재마운트 시 FSWatcher가 발생시키는 'error' 이벤트 처리
+      watcher.on('error', (err) => {
+        console.warn('[DriveSync] FSWatcher transient error (will auto-recover):', err?.message || err);
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+          debounceTimer = null;
+        }
+        try {
+          watcher.removeAllListeners();
+          watcher.close();
+        } catch (_) {}
+        if (this.watcher === watcher) {
+          this.watcher = null;
+        }
+        scheduleReconnect(3000);
+      });
+      this.watcher = watcher;
+    } catch (err) {
+      console.warn('[DriveSync] startWatching error (will retry):', err?.message || err);
+      scheduleReconnect(5000);
+    }
   }
 
   // ============================================================================
