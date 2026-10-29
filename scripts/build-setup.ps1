@@ -2,16 +2,21 @@
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $rootDir = (Resolve-Path "$scriptDir\..").Path
+$workspaceRoot = Split-Path -Parent $rootDir
 $distDir = Join-Path $rootDir "dist"
-$exePath = Join-Path $distDir "BossFreeForm\BossFreeForm.exe"
+$appDistDir = Join-Path $distDir "BossFreeForm"
+$exePath = Join-Path $appDistDir "BossFreeForm.exe"
 
-Write-Host "=== [1/3] BossFreeForm 단독 EXE 확인 ===" -ForegroundColor Cyan
+Write-Host "=== [1/3] Syncing BossFreeForm Standalone EXE ===" -ForegroundColor Cyan
 if (-not (Test-Path $exePath)) {
-    Write-Host "BossFreeForm.exe가 없어 먼저 단독 EXE를 빌드합니다..." -ForegroundColor Yellow
     node "$scriptDir\build-exe.js"
+} else {
+    Copy-Item -Path (Join-Path $rootDir "package.json") -Destination (Join-Path $appDistDir "resources\app\package.json") -Force
+    Copy-Item -Path (Join-Path $rootDir "src\*") -Destination (Join-Path $appDistDir "resources\app\src") -Recurse -Force
+    Copy-Item -Path (Join-Path $rootDir "assets\*") -Destination (Join-Path $appDistDir "resources\app\assets") -Recurse -Force
 }
 
-Write-Host "=== [2/3] Inno Setup 기반 배포용 설치 파일(BossFreeForm_Setup_v1.0.0.exe) 컴파일 ===" -ForegroundColor Cyan
+Write-Host "=== [2/3] Compiling Inno Setup Installer (BossFreeForm_Setup_v1.0.0.exe) ===" -ForegroundColor Cyan
 $isccCandidates = @(
     "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
@@ -26,18 +31,18 @@ foreach ($cand in $isccCandidates) {
 }
 
 if (-not $isccPath) {
-    Write-Error "Inno Setup 6 (ISCC.exe)를 찾을 수 없습니다."
+    Write-Error "Inno Setup 6 (ISCC.exe) not found."
     exit 1
 }
 
 $issFile = Join-Path $scriptDir "BossFreeForm_Setup.iss"
 & "$isccPath" "$issFile"
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Inno Setup 컴파일 실패 (ExitCode: $LASTEXITCODE)"
+    Write-Error "Inno Setup compile failed (ExitCode: $LASTEXITCODE)"
     exit $LASTEXITCODE
 }
 
-Write-Host "=== [3/3] 디지털 서명 적용 ===" -ForegroundColor Cyan
+Write-Host "=== [3/3] Code Signing & Release Folder Copy ===" -ForegroundColor Cyan
 $certName = "CN=BossFreeForm Software"
 $cert = Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object { $_.Subject -eq $certName } | Select-Object -First 1
 if (-not $cert) {
@@ -47,13 +52,11 @@ if (-not $cert) {
 $setupExe = Join-Path $distDir "BossFreeForm_Setup_v1.0.0.exe"
 if (Test-Path $setupExe) {
     Set-AuthenticodeSignature -Certificate $cert -FilePath $setupExe -HashAlgorithm SHA256 | Out-Null
-    $releaseDir = "E:\코딩\배포본"
-    if (Test-Path "E:\코딩") {
-        New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
-        Copy-Item -Path $setupExe -Destination (Join-Path $releaseDir "BossFreeForm_Setup_v1.0.0.exe") -Force
-    }
+    $releaseFolderName = [string][char]0xBC30 + [char]0xD3EC + [char]0xBCF8
+    $releaseDir = Join-Path $workspaceRoot $releaseFolderName
+    New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+    Copy-Item -Path $setupExe -Destination (Join-Path $releaseDir "BossFreeForm_Setup_v1.0.0.exe") -Force
     Write-Host "==========================================================" -ForegroundColor Green
-    Write-Host " ✨ 배포용 설치 파일 생성 완료: $setupExe" -ForegroundColor Green
-    Write-Host " 📂 배포본 폴더 복사 완료: $releaseDir\BossFreeForm_Setup_v1.0.0.exe" -ForegroundColor Green
+    Write-Host " Setup Installer Created: $setupExe" -ForegroundColor Green
     Write-Host "==========================================================" -ForegroundColor Green
 }
