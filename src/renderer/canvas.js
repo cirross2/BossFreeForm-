@@ -2986,6 +2986,9 @@ function renderSidebarBoards() {
     item.addEventListener('click', (e) => {
       if (e.target.closest('.board-del-btn')) return;
       loadBoardById(b.id);
+      if (window.innerWidth <= 768) {
+        document.getElementById('boardsSidebar')?.classList.add('collapsed');
+      }
     });
     const delBtn = item.querySelector('.board-del-btn');
     if (delBtn) {
@@ -7310,11 +7313,17 @@ function createObjectDOM(obj) {
     renderAllConnectors();
   };
 
-  // Ctrl-Hold Instant Move Mode: Holding Ctrl + Left-Click anywhere on an object (even over text inputs) immediately drags the object!
+  // Ctrl/Cmd-Hold Instant Move Mode: Holding Ctrl (or ⌘ Cmd on Mac) + Click anywhere on an object immediately drags the object!
   el.addEventListener(
     'pointerdown',
     (e) => {
-      if (e.ctrlKey && e.button === 0 && activeTool === 'select' && !obj.locked && !isBgShape()) {
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.button === 0 &&
+        (activeTool === 'select' || activeTool === 'marquee') &&
+        !obj.locked &&
+        !isBgShape()
+      ) {
         if (e.target.closest('.ff-resize-handle, .ff-rotate-handle, .ff-connect-handle')) return;
         e.preventDefault();
         e.stopPropagation();
@@ -7329,14 +7338,18 @@ function createObjectDOM(obj) {
 
   // Object Selection & Multi-Object Dragging
   el.addEventListener('pointerdown', (e) => {
-    if (activeTool !== 'select' || e.button !== 0) return;
+    if ((activeTool !== 'select' && activeTool !== 'marquee') || e.button !== 0) return;
+    if (typeof isMultiTouchBusy === 'function' && isMultiTouchBusy(e)) return;
     if (isBgShape()) {
       // Backgrounded shape: let the click fall through to the canvas (only the bg toggle button stops propagation itself)
       return;
     }
     e.stopPropagation();
     selectedConnectorId = null;
-    if (e.shiftKey && !(obj.type === 'table' && selectedObjectIds.has(obj.id) && e.target.closest('.ff-table td'))) {
+    if (
+      (e.shiftKey || activeTool === 'marquee') &&
+      !(obj.type === 'table' && selectedObjectIds.has(obj.id) && e.target.closest('.ff-table td'))
+    ) {
       selectObject(obj.id, { additive: true });
     } else if (!selectedObjectIds.has(obj.id)) {
       selectObject(obj.id, { additive: false });
@@ -7369,6 +7382,16 @@ function createObjectDOM(obj) {
     obj.type === 'pdf'
   ) {
     body.addEventListener('pointerdown', (e) => startDrag(e, false));
+  } else {
+    // On iPad / iPhone touch screens, allow 1-finger drag on sticky/checklist/table/markdown bodies
+    // when the text editor inside this card is not already focused, so moving cards doesn't pop up the keyboard!
+    body.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch' || obj.locked || isBgShape() || activeTool !== 'select') return;
+      if (e.target.closest('button, .ff-chk-widget')) return;
+      const isFocusedInside = document.activeElement && el.contains(document.activeElement);
+      if (isFocusedInside) return;
+      startDrag(e, true);
+    });
   }
 
   // Resize Object
@@ -8597,11 +8620,153 @@ async function handleSmartPaste(atWorldPos = null, preferObjectBuffer = false) {
 }
 
 // ============================================================================
-// Middle-Mouse-Click+Drag OR Left+Right Simultaneous Click+Drag Pan (Anywhere), Empty Canvas Pan, Shift+Drag Marquee, Smart Pen
+// Mac Trackpad, iPad & iPhone Multi-Touch Engine + Mouse/Chord Pan & Marquee
 // ============================================================================
 let chordPanActive = false;
 let suppressContextMenuUntil = 0;
 let pointerDownInViewport = false;
+let activePrimaryPointerId = null;
+
+// Platform & Input Device Auto-Detection (Mac, iPad, iPhone, Multi-Touch)
+const _ua = navigator.userAgent || '';
+const _platform = navigator.platform || '';
+const isIPhoneOS = /iPhone|iPod/i.test(_ua);
+const isIPadOS = /iPad/i.test(_ua) || (/Macintosh/i.test(_ua) && navigator.maxTouchPoints > 1);
+const isMacOS =
+  !isIPadOS && !isIPhoneOS && (/Macintosh|MacIntel|MacPPC|Mac68K/i.test(_platform) || /Mac OS X/i.test(_ua));
+const isTouchDevice = isIPhoneOS || isIPadOS || navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+const isWebRuntime = !/Electron/i.test(_ua);
+
+let isTrackpadGestureMode = isMacOS || isIPadOS || isIPhoneOS;
+try {
+  const savedGesturePref = localStorage.getItem('ff_input_gesture_mode');
+  if (savedGesturePref === 'trackpad') isTrackpadGestureMode = true;
+  else if (savedGesturePref === 'mouse' && !isIPadOS && !isIPhoneOS) isTrackpadGestureMode = false;
+} catch (_) {}
+
+function syncDeviceAndInputModeUI() {
+  document.body.classList.toggle('device-mac', isMacOS);
+  document.body.classList.toggle('device-ipad', isIPadOS);
+  document.body.classList.toggle('device-iphone', isIPhoneOS);
+  document.body.classList.toggle('device-touch', isIPadOS || isIPhoneOS || (isTouchDevice && window.innerWidth <= 1180));
+  document.body.classList.toggle('is-web-runtime', isWebRuntime);
+  document.body.classList.toggle('input-mode-trackpad', isTrackpadGestureMode);
+
+  const modeBtn = document.getElementById('toggleInputModeBtn');
+  const modeLbl = document.getElementById('toggleInputModeLabel');
+  if (modeBtn && modeLbl) {
+    if (isIPadOS || isIPhoneOS) {
+      modeLbl.textContent = '멀티터치';
+      modeBtn.classList.add('active-input-mode');
+    } else if (isTrackpadGestureMode) {
+      modeLbl.textContent = '트랙패드';
+      modeBtn.classList.add('active-input-mode');
+    } else {
+      modeLbl.textContent = '마우스';
+      modeBtn.classList.remove('active-input-mode');
+    }
+  }
+
+  const hintPill = document.querySelector('.canvas-hint-pill');
+  if (hintPill) {
+    if (isIPadOS || isIPhoneOS) {
+      hintPill.innerHTML = `<span><b>멀티터치</b>: <b>한 손가락</b> 이동 · <b>두 손가락 핀치/드래그</b> 확대·축소 및 이동 · <b>두 손가락 탭</b> 실행취소 · <b>길게 누르기</b> 메뉴</span>`;
+    } else if (isTrackpadGestureMode) {
+      const cmdKey = isMacOS ? '⌘' : 'Ctrl';
+      const optKey = isMacOS ? '⌥(Option)' : 'Alt';
+      hintPill.innerHTML = `<span><b>트랙패드</b>: <b>두 손가락 스크롤</b> 캔버스 이동 · <b>두 손가락 핀치(또는 ${optKey}+스크롤)</b> 확대/축소 · <b>${cmdKey}누름</b> 객체 즉시이동 · <b>Shift+드래그</b> 다중선택</span>`;
+    } else {
+      hintPill.innerHTML = `<span><b>단축키</b>: <b>휠클릭/좌우동시클릭 드래그</b> 캔버스이동 · <b>Ctrl누름</b> 객체 즉시이동 · <b>A</b> 선택 · <b>D</b> 펜 · <b>B</b> 도형 · <b>S</b> 포스트잇 · <b>T/F</b> 텍스트 · <b>C</b> 체크 · <b>G</b> 표 · <b>X</b> 캡처</span>`;
+    }
+  }
+}
+
+// Responsive initial sidebar state for iPhone & iPad
+try {
+  const sb = document.getElementById('boardsSidebar');
+  if (sb) {
+    if (isIPhoneOS || window.innerWidth <= 768) {
+      sb.classList.add('collapsed');
+    } else if ((isIPadOS || window.innerWidth <= 1080) && localStorage.getItem('ff_sidebar_mini_mode') === null) {
+      sb.classList.add('mini-mode');
+    }
+  }
+} catch (_) {}
+
+syncDeviceAndInputModeUI();
+
+document.getElementById('toggleInputModeBtn')?.addEventListener('click', () => {
+  isTrackpadGestureMode = !isTrackpadGestureMode;
+  try {
+    localStorage.setItem('ff_input_gesture_mode', isTrackpadGestureMode ? 'trackpad' : 'mouse');
+  } catch (_) {}
+  syncDeviceAndInputModeUI();
+  showToast(
+    isTrackpadGestureMode
+      ? '👆 트랙패드·멀티터치 모드: 두 손가락 스크롤로 캔버스 이동, 두 손가락 핀치(또는 Option+스크롤)로 확대/축소합니다'
+      : '🖱️ 마우스 휠 모드: 마우스 휠로 확대/축소, 빈 공간 또는 휠클릭 드래그로 캔버스를 이동합니다'
+  );
+});
+
+function cancelAndRevertInFlightSingleTouchAction() {
+  if (draggingObjState) {
+    draggingObjState.items.forEach((item) => {
+      item.obj.x = item.origX;
+      item.obj.y = item.origY;
+      if (item.el) {
+        item.el.style.left = `${item.obj.x}px`;
+        item.el.style.top = `${item.obj.y}px`;
+      }
+    });
+    document.body.classList.remove('is-dragging-object');
+    draggingObjState = null;
+    updateGroupFramesDOM();
+    renderAllConnectors();
+  }
+  if (resizingObjState) {
+    resizingObjState.obj.width = resizingObjState.origW;
+    resizingObjState.obj.height = resizingObjState.origH;
+    if (resizingObjState.el) {
+      resizingObjState.el.style.width = `${resizingObjState.origW}px`;
+      resizingObjState.el.style.height = `${resizingObjState.origH}px`;
+    }
+    resizingObjState = null;
+    updateGroupFramesDOM();
+    renderAllConnectors();
+  }
+  if (rotatingObjState) {
+    rotatingObjState.obj.rotation = rotatingObjState.origRotation;
+    if (rotatingObjState.el) {
+      rotatingObjState.el.style.transform = `rotate(${rotatingObjState.origRotation}deg)`;
+    }
+    rotatingObjState = null;
+  }
+  if (drawingStroke) {
+    drawingStroke = null;
+    renderAllStrokes();
+  }
+  if (drawingShapeState) {
+    drawingShapeState = null;
+    shapeDrawPreview?.classList.add('hidden');
+  }
+  if (marqueeState) {
+    marqueeState = null;
+    selectionMarquee?.classList.add('hidden');
+  }
+  if (tableCellDragState) {
+    tableCellDragState.tableEl?.classList.remove('is-selecting-cells');
+    tableCellDragState = null;
+  }
+  if (connectingState) {
+    connectingState = null;
+    if (tempConnectorPath) tempConnectorPath.classList.add('hidden');
+    renderAllConnectors();
+  }
+  if (isPanning) {
+    isPanning = false;
+    canvasViewport?.classList.remove('canvas-panning-active');
+  }
+}
 
 function startCanvasPanMode(clientX, clientY, isChordPan = false) {
   hideContextMenu();
@@ -8610,61 +8775,7 @@ function startCanvasPanMode(clientX, clientY, isChordPan = false) {
   if (isChordPan) {
     chordPanActive = true;
     suppressContextMenuUntil = Date.now() + 800;
-
-    // Cancel and revert any in-flight drag/draw/marquee that began a few ms earlier when the first button was pressed
-    if (draggingObjState) {
-      draggingObjState.items.forEach((item) => {
-        item.obj.x = item.origX;
-        item.obj.y = item.origY;
-        if (item.el) {
-          item.el.style.left = `${item.obj.x}px`;
-          item.el.style.top = `${item.obj.y}px`;
-        }
-      });
-      document.body.classList.remove('is-dragging-object');
-      draggingObjState = null;
-      updateGroupFramesDOM();
-      renderAllConnectors();
-    }
-    if (resizingObjState) {
-      resizingObjState.obj.width = resizingObjState.origW;
-      resizingObjState.obj.height = resizingObjState.origH;
-      if (resizingObjState.el) {
-        resizingObjState.el.style.width = `${resizingObjState.origW}px`;
-        resizingObjState.el.style.height = `${resizingObjState.origH}px`;
-      }
-      resizingObjState = null;
-      updateGroupFramesDOM();
-      renderAllConnectors();
-    }
-    if (rotatingObjState) {
-      rotatingObjState.obj.rotation = rotatingObjState.origRotation;
-      if (rotatingObjState.el) {
-        rotatingObjState.el.style.transform = `rotate(${rotatingObjState.origRotation}deg)`;
-      }
-      rotatingObjState = null;
-    }
-    if (drawingStroke) {
-      drawingStroke = null;
-      renderAllStrokes();
-    }
-    if (drawingShapeState) {
-      drawingShapeState = null;
-      shapeDrawPreview?.classList.add('hidden');
-    }
-    if (marqueeState) {
-      marqueeState = null;
-      selectionMarquee?.classList.add('hidden');
-    }
-    if (tableCellDragState) {
-      tableCellDragState.tableEl?.classList.remove('is-selecting-cells');
-      tableCellDragState = null;
-    }
-    if (connectingState) {
-      connectingState = null;
-      tempConnectorPath?.remove();
-      tempConnectorPath = null;
-    }
+    cancelAndRevertInFlightSingleTouchAction();
   }
 
   isPanning = true;
@@ -8672,6 +8783,195 @@ function startCanvasPanMode(clientX, clientY, isChordPan = false) {
   panStartY = clientY - panY;
   canvasViewport?.classList.add('canvas-panning-active');
 }
+
+// ============================================================================
+// Multi-Touch Pinch-to-Zoom + Two-Finger Pan + 2/3-Finger Tap Undo/Redo + Long-Press Context Menu
+// ============================================================================
+const multiTouchState = {
+  active: false,
+  startDist: 0,
+  startMidX: 0,
+  startMidY: 0,
+  startZoom: 1,
+  anchorWorldX: 0,
+  anchorWorldY: 0,
+  maxTouches: 0,
+  startTime: 0,
+  moved: false
+};
+let multiTouchCooldownUntil = 0;
+let touchLongPressTimer = null;
+let touchLongPressInfo = null;
+
+function clearTouchLongPress() {
+  if (touchLongPressTimer) {
+    clearTimeout(touchLongPressTimer);
+    touchLongPressTimer = null;
+  }
+  touchLongPressInfo = null;
+}
+
+function isMultiTouchBusy(e) {
+  if (multiTouchState.active || Date.now() < multiTouchCooldownUntil) return true;
+  if (e && e.pointerType === 'touch' && e.isPrimary === false) return true;
+  return false;
+}
+
+function initOrReanchorMultiTouch(touches) {
+  if (!touches || touches.length < 2) return;
+  const t1 = touches[0];
+  const t2 = touches[1];
+  const midX = (t1.clientX + t2.clientX) / 2;
+  const midY = (t1.clientY + t2.clientY) / 2;
+  const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+
+  if (!multiTouchState.active) {
+    multiTouchState.active = true;
+    multiTouchState.startTime = Date.now();
+    multiTouchState.moved = false;
+    multiTouchState.maxTouches = touches.length;
+  } else {
+    multiTouchState.maxTouches = Math.max(multiTouchState.maxTouches, touches.length);
+  }
+
+  multiTouchState.startDist = Math.max(12, dist);
+  multiTouchState.startMidX = midX;
+  multiTouchState.startMidY = midY;
+  multiTouchState.startZoom = zoom;
+  multiTouchState.anchorWorldX = (midX - panX) / zoom;
+  multiTouchState.anchorWorldY = (midY - panY) / zoom;
+}
+
+canvasViewport.addEventListener(
+  'touchstart',
+  (e) => {
+    if (!document.body.classList.contains('device-touch')) {
+      document.body.classList.add('device-touch');
+    }
+
+    if (e.touches.length >= 2) {
+      clearTouchLongPress();
+      cancelViewportAnimation();
+      hideContextMenu();
+      cancelAndRevertInFlightSingleTouchAction();
+      e.preventDefault();
+      initOrReanchorMultiTouch(e.touches);
+      return;
+    }
+
+    // 1-Finger Touch: Start Long-Press (~480ms) Context Menu detector
+    if (e.touches.length === 1 && !multiTouchState.active && Date.now() >= multiTouchCooldownUntil) {
+      const t = e.touches[0];
+      const inFloatingUI = t.target?.closest?.(
+        '.object-inspector, .pen-toolbar, .shape-toolbar, .canvas-hud, .grid-settings-popover, .context-menu, .ff-resize-handle, .ff-rotate-handle, .ff-connect-handle'
+      );
+      const inFocusedEditor =
+        document.activeElement &&
+        t.target?.closest?.('input, textarea, [contenteditable="true"]') &&
+        document.activeElement === t.target.closest('input, textarea, [contenteditable="true"]');
+
+      if (!inFloatingUI && !inFocusedEditor) {
+        clearTouchLongPress();
+        touchLongPressInfo = {
+          startX: t.clientX,
+          startY: t.clientY,
+          target: t.target
+        };
+        touchLongPressTimer = setTimeout(() => {
+          const info = touchLongPressInfo;
+          touchLongPressTimer = null;
+          touchLongPressInfo = null;
+          if (!info || multiTouchState.active) return;
+          cancelAndRevertInFlightSingleTouchAction();
+          multiTouchCooldownUntil = Date.now() + 320;
+          try {
+            if (typeof navigator.vibrate === 'function') navigator.vibrate(14);
+          } catch (_) {}
+          const synthCtx = new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: info.startX,
+            clientY: info.startY,
+            button: 2
+          });
+          (info.target || canvasViewport).dispatchEvent(synthCtx);
+        }, 480);
+      }
+    }
+  },
+  { capture: true, passive: false }
+);
+
+canvasViewport.addEventListener(
+  'touchmove',
+  (e) => {
+    if (touchLongPressInfo && e.touches.length === 1) {
+      const t = e.touches[0];
+      if (Math.hypot(t.clientX - touchLongPressInfo.startX, t.clientY - touchLongPressInfo.startY) > 9) {
+        clearTouchLongPress();
+      }
+    }
+
+    if (multiTouchState.active && e.touches.length >= 2) {
+      e.preventDefault();
+      e.stopPropagation();
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const midX = (t1.clientX + t2.clientX) / 2;
+      const midY = (t1.clientY + t2.clientY) / 2;
+      const curDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+
+      if (
+        Math.hypot(midX - multiTouchState.startMidX, midY - multiTouchState.startMidY) > 10 ||
+        Math.abs(curDist - multiTouchState.startDist) > 12
+      ) {
+        multiTouchState.moved = true;
+      }
+
+      const rawScale = multiTouchState.startDist > 12 ? curDist / multiTouchState.startDist : 1;
+      const nextZoom = Math.min(4.0, Math.max(0.12, Number((multiTouchState.startZoom * rawScale).toFixed(4))));
+
+      zoom = nextZoom;
+      panX = midX - multiTouchState.anchorWorldX * zoom;
+      panY = midY - multiTouchState.anchorWorldY * zoom;
+      applyViewportTransform();
+    }
+  },
+  { capture: true, passive: false }
+);
+
+function handleMultiTouchEndOrCancel(e) {
+  clearTouchLongPress();
+  if (!multiTouchState.active) return;
+
+  multiTouchCooldownUntil = Date.now() + 180;
+  if (e.touches && e.touches.length >= 2) {
+    initOrReanchorMultiTouch(e.touches);
+    return;
+  }
+
+  if (!e.touches || e.touches.length === 0) {
+    const elapsed = Date.now() - multiTouchState.startTime;
+    const wasQuickTap = !multiTouchState.moved && elapsed < 320;
+    const maxFingers = multiTouchState.maxTouches;
+    multiTouchState.active = false;
+    multiTouchState.maxTouches = 0;
+
+    if (wasQuickTap && maxFingers === 2) {
+      undoBoardAction();
+      return;
+    }
+    if (wasQuickTap && maxFingers === 3) {
+      redoBoardAction();
+      return;
+    }
+    scheduleSaveBoard();
+  }
+}
+
+canvasViewport.addEventListener('touchend', handleMultiTouchEndOrCancel, { capture: true, passive: true });
+canvasViewport.addEventListener('touchcancel', handleMultiTouchEndOrCancel, { capture: true, passive: true });
 
 // Prevent Windows default auto-scroll circle on middle mouse button click, and detect Left+Right chord click
 window.addEventListener(
@@ -8712,6 +9012,10 @@ window.addEventListener(
 canvasViewport.addEventListener(
   'pointerdown',
   (e) => {
+    if (isMultiTouchBusy(e)) {
+      return;
+    }
+    activePrimaryPointerId = e.pointerId;
     pointerDownInViewport = true;
     hideContextMenu();
 
@@ -8723,14 +9027,18 @@ canvasViewport.addEventListener(
       return;
     }
 
-    // 2. Shift + Left-Click Drag on empty canvas -> Multi-selection Marquee Box!
+    // 2. Shift + Left-Click Drag OR Marquee Tool ('marquee') on empty canvas -> Multi-selection Marquee Box!
     const isEmptyCanvasTarget =
       e.target === canvasViewport ||
       e.target === canvasWorld ||
       e.target === objectLayer ||
       e.target.id === 'connectorLayer';
 
-    if (e.shiftKey && e.button === 0 && isEmptyCanvasTarget && activeTool === 'select') {
+    if (
+      ((e.shiftKey && activeTool === 'select') || activeTool === 'marquee') &&
+      e.button === 0 &&
+      isEmptyCanvasTarget
+    ) {
       e.preventDefault();
       e.stopPropagation();
       marqueeState = {
@@ -8783,7 +9091,7 @@ canvasViewport.addEventListener(
 
     if (!isEmptyCanvasTarget) return;
 
-    // 4. Empty Canvas Left-Click Drag -> Pan (Hand cursor -> Grabbing Hand cursor)
+    // 4. Empty Canvas Left-Click / 1-Finger Drag -> Pan (Hand cursor -> Grabbing Hand cursor)
     if (e.button === 0) {
       cancelViewportAnimation();
       if (selectedConnectorId) {
@@ -8810,8 +9118,12 @@ function syncCtrlMoveModeClass(active) {
 }
 
 window.addEventListener('pointermove', (e) => {
+  if (isMultiTouchBusy(e)) return;
+  if (e.pointerType === 'touch' && activePrimaryPointerId !== null && e.pointerId !== activePrimaryPointerId) {
+    return;
+  }
   lastCanvasMousePos = { x: e.clientX, y: e.clientY };
-  syncCtrlMoveModeClass(e.ctrlKey && activeTool === 'select');
+  syncCtrlMoveModeClass((e.ctrlKey || e.metaKey) && activeTool === 'select');
 
   // Left + Right simultaneous click + drag ((e.buttons & 3) === 3) -> immediately switch to canvas panning!
   if (!isPanning && (e.buttons & 3) === 3 && (pointerDownInViewport || canvasViewport?.contains(e.target))) {
@@ -9178,11 +9490,14 @@ window.addEventListener('pointerup', (e) => {
       .filter((o) => o.x + o.width >= p1.x && o.x <= p2.x && o.y + o.height >= p1.y && o.y <= p2.y)
       .map((o) => o.id);
     setSelectedObjectIds(matchedIds);
-    if (matchedIds.length > 0) {
-      showToast(`✨ ${selectedObjectIds.size}개 객체가 다중 선택되었습니다 (Ctrl+G로 그룹화 가능)`);
-    }
     marqueeState = null;
     selectionMarquee?.classList.add('hidden');
+    if (matchedIds.length > 0) {
+      if (activeTool === 'marquee') {
+        setToolMode('select');
+      }
+      showToast(`✨ ${selectedObjectIds.size}개 객체 다중 선택됨 (드래그하여 일괄 이동 / ⌘G·Ctrl+G 그룹화)`);
+    }
   }
 
   if (isPanning) {
@@ -9261,27 +9576,86 @@ window.addEventListener('pointerup', (e) => {
     if (tempConnectorPath) tempConnectorPath.classList.add('hidden');
     renderAllConnectors();
   }
+  if (e.pointerId === activePrimaryPointerId) {
+    activePrimaryPointerId = null;
+  }
 });
 
-// Smooth Zoom on Mouse Wheel (Strictly ONLY on empty canvas space, backgrounded shape objects, or Alt+Wheel anywhere!)
+// ============================================================================
+// Mac Trackpad (2-Finger Pan + Pinch-to-Zoom) & Mouse Wheel Zoom
+// ============================================================================
+let trackpadPanSaveTimer = null;
+function scheduleTrackpadPanSave() {
+  if (trackpadPanSaveTimer) clearTimeout(trackpadPanSaveTimer);
+  trackpadPanSaveTimer = setTimeout(() => {
+    trackpadPanSaveTimer = null;
+    scheduleSaveBoard();
+  }, 260);
+}
+
+// Safari / macOS / iPadOS WebKit Native Trackpad GestureEvents (Pinch-to-Zoom)
+let safariGestureActive = false;
+let safariGestureStartZoom = 1;
+
+canvasViewport.addEventListener(
+  'gesturestart',
+  (e) => {
+    e.preventDefault();
+    safariGestureActive = true;
+    safariGestureStartZoom = zoom;
+  },
+  { passive: false }
+);
+
+canvasViewport.addEventListener(
+  'gesturechange',
+  (e) => {
+    e.preventDefault();
+    if (!safariGestureActive) return;
+    const scale = typeof e.scale === 'number' && Number.isFinite(e.scale) ? e.scale : 1;
+    const cx = typeof e.clientX === 'number' ? e.clientX : lastCanvasMousePos.x || window.innerWidth / 2;
+    const cy = typeof e.clientY === 'number' ? e.clientY : lastCanvasMousePos.y || window.innerHeight / 2;
+    zoomAtScreenPoint(safariGestureStartZoom * scale, cx, cy);
+  },
+  { passive: false }
+);
+
+canvasViewport.addEventListener(
+  'gestureend',
+  (e) => {
+    e.preventDefault();
+    safariGestureActive = false;
+    scheduleSaveBoard();
+  },
+  { passive: false }
+);
+
 canvasViewport.addEventListener(
   'wheel',
   (e) => {
     lastCanvasMousePos = { x: e.clientX, y: e.clientY };
 
-    // Dedicated Canvas Zoom Key: Alt + Wheel ALWAYS zooms the canvas anywhere (even over focused/scrollable objects)!
-    if (e.altKey) {
+    // 1. Trackpad Pinch-to-Zoom (Chromium/Electron/Firefox/Safari emit wheel with e.ctrlKey === true during 2-finger pinch)
+    //    OR Dedicated Canvas Zoom Key (Alt / Option + Scroll) -> ALWAYS zooms canvas smoothly at pointer anywhere!
+    if (e.ctrlKey || e.altKey) {
       e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.1 : 0.9;
-      zoomAtScreenPoint(zoom * factor, e.clientX, e.clientY);
+      if (safariGestureActive) return;
+      // Trackpad pinch has fine-grained deltaY (deltaMode === 0), whereas mouse wheel notches are larger
+      const isFinePinch = e.ctrlKey && e.deltaMode === 0 && Math.abs(e.deltaY) < 60;
+      const zoomFactor = isFinePinch
+        ? Math.exp(-e.deltaY * 0.012)
+        : e.deltaY < 0
+          ? 1.1
+          : 0.9;
+      zoomAtScreenPoint(zoom * zoomFactor, e.clientX, e.clientY);
+      scheduleTrackpadPanSave();
       return;
     }
 
-    // Without Alt: Canvas zoom is ONLY allowed when the pointer is over empty space or a backgrounded shape (.is-background-shape).
-    // When the pointer is over any normal object, NEVER trigger canvas zoom (even when scroll reaches top/bottom end).
+    // 2. When pointer is over a normal object (not background shape), let scrollable object content scroll naturally
     const hoverObjEl = e.target.closest('.ff-object:not(.is-background-shape)');
     if (hoverObjEl) {
-      if (e.ctrlKey || e.metaKey) {
+      if (e.metaKey) {
         e.preventDefault();
         return;
       }
@@ -9306,12 +9680,42 @@ canvasViewport.addEventListener(
           }
         }
       }
-      // Scroll reached top/bottom boundary (or object has no scrollbar): do NOT zoom canvas!
+      // If in Trackpad Gesture Mode and object itself has no scrollable overflow in this direction,
+      // allow smooth 2-finger trackpad panning across the canvas even when passing over non-scrollable objects!
+      if (isTrackpadGestureMode) {
+        e.preventDefault();
+        panX -= e.deltaX;
+        panY -= e.deltaY;
+        applyViewportTransform();
+        scheduleTrackpadPanSave();
+        return;
+      }
+      // In mouse wheel mode, reaching top/bottom boundary of an object should NOT accidentally zoom the canvas
       e.preventDefault();
       return;
     }
 
+    // 3. Empty Canvas Space (or background shape):
+    //    - In Trackpad Gesture Mode (or when 2D trackpad swipe with deltaX is detected): 2-Finger Swipe pans canvas in 2D!
+    //    - Shift + Wheel in Mouse Mode: pans horizontally
+    //    - Standard Mouse Wheel in Mouse Mode: zooms canvas
     e.preventDefault();
+    const has2DTrackpadDelta = e.deltaMode === 0 && Math.abs(e.deltaX) > 0.5;
+    if (isTrackpadGestureMode || has2DTrackpadDelta) {
+      panX -= e.deltaX;
+      panY -= e.deltaY;
+      applyViewportTransform();
+      scheduleTrackpadPanSave();
+      return;
+    }
+
+    if (e.shiftKey && Math.abs(e.deltaY) > 0) {
+      panX -= e.deltaY;
+      applyViewportTransform();
+      scheduleTrackpadPanSave();
+      return;
+    }
+
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
     zoomAtScreenPoint(zoom * factor, e.clientX, e.clientY);
   },
@@ -9934,6 +10338,7 @@ const OVERFLOW_CANDIDATE_IDS = [
   'addStickyBtn',
   'toolShapeBtn',
   'toolPenBtn',
+  'toolMarqueeBtn',
   'resetWindowPosBtn',
   'pasteClipboardBtn',
   'redoBoardBtn',
@@ -10549,13 +10954,15 @@ linkTitleInput?.addEventListener('keydown', (e) => {
   }
 });
 
-// Tool Mode Switching (Select vs Smart Pen)
+// Tool Mode Switching (Select vs Marquee Multi-Select vs Smart Pen vs Shape)
 function setToolMode(mode) {
   activeTool = mode;
   document.getElementById('toolSelectBtn')?.classList.toggle('active', mode === 'select');
+  document.getElementById('toolMarqueeBtn')?.classList.toggle('active', mode === 'marquee');
   document.getElementById('toolPenBtn')?.classList.toggle('active', mode === 'pen');
   document.getElementById('toolShapeBtn')?.classList.toggle('active', mode === 'shape');
   canvasViewport?.classList.toggle('pen-mode', mode === 'pen' || mode === 'shape');
+  canvasViewport?.classList.toggle('marquee-mode', mode === 'marquee');
   penToolbar?.classList.toggle('hidden', mode !== 'pen');
   shapeToolbar?.classList.toggle('hidden', mode !== 'shape');
   if (mode === 'shape') syncShapeToolbarUI();
@@ -10566,6 +10973,13 @@ function setToolMode(mode) {
   if (mode === 'pen' || mode === 'shape') clearSelection();
 }
 document.getElementById('toolSelectBtn')?.addEventListener('click', () => setToolMode('select'));
+document.getElementById('toolMarqueeBtn')?.addEventListener('click', () => {
+  const nextMode = activeTool === 'marquee' ? 'select' : 'marquee';
+  setToolMode(nextMode);
+  if (nextMode === 'marquee') {
+    showToast('⬚ 다중 범위선택 모드: 빈 공간을 드래그해 범위 선택하거나 객체를 차례로 탭하세요');
+  }
+});
 document.getElementById('toolPenBtn')?.addEventListener('click', () => setToolMode(activeTool === 'pen' ? 'select' : 'pen'));
 document.getElementById('toolShapeBtn')?.addEventListener('click', () => setToolMode(activeTool === 'shape' ? 'select' : 'shape'));
 document.getElementById('exitPenModeBtn')?.addEventListener('click', () => setToolMode('select'));

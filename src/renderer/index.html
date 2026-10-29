@@ -2,6 +2,9 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>BossFreeForm — Standalone Infinite Canvas x Google Drive</title>
   <link rel="icon" type="image/x-icon" href="../../assets/icon.ico" />
   <link rel="stylesheet" href="styles.css" />
@@ -38,7 +41,14 @@
           <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 4l6.5 16 2.5-6.5L19.5 11 4 4z"></path>
           </svg>
-          <span>선택 도구 (A)</span>
+          <span>선택·이동 (A)</span>
+        </button>
+
+        <button class="tool-btn" id="toolMarqueeBtn" data-tool="marquee">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="3 2.5">
+            <rect x="3" y="3" width="18" height="18" rx="2.5"></rect>
+          </svg>
+          <span>다중 범위선택 (Shift)</span>
         </button>
 
         <button class="tool-btn" id="toolPenBtn" data-tool="pen">
@@ -945,6 +955,14 @@
               <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
             </svg>
             <span id="toggleThemeLabel">다크</span>
+          </button>
+          <button class="hud-btn" id="toggleInputModeBtn" title="마우스 휠 모드 ↔ 맥 트랙패드·아이패드·아이폰 멀티터치 모드 전환 (두 손가락 이동 · 핀치 줌)">
+            <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="3"></rect>
+              <line x1="3" y1="15" x2="21" y2="15"></line>
+              <line x1="12" y1="15" x2="12" y2="20"></line>
+            </svg>
+            <span id="toggleInputModeLabel">마우스</span>
           </button>
           <div class="hud-divider"></div>
           <button class="hud-btn" id="zoomOutBtn" title="축소">－</button>
