@@ -9962,10 +9962,11 @@ document.getElementById('addMarkdownBtn')?.addEventListener('click', () => {
 
 document.getElementById('addImageBtn')?.addEventListener('click', async () => {
   const assets = await window.freeformAPI.pickFiles({ imagesOnly: true });
+  if (!assets || !assets.length) return;
   assets.forEach((a) => {
     addObjectToBoard({
       type: 'image',
-      title: a.name,
+      title: a.name || '이미지',
       width: 360,
       height: 270,
       color: 'dark',
@@ -9974,6 +9975,219 @@ document.getElementById('addImageBtn')?.addEventListener('click', async () => {
       resolvedFileUrl: a.resolvedFileUrl
     });
   });
+  showToast(assets.length > 1 ? `이미지 ${assets.length}개가 보드에 추가되었습니다` : '이미지가 보드에 추가되었습니다');
+});
+
+// ============================================================================
+// Direct Camera Capture (Mobile Native Camera + PC/Web Live WebRTC Viewfinder)
+// ============================================================================
+const cameraCaptureModal = document.getElementById('cameraCaptureModal');
+const cameraPreviewVideo = document.getElementById('cameraPreviewVideo');
+const cameraFlashOverlay = document.getElementById('cameraFlashOverlay');
+const cameraStatusNotice = document.getElementById('cameraStatusNotice');
+const cameraStatusText = document.getElementById('cameraStatusText');
+
+let activeCameraStream = null;
+let cameraFacingMode = 'environment'; // 'environment' (후면) or 'user' (전면)
+let cameraMirrored = false;
+
+function isMobileTouchEnvironment() {
+  const ua = navigator.userAgent || '';
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (navigator.maxTouchPoints > 1 && window.innerWidth <= 1024);
+}
+
+function stopActiveCameraStream() {
+  if (activeCameraStream) {
+    try {
+      activeCameraStream.getTracks().forEach((track) => track.stop());
+    } catch (_) {}
+    activeCameraStream = null;
+  }
+  if (cameraPreviewVideo) {
+    try {
+      cameraPreviewVideo.srcObject = null;
+    } catch (_) {}
+  }
+}
+
+function closeCameraCaptureModal() {
+  stopActiveCameraStream();
+  cameraCaptureModal?.classList.add('hidden');
+}
+
+async function triggerNativeCameraOrPhotoPicker(facing = 'environment') {
+  closeCameraCaptureModal();
+  const assets = await window.freeformAPI.pickFiles({ imagesOnly: true, capture: facing });
+  if (!assets || !assets.length) return;
+  assets.forEach((a) => {
+    addObjectToBoard({
+      type: 'image',
+      title: a.name || '📸 카메라 촬영 사진',
+      width: 380,
+      height: 285,
+      color: 'dark',
+      assetFileName: a.assetFileName,
+      resolvedFilePath: a.resolvedFilePath,
+      resolvedFileUrl: a.resolvedFileUrl
+    });
+  });
+  showToast('📸 촬영한 사진이 보드에 이미지 객체로 추가되었습니다');
+}
+
+async function startCameraViewfinderStream() {
+  stopActiveCameraStream();
+  if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+    if (cameraStatusNotice && cameraStatusText) {
+      cameraStatusNotice.classList.remove('hidden');
+      cameraStatusText.textContent = '이 환경에서 실시간 웹캠 스트림을 열 수 없습니다. 아래 [📱 기기 기본 카메라/갤러리 열기] 버튼을 눌러주세요.';
+    }
+    return false;
+  }
+
+  if (cameraStatusNotice && cameraStatusText) {
+    cameraStatusNotice.classList.remove('hidden');
+    cameraStatusText.textContent = '카메라를 연결하는 중입니다...';
+  }
+
+  try {
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: cameraFacingMode },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
+        audio: false
+      });
+    } catch (_) {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
+
+    activeCameraStream = stream;
+    if (cameraPreviewVideo) {
+      cameraPreviewVideo.srcObject = stream;
+      cameraPreviewVideo.classList.toggle('mirrored', cameraMirrored);
+      await cameraPreviewVideo.play().catch(() => {});
+    }
+    cameraStatusNotice?.classList.add('hidden');
+    return true;
+  } catch (err) {
+    if (cameraStatusNotice && cameraStatusText) {
+      cameraStatusNotice.classList.remove('hidden');
+      cameraStatusText.textContent =
+        '카메라 장치 또는 권한을 찾을 수 없습니다. 아래 [📱 기기 기본 카메라/갤러리 열기] 버튼으로 사진을 촬영하거나 불러올 수 있습니다.';
+    }
+    return false;
+  }
+}
+
+async function openCameraCaptureModal() {
+  cameraCaptureModal?.classList.remove('hidden');
+  // Default mirror ON for desktop webcam / front camera, OFF for rear camera
+  cameraMirrored = !isMobileTouchEnvironment() || cameraFacingMode === 'user';
+  cameraPreviewVideo?.classList.toggle('mirrored', cameraMirrored);
+  await startCameraViewfinderStream();
+}
+
+async function captureFrameFromLiveCamera() {
+  if (!activeCameraStream || !cameraPreviewVideo || !cameraPreviewVideo.videoWidth) {
+    await triggerNativeCameraOrPhotoPicker(cameraFacingMode);
+    return;
+  }
+
+  const vw = cameraPreviewVideo.videoWidth || 1280;
+  const vh = cameraPreviewVideo.videoHeight || 720;
+  const maxDim = 2048;
+  const scale = Math.min(1, maxDim / Math.max(vw, vh));
+  const targetW = Math.max(1, Math.round(vw * scale));
+  const targetH = Math.max(1, Math.round(vh * scale));
+
+  const cvs = document.createElement('canvas');
+  cvs.width = targetW;
+  cvs.height = targetH;
+  const ctx = cvs.getContext('2d');
+  if (!ctx) return;
+
+  if (cameraMirrored) {
+    ctx.translate(targetW, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(cameraPreviewVideo, 0, 0, targetW, targetH);
+
+  // Shutter flash visual feedback
+  if (cameraFlashOverlay) {
+    cameraFlashOverlay.classList.add('flash-active');
+    setTimeout(() => cameraFlashOverlay.classList.remove('flash-active'), 180);
+  }
+
+  const dataUrl = cvs.toDataURL('image/jpeg', 0.9);
+  const timeStamp = new Date().toLocaleTimeString('ko-KR', { hour12: false }).replace(/:/g, '');
+  const fileLabel = `카메라촬영_${timeStamp}.jpg`;
+
+  const saved = await window.freeformAPI.saveAssetFromBuffer({
+    base64: dataUrl,
+    ext: '.jpg',
+    label: fileLabel
+  });
+
+  closeCameraCaptureModal();
+
+  if (saved) {
+    const aspect = targetW / Math.max(1, targetH);
+    const cardW = aspect >= 1 ? 420 : 320;
+    const cardH = Math.max(140, Math.round(cardW / Math.max(0.2, aspect)));
+    addObjectToBoard({
+      type: 'image',
+      title: `📸 ${fileLabel}`,
+      width: cardW,
+      height: cardH,
+      color: 'dark',
+      assetFileName: saved.assetFileName,
+      resolvedFilePath: saved.resolvedFilePath,
+      resolvedFileUrl: saved.resolvedFileUrl
+    });
+    showToast('📸 카메라로 촬영한 사진이 보드에 추가되었습니다');
+  }
+}
+
+document.getElementById('captureCameraBtn')?.addEventListener('click', async () => {
+  // On mobile devices (iOS / Android), directly launch the native hardware camera shutter for instant 1-tap shooting!
+  if (isMobileTouchEnvironment()) {
+    await triggerNativeCameraOrPhotoPicker('environment');
+    return;
+  }
+  await openCameraCaptureModal();
+});
+
+document.getElementById('closeCameraModalBtn')?.addEventListener('click', closeCameraCaptureModal);
+document.getElementById('cancelCameraModalBtn')?.addEventListener('click', closeCameraCaptureModal);
+document.getElementById('shutterCameraBtn')?.addEventListener('click', captureFrameFromLiveCamera);
+
+document.getElementById('switchCameraBtn')?.addEventListener('click', async () => {
+  cameraFacingMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+  cameraMirrored = cameraFacingMode === 'user';
+  await startCameraViewfinderStream();
+});
+
+document.getElementById('mirrorCameraBtn')?.addEventListener('click', () => {
+  cameraMirrored = !cameraMirrored;
+  cameraPreviewVideo?.classList.toggle('mirrored', cameraMirrored);
+});
+
+document.getElementById('nativeCameraCaptureBtn')?.addEventListener('click', async () => {
+  await triggerNativeCameraOrPhotoPicker(cameraFacingMode);
+});
+
+window.addEventListener('keydown', (e) => {
+  if (!cameraCaptureModal || cameraCaptureModal.classList.contains('hidden')) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeCameraCaptureModal();
+  } else if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    captureFrameFromLiveCamera();
+  }
 });
 
 document.getElementById('captureScreenBtn')?.addEventListener('click', async () => {
@@ -9995,6 +10209,7 @@ document.getElementById('captureScreenBtn')?.addEventListener('click', async () 
 
 document.getElementById('addFileBtn')?.addEventListener('click', async () => {
   const assets = await window.freeformAPI.pickFiles({ imagesOnly: false });
+  if (!assets || !assets.length) return;
   for (const a of assets) {
     const isMdFile = /\.(md|markdown)$/i.test(a.name || a.resolvedFilePath || '');
     if (isMdFile) {
@@ -10039,6 +10254,7 @@ document.getElementById('addFileBtn')?.addEventListener('click', async () => {
       resolvedFileUrl: a.resolvedFileUrl
     });
   }
+  showToast(assets.length > 1 ? `파일 ${assets.length}개가 보드에 첨부되었습니다` : '파일이 보드에 첨부되었습니다');
 });
 
 // Link Modal

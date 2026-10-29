@@ -121,6 +121,14 @@
           <span>화면캡처 (X)</span>
         </button>
 
+        <button class="tool-btn" id="captureCameraBtn" title="카메라로 바로 사진 촬영하여 보드에 이미지 객체로 추가">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+          <span>카메라 촬영</span>
+        </button>
+
         <button class="tool-btn" id="addImageBtn">
           <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2.5"></rect>
@@ -1092,6 +1100,38 @@
       </div>
       <div class="modal-footer">
         <button class="apple-btn secondary" id="doneStickerModalBtn">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 4: Direct Camera Capture Modal (PC Webcam & Mobile Camera Live Viewfinder) -->
+  <div class="modal-backdrop hidden" id="cameraCaptureModal">
+    <div class="modal-card wide camera-modal-card">
+      <div class="modal-header">
+        <div>
+          <h3 style="margin:0;">📸 카메라 즉시 촬영 · 이미지 객체 추가</h3>
+          <p style="margin:4px 0 0 0;font-size:12px;color:var(--text-secondary);">촬영한 사진이 즉시 프리폼 캔버스에 고화질 이미지 객체로 올라갑니다.</p>
+        </div>
+        <button class="modal-close" id="closeCameraModalBtn">&times;</button>
+      </div>
+      <div class="modal-body camera-modal-body">
+        <div class="camera-viewfinder-wrap" id="cameraViewfinderWrap">
+          <video id="cameraPreviewVideo" class="camera-preview-video" autoplay playsinline muted></video>
+          <div id="cameraFlashOverlay" class="camera-flash-overlay"></div>
+          <div id="cameraStatusNotice" class="camera-status-notice hidden">
+            <div style="font-size:28px;margin-bottom:8px;">📷</div>
+            <div id="cameraStatusText">카메라를 준비하는 중입니다...</div>
+          </div>
+        </div>
+        <div class="camera-toolbar-row">
+          <button class="apple-btn secondary" id="switchCameraBtn" title="전면 / 후면 카메라 전환">🔄 전·후면 전환</button>
+          <button class="apple-btn secondary" id="mirrorCameraBtn" title="화면 좌우반전 ON / OFF">🪞 좌우반전</button>
+          <button class="apple-btn secondary" id="nativeCameraCaptureBtn" title="스마트폰 기본 카메라 앱 또는 파일 선택창 열기">📱 기기 기본 카메라/갤러리 열기</button>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <button class="apple-btn secondary" id="cancelCameraModalBtn">취소</button>
+        <button class="apple-btn primary camera-shutter-cta" id="shutterCameraBtn">📸 사진 찍어 보드에 올리기 (Space / Enter)</button>
       </div>
     </div>
   </div>

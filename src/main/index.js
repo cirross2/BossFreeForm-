@@ -1598,6 +1598,23 @@ function setupTray() {
 }
 
 app.whenReady().then(() => {
+  // Grant camera/media permissions for direct camera capture feature
+  try {
+    session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+      if (permission === 'media' || permission === 'camera' || permission === 'clipboard-read') {
+        return true;
+      }
+      return true;
+    });
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      if (permission === 'media' || permission === 'camera' || permission === 'clipboard-read' || permission === 'fullscreen') {
+        callback(true);
+        return;
+      }
+      callback(true);
+    });
+  } catch (_) {}
+
   // Fix YouTube embed "플레이어 구성 오류 (Error 153)" inside file:// Electron renderer by ensuring a valid HTTPS Referer/Origin
   try {
     session.defaultSession.webRequest.onBeforeSendHeaders(
