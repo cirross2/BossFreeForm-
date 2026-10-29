@@ -47,7 +47,13 @@ if (-not $cert) {
 $setupExe = Join-Path $distDir "BossFreeForm_Setup_v1.0.0.exe"
 if (Test-Path $setupExe) {
     Set-AuthenticodeSignature -Certificate $cert -FilePath $setupExe -HashAlgorithm SHA256 | Out-Null
+    $releaseDir = "E:\코딩\배포본"
+    if (Test-Path "E:\코딩") {
+        New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+        Copy-Item -Path $setupExe -Destination (Join-Path $releaseDir "BossFreeForm_Setup_v1.0.0.exe") -Force
+    }
     Write-Host "==========================================================" -ForegroundColor Green
     Write-Host " ✨ 배포용 설치 파일 생성 완료: $setupExe" -ForegroundColor Green
+    Write-Host " 📂 배포본 폴더 복사 완료: $releaseDir\BossFreeForm_Setup_v1.0.0.exe" -ForegroundColor Green
     Write-Host "==========================================================" -ForegroundColor Green
 }

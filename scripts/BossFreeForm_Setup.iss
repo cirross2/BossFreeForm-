@@ -22,6 +22,7 @@ Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
+CloseApplications=force
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
@@ -31,7 +32,7 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "desktopicon"; Description: "바탕화면에 BossFreeForm 바로가기 만들기"; GroupDescription: "추가 아이콘:"; Flags: checkedonce
 
 [Files]
-Source: "..\dist\BossFreeForm\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\BossFreeForm\*"; DestDir: "{app}"; Excludes: "config.json,oauth_tokens.json,boards_local\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"

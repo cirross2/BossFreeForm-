@@ -19,6 +19,7 @@ const http = require('http');
 const https = require('https');
 const { exec } = require('child_process');
 const driveSync = require('./driveSync');
+const githubUpdater = require('./githubUpdater');
 
 let mainWindow = null;
 let googleWebWindow = null;
@@ -1564,6 +1565,17 @@ function updateTrayMenu() {
     { label: '🌐 구글 드라이브 웹 로그인 창 열기', click: () => openGoogleWebDriveWindow() },
     { type: 'separator' },
     {
+      label: githubUpdater.getMenuLabel(),
+      click: () => {
+        if (githubUpdater.updateAvailable) {
+          githubUpdater.performUpdate();
+        } else {
+          githubUpdater.checkForUpdates({ silent: false });
+        }
+      }
+    },
+    { type: 'separator' },
+    {
       label: '종료',
       click: () => {
         saveCurrentWindowBounds();
@@ -1577,7 +1589,11 @@ function updateTrayMenu() {
 
 function setupTray() {
   tray = new Tray(createTrayIcon());
+  githubUpdater.onStatusChange = () => updateTrayMenu();
   updateTrayMenu();
+  tray.on('right-click', () => {
+    githubUpdater.checkForUpdates({ silent: true });
+  });
   tray.on('click', () => showMainWindow());
 }
 
@@ -1624,6 +1640,11 @@ app.whenReady().then(() => {
   });
 
   registerAppGlobalHotkey(driveSync.config.hotkey || DEFAULT_HOTKEY);
+
+  // Auto-check GitHub for updates on startup
+  setTimeout(() => {
+    githubUpdater.checkForUpdates({ silent: true });
+  }, 2500);
 });
 
 app.on('before-quit', () => {
