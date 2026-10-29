@@ -373,8 +373,10 @@ function updateSidebarActiveBoardMetaInPlace() {
   if (activeItem) {
     const titleEl = activeItem.querySelector('.board-item-title');
     const metaEl = activeItem.querySelector('.board-item-meta');
-    if (titleEl) titleEl.textContent = currentBoard.title || '제목 없는 보드';
+    const cleanTitle = currentBoard.title || '제목 없는 보드';
+    if (titleEl) titleEl.textContent = cleanTitle;
     if (metaEl) metaEl.textContent = `객체 ${objCount}개`;
+    activeItem.dataset.ffTip = `${cleanTitle} (객체 ${objCount}개)`;
   }
 }
 
@@ -458,7 +460,8 @@ const SVG_ICONS = {
   fitWidth: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><polyline points="8 9 5 12 8 15"></polyline><polyline points="16 9 19 12 16 15"></polyline><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
   colFit: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path><polyline points="8 9 5 12 8 15"></polyline><polyline points="16 9 19 12 16 15"></polyline></svg>`,
   copyUnchecked: `<span class="ff-chk-copy-combo"><svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect></svg><svg class="ui-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></span>`,
-  copyChecked: `<span class="ff-chk-copy-combo"><svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect><path d="m7.5 12 3 3 6-6.5"></path></svg><svg class="ui-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></span>`
+  copyChecked: `<span class="ff-chk-copy-combo"><svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect><path d="m7.5 12 3 3 6-6.5"></path></svg><svg class="ui-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></span>`,
+  subItem: `<svg class="ui-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 10 20 15 15 20"></polyline><path d="M4 4v7a4 4 0 0 0 4 4h12"></path></svg>`
 };
 
 if (window.pdfjsLib) {
@@ -2961,15 +2964,21 @@ function renderSidebarBoards() {
     : boardsList;
 
   boardListContainer.innerHTML = '';
-  filtered.forEach((b) => {
+  filtered.forEach((b, idx) => {
     const item = document.createElement('div');
+    const cleanTitle = b.title || '제목 없는 보드';
+    const objCount = b.objectCount || 0;
+    const stripped = cleanTitle.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+    const miniChar = stripped ? Array.from(stripped)[0] : String(idx + 1);
     item.className = `board-item ${currentBoard && currentBoard.id === b.id ? 'active' : ''}`;
+    item.dataset.ffTip = `${cleanTitle} (객체 ${objCount}개)`;
     item.innerHTML = `
       <div class="board-item-left">
-        <span style="display:inline-flex;align-items:center;opacity:0.8;">${SVG_ICONS.board}</span>
-        <div style="min-width:0;flex:1;">
-          <div class="board-item-title">${escapeHtml(b.title)}</div>
-          <div class="board-item-meta">객체 ${b.objectCount || 0}개</div>
+        <span class="board-item-icon-wrap" style="display:inline-flex;align-items:center;opacity:0.85;">${SVG_ICONS.board}</span>
+        <span class="board-item-mini-char">${escapeHtml(miniChar)}</span>
+        <div class="board-item-text-wrap" style="min-width:0;flex:1;">
+          <div class="board-item-title">${escapeHtml(cleanTitle)}</div>
+          <div class="board-item-meta">객체 ${objCount}개</div>
         </div>
       </div>
       <button class="board-del-btn" title="보드 삭제">&times;</button>
@@ -4894,13 +4903,13 @@ function createObjectDOM(obj) {
     }
 
     const pdfModeBtn = document.createElement('button');
-    pdfModeBtn.className = 'ff-pdf-mode-toggle';
+    pdfModeBtn.className = 'ff-pdf-mode-toggle ff-obj-icon-btn';
     if (curMode === 'viewer') {
       pdfModeBtn.innerHTML = `${SVG_ICONS.fileIconMode}<span>아이콘보기</span>`;
-      pdfModeBtn.title = '클릭하여 심플한 아이콘 카드로 접기';
+      pdfModeBtn.title = '아이콘 카드로 접기';
     } else {
       pdfModeBtn.innerHTML = `${SVG_ICONS.bookOpen}<span>내용보기</span>`;
-      pdfModeBtn.title = '클릭하여 문서 내용을 뷰어로 바로 펼치기';
+      pdfModeBtn.title = '문서 내용 뷰어로 펼치기';
     }
     pdfModeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -4912,9 +4921,9 @@ function createObjectDOM(obj) {
   // Checklist Filtered Copy Buttons (Unchecked-only copy & Checked-only copy) in Header
   if (obj.type === 'text') {
     const copyUncheckedBtn = document.createElement('button');
-    copyUncheckedBtn.className = 'ff-header-copy-btn ff-chk-copy-filter-btn';
-    copyUncheckedBtn.title = '체크 안 된(미완료) 항목만 복사';
-    copyUncheckedBtn.innerHTML = `${SVG_ICONS.copyUnchecked}<span>미체크</span>`;
+    copyUncheckedBtn.className = 'ff-header-copy-btn ff-chk-copy-filter-btn ff-obj-icon-btn';
+    copyUncheckedBtn.title = '미체크(미완료) 항목만 복사';
+    copyUncheckedBtn.innerHTML = `${SVG_ICONS.copyUnchecked}<span>미체크 복사</span>`;
     copyUncheckedBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       copyChecklistFilteredItems(obj, false, copyUncheckedBtn);
@@ -4922,9 +4931,9 @@ function createObjectDOM(obj) {
     headerActions.appendChild(copyUncheckedBtn);
 
     const copyCheckedBtn = document.createElement('button');
-    copyCheckedBtn.className = 'ff-header-copy-btn ff-chk-copy-filter-btn';
+    copyCheckedBtn.className = 'ff-header-copy-btn ff-chk-copy-filter-btn ff-obj-icon-btn';
     copyCheckedBtn.title = '체크된(완료) 항목만 복사';
-    copyCheckedBtn.innerHTML = `${SVG_ICONS.copyChecked}<span>체크됨</span>`;
+    copyCheckedBtn.innerHTML = `${SVG_ICONS.copyChecked}<span>체크됨 복사</span>`;
     copyCheckedBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       copyChecklistFilteredItems(obj, true, copyCheckedBtn);
@@ -4935,8 +4944,8 @@ function createObjectDOM(obj) {
   // Download button in Header for File / Document Objects
   if (obj.type === 'file' || obj.type === 'pdf') {
     const dlHeaderBtn = document.createElement('button');
-    dlHeaderBtn.className = 'ff-header-copy-btn ff-header-download-btn';
-    dlHeaderBtn.title = '구글 드라이브에 저장된 이 파일을 내 PC로 다운로드 (다른 이름으로 저장)';
+    dlHeaderBtn.className = 'ff-header-copy-btn ff-header-download-btn ff-obj-icon-btn';
+    dlHeaderBtn.title = '내 PC로 파일 다운로드';
     dlHeaderBtn.innerHTML = `${SVG_ICONS.download}<span>다운로드</span>`;
     dlHeaderBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -4947,9 +4956,9 @@ function createObjectDOM(obj) {
 
   // Copy All Content Button at the far right end of the title bar
   const copyAllBtn = document.createElement('button');
-  copyAllBtn.className = 'ff-header-copy-btn';
-  copyAllBtn.title = '이 객체의 내용을 한 번에 모두 복사';
-  copyAllBtn.innerHTML = `${SVG_ICONS.copy}<span>복사</span>`;
+  copyAllBtn.className = 'ff-header-copy-btn ff-obj-icon-btn';
+  copyAllBtn.title = '객체 전체 내용 복사';
+  copyAllBtn.innerHTML = `${SVG_ICONS.copy}<span>전체 복사</span>`;
   copyAllBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     copyEntireObjectContent(obj, copyAllBtn);
@@ -5113,7 +5122,7 @@ function createObjectDOM(obj) {
       <button class="ff-chk-Insert-btn" data-chk="square" title="네모 체크박스 항목 추가 (빈 줄에선 모양 변경)">${SVG_ICONS.chkSquare}<span>네모체크</span></button>
       <button class="ff-chk-Insert-btn" data-chk="circle" title="원형 체크박스 항목 추가 (빈 줄에선 모양 변경)">${SVG_ICONS.chkCircle}<span>원형체크</span></button>
       <button class="ff-chk-Insert-btn" data-chk="toggle" title="슬라이드 토글 항목 추가 (빈 줄에선 모양 변경)">${SVG_ICONS.chkToggle}<span>슬라이드</span></button>
-      <button class="ff-chk-Insert-btn" data-chk="sub-item" title="현재 항목의 하위 체크리스트 추가 (단축키: Ctrl+Enter / 상위복귀: Shift+Enter)"><span>↳ 하위목록</span></button>
+      <button class="ff-chk-Insert-btn" data-chk="sub-item" title="현재 항목의 하위 체크리스트 추가 (단축키: Ctrl+Enter / 상위복귀: Shift+Enter)">${SVG_ICONS.subItem}<span>↳ 하위목록</span></button>
       <button class="ff-chk-Insert-btn" data-chk="memo" title="하단 자유 메모 입력란으로 포커스 이동">${SVG_ICONS.plus}<span>자유메모</span></button>
       <button class="ff-chk-Insert-btn ${isAutoWrap ? 'is-active' : ''}" data-chk="autowrap" title="체크리스트 자동줄바꿈 ON/OFF (긴 문장을 다음 항목으로 분리하지 않고 줄바꿈 표시)">${SVG_ICONS.wrapText}<span>자동줄바꿈</span></button>
     `;
@@ -5835,10 +5844,10 @@ function createObjectDOM(obj) {
     tBar.className = 'ff-table-toolbar';
     tBar.style.flexWrap = 'wrap';
     tBar.innerHTML = `
-      <button class="ff-table-btn" data-act="add-row">${SVG_ICONS.plus}<span>행</span></button>
-      <button class="ff-table-btn" data-act="del-row">${SVG_ICONS.minus}<span>행</span></button>
-      <button class="ff-table-btn" data-act="add-col">${SVG_ICONS.plus}<span>열</span></button>
-      <button class="ff-table-btn" data-act="del-col">${SVG_ICONS.minus}<span>열</span></button>
+      <button class="ff-table-btn" data-act="add-row" title="아래에 새 행 추가 (+행)">${SVG_ICONS.plus}<span>행</span></button>
+      <button class="ff-table-btn" data-act="del-row" title="마지막 행 삭제 (-행)">${SVG_ICONS.minus}<span>행</span></button>
+      <button class="ff-table-btn" data-act="add-col" title="오른쪽에 새 열 추가 (+열)">${SVG_ICONS.plus}<span>열</span></button>
+      <button class="ff-table-btn" data-act="del-col" title="마지막 열 삭제 (-열)">${SVG_ICONS.minus}<span>열</span></button>
       <button class="ff-table-btn" data-act="autofit-cols" title="모든 열 너비와 행 높이를 글자 길이에 맞춰 자동 조절 (열·행 경계선 드래그로도 조절 가능)">${SVG_ICONS.colFit}<span>간격맞춤</span></button>
       <button class="ff-table-btn" data-act="sel-all" title="표의 모든 셀 일괄 선택 (드래그 또는 Shift+클릭으로도 범위 선택 가능)">${SVG_ICONS.check}<span>전체선택</span></button>
       <button class="ff-table-btn" data-act="chk-square" title="선택된 셀에 네모 체크박스 넣기">${SVG_ICONS.chkSquare}<span>네모</span></button>
@@ -9860,9 +9869,229 @@ const resetWinHandler = async () => {
 document.getElementById('resetWindowPosBtn')?.addEventListener('click', resetWinHandler);
 document.getElementById('modalResetWindowBoundsBtn')?.addEventListener('click', resetWinHandler);
 
-document.getElementById('toggleSidebarBtn')?.addEventListener('click', () => {
-  document.getElementById('boardsSidebar')?.classList.toggle('collapsed');
+const boardsSidebarEl = document.getElementById('boardsSidebar');
+const toggleSidebarMiniBtn = document.getElementById('toggleSidebarMiniBtn');
+
+function applySidebarMiniModeState(isMini) {
+  if (!boardsSidebarEl) return;
+  boardsSidebarEl.classList.toggle('mini-mode', Boolean(isMini));
+  if (toggleSidebarMiniBtn) {
+    const tip = isMini ? '사이드바 넓게 펼치기 (보드 이름 표시)' : '사이드바 아이콘만 작게 표시';
+    toggleSidebarMiniBtn.dataset.ffTip = tip;
+    toggleSidebarMiniBtn.removeAttribute('title');
+  }
+  try {
+    localStorage.setItem('ff_sidebar_mini_mode', isMini ? '1' : '0');
+  } catch (_) {}
+}
+
+try {
+  if (localStorage.getItem('ff_sidebar_mini_mode') === '1') {
+    applySidebarMiniModeState(true);
+  }
+} catch (_) {}
+
+toggleSidebarMiniBtn?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!boardsSidebarEl) return;
+  boardsSidebarEl.classList.remove('collapsed');
+  const nextMini = !boardsSidebarEl.classList.contains('mini-mode');
+  applySidebarMiniModeState(nextMini);
 });
+
+document.getElementById('toggleSidebarBtn')?.addEventListener('click', (e) => {
+  if (!boardsSidebarEl) return;
+  if (e.shiftKey) {
+    boardsSidebarEl.classList.remove('collapsed');
+    applySidebarMiniModeState(!boardsSidebarEl.classList.contains('mini-mode'));
+    return;
+  }
+  boardsSidebarEl.classList.toggle('collapsed');
+});
+
+// ============================================================================
+// Top Freeform Toolbar Responsive Auto-Hide Overflow + '+' More Menu
+// ============================================================================
+const topTitlebarEl = document.querySelector('.top-titlebar');
+const titlebarLeftEl = document.querySelector('.titlebar-left');
+const freeformToolbarEl = document.querySelector('.freeform-toolbar');
+const titlebarRightEl = document.querySelector('.titlebar-right');
+const toolbarOverflowMoreBtn = document.getElementById('toolbarOverflowMoreBtn');
+const toolbarOverflowPopover = document.getElementById('toolbarOverflowPopover');
+
+const OVERFLOW_CANDIDATE_IDS = [
+  // First hide non-essential right utility buttons if width gets tight, then center creation tools from right to left
+  'addFileBtn',
+  'addLinkBtn',
+  'addStickerBtn',
+  'addImageBtn',
+  'captureCameraBtn',
+  'captureScreenBtn',
+  'addMarkdownBtn',
+  'addTableBtn',
+  'addTextBtn',
+  'addLabelBtn',
+  'addStickyBtn',
+  'toolShapeBtn',
+  'toolPenBtn',
+  'resetWindowPosBtn',
+  'pasteClipboardBtn',
+  'redoBoardBtn',
+  'undoBoardBtn'
+];
+
+let hiddenOverflowButtonIds = [];
+
+function getButtonDisplayLabel(btn) {
+  if (!btn) return '';
+  const span = btn.querySelector(':scope > span');
+  if (span && span.textContent.trim()) return span.textContent.trim();
+  return btn.dataset.ffTip || btn.getAttribute('title') || btn.getAttribute('aria-label') || btn.id;
+}
+
+function renderToolbarOverflowPopover() {
+  if (!toolbarOverflowPopover) return;
+  toolbarOverflowPopover.innerHTML = '';
+  if (hiddenOverflowButtonIds.length === 0) {
+    toolbarOverflowPopover.classList.add('hidden');
+    toolbarOverflowMoreBtn?.classList.remove('open');
+    return;
+  }
+
+  const labelEl = document.createElement('div');
+  labelEl.className = 'toolbar-overflow-section-label';
+  labelEl.textContent = `숨겨진 도구 (${hiddenOverflowButtonIds.length}개)`;
+  toolbarOverflowPopover.appendChild(labelEl);
+
+  // Preserve visual left-to-right toolbar order inside the popover menu
+  const orderedIds = [...OVERFLOW_CANDIDATE_IDS].reverse().filter((id) => hiddenOverflowButtonIds.includes(id));
+  orderedIds.forEach((id) => {
+    const origBtn = document.getElementById(id);
+    if (!origBtn) return;
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = `toolbar-overflow-item ${origBtn.classList.contains('active') ? 'active' : ''}`;
+    const svgEl = origBtn.querySelector('svg');
+    const svgHtml = svgEl ? svgEl.outerHTML : '';
+    const labelTxt = getButtonDisplayLabel(origBtn);
+    item.innerHTML = `${svgHtml}<span>${escapeHtml(labelTxt)}</span>`;
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toolbarOverflowPopover.classList.add('hidden');
+      toolbarOverflowMoreBtn?.classList.remove('open');
+      origBtn.click();
+    });
+    toolbarOverflowPopover.appendChild(item);
+  });
+}
+
+function positionToolbarOverflowPopover() {
+  if (!toolbarOverflowMoreBtn || !toolbarOverflowPopover) return;
+  const r = toolbarOverflowMoreBtn.getBoundingClientRect();
+  const popW = toolbarOverflowPopover.offsetWidth || 230;
+  let left = Math.round(r.right - popW);
+  left = Math.max(8, Math.min(window.innerWidth - popW - 8, left));
+  toolbarOverflowPopover.style.left = `${left}px`;
+  toolbarOverflowPopover.style.top = `${Math.round(r.bottom + 8)}px`;
+}
+
+function updateTopToolbarOverflow() {
+  if (!topTitlebarEl || !freeformToolbarEl || !toolbarOverflowMoreBtn) return;
+
+  // 1. Reset all candidates and dividers to visible
+  const dividers = Array.from(freeformToolbarEl.querySelectorAll('.toolbar-divider'));
+  OVERFLOW_CANDIDATE_IDS.forEach((id) => {
+    document.getElementById(id)?.classList.remove('is-overflow-hidden');
+  });
+  dividers.forEach((d) => d.classList.remove('is-overflow-hidden'));
+  toolbarOverflowMoreBtn.classList.add('hidden');
+  hiddenOverflowButtonIds = [];
+
+  const availW = topTitlebarEl.clientWidth - 28;
+  const neededWidth = () =>
+    (titlebarLeftEl?.offsetWidth || 0) +
+    (freeformToolbarEl?.offsetWidth || 0) +
+    (titlebarRightEl?.offsetWidth || 0) +
+    20;
+
+  if (neededWidth() <= availW) {
+    if (toolbarOverflowPopover && !toolbarOverflowPopover.classList.contains('hidden')) {
+      toolbarOverflowPopover.classList.add('hidden');
+      toolbarOverflowMoreBtn.classList.remove('open');
+    }
+    return;
+  }
+
+  // 2. Show '+' button and hide candidates one by one until the bar fits cleanly
+  toolbarOverflowMoreBtn.classList.remove('hidden');
+
+  for (const id of OVERFLOW_CANDIDATE_IDS) {
+    if (neededWidth() <= availW) break;
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    btn.classList.add('is-overflow-hidden');
+    hiddenOverflowButtonIds.push(id);
+
+    // Hide dividers whose surrounding group is completely hidden
+    dividers.forEach((div) => {
+      let nextSib = div.nextElementSibling;
+      let hasVisibleAfter = false;
+      while (nextSib && nextSib !== toolbarOverflowMoreBtn && !nextSib.classList.contains('toolbar-divider')) {
+        if (!nextSib.classList.contains('is-overflow-hidden')) {
+          hasVisibleAfter = true;
+          break;
+        }
+        nextSib = nextSib.nextElementSibling;
+      }
+      div.classList.toggle('is-overflow-hidden', !hasVisibleAfter);
+    });
+  }
+
+  if (hiddenOverflowButtonIds.length === 0) {
+    toolbarOverflowMoreBtn.classList.add('hidden');
+  } else if (toolbarOverflowPopover && !toolbarOverflowPopover.classList.contains('hidden')) {
+    renderToolbarOverflowPopover();
+    positionToolbarOverflowPopover();
+  }
+}
+
+toolbarOverflowMoreBtn?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!toolbarOverflowPopover) return;
+  const willOpen = toolbarOverflowPopover.classList.contains('hidden');
+  if (willOpen) {
+    renderToolbarOverflowPopover();
+    toolbarOverflowPopover.classList.remove('hidden');
+    toolbarOverflowMoreBtn.classList.add('open');
+    positionToolbarOverflowPopover();
+  } else {
+    toolbarOverflowPopover.classList.add('hidden');
+    toolbarOverflowMoreBtn.classList.remove('open');
+  }
+});
+
+document.addEventListener('pointerdown', (e) => {
+  if (
+    toolbarOverflowPopover &&
+    !toolbarOverflowPopover.classList.contains('hidden') &&
+    !toolbarOverflowPopover.contains(e.target) &&
+    !toolbarOverflowMoreBtn?.contains(e.target)
+  ) {
+    toolbarOverflowPopover.classList.add('hidden');
+    toolbarOverflowMoreBtn?.classList.remove('open');
+  }
+});
+
+window.addEventListener('resize', () => {
+  updateTopToolbarOverflow();
+});
+if (typeof ResizeObserver !== 'undefined' && topTitlebarEl) {
+  const tbRo = new ResizeObserver(() => {
+    updateTopToolbarOverflow();
+  });
+  tbRo.observe(topTitlebarEl);
+}
+requestAnimationFrame(() => updateTopToolbarOverflow());
 
 activeBoardTitleInput?.addEventListener('input', () => {
   if (!currentBoard) return;
@@ -10827,7 +11056,8 @@ document.getElementById('inspOpacityBtn')?.addEventListener('click', toggleSelec
 // ============================================================================
 const SPAN_TOOLTIP_HOSTS =
   '.top-titlebar .tool-btn, .sync-status-pill, .insp-obj-only-group .insp-btn, #inspDeleteBtn, #undoStrokeBtn';
-const FLOATING_TIP_TARGETS = 'button, select, input, label, .swatch, .pen-color, .hud-btn, [role="button"], .board-item, .drive-path-box, .ff-obj-icon-btn';
+const FLOATING_TIP_TARGETS =
+  'button, select, input, label, .swatch, .pen-color, .hud-btn, [role="button"], .board-item, .drive-path-box, .ff-obj-icon-btn, .ff-header-copy-btn, .ff-pdf-mode-toggle, .ff-chk-Insert-btn, .ff-group-badge, .ff-table-btn';
 const floatingTipEl = document.createElement('div');
 floatingTipEl.className = 'ff-floating-tip';
 document.body.appendChild(floatingTipEl);
@@ -10859,22 +11089,29 @@ function positionFloatingTip(host) {
 document.addEventListener(
   'mouseover',
   (e) => {
-    const titled = e.target.closest?.('.ff-obj-icon-btn, [title], [data-ff-tip]');
+    const titled = e.target.closest?.(
+      '.ff-obj-icon-btn, .ff-header-copy-btn, .ff-pdf-mode-toggle, .ff-chk-Insert-btn, .ff-group-badge, [title], [data-ff-tip]'
+    );
     if (!titled) {
       if (floatingTipHost && !floatingTipHost.contains(e.target)) hideFloatingTip();
       return;
     }
-    // Object header icon buttons: their hidden <span> label becomes the floating tooltip text
-    if (titled.matches('.ff-obj-icon-btn')) {
-      const spanTxt = titled.querySelector(':scope > span')?.textContent?.trim();
-      if (spanTxt) titled.dataset.ffTip = spanTxt;
-      titled.removeAttribute('title');
-    }
-    // Move native title into data attribute so the slow white OS tooltip never appears
+    // Move native title into data attribute first so the slow white OS tooltip never appears
     if (titled.hasAttribute('title')) {
-      const t = titled.getAttribute('title');
+      const t = titled.getAttribute('title')?.trim();
       if (t) titled.dataset.ffTip = t;
       titled.removeAttribute('title');
+    }
+    // Object header & toolbar icon buttons: fallback to their hidden <span> label if no explicit title was set
+    if (
+      titled.matches(
+        '.ff-obj-icon-btn, .ff-header-copy-btn, .ff-pdf-mode-toggle, .ff-chk-Insert-btn, .ff-group-badge'
+      )
+    ) {
+      if (!titled.dataset.ffTip) {
+        const spanTxt = titled.querySelector(':scope > span:not(.ff-chk-copy-combo)')?.textContent?.trim();
+        if (spanTxt) titled.dataset.ffTip = spanTxt;
+      }
     }
     // Buttons that already render their own black <span> tooltip keep it (no duplicate)
     if (titled.matches(SPAN_TOOLTIP_HOSTS)) {

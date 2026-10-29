@@ -18,6 +18,21 @@ const os = require('os');
 const http = require('http');
 const https = require('https');
 const { exec } = require('child_process');
+// Prevent Electron's intrusive native modal dialog on transient FSWatcher / Google Drive virtual mount errors
+if (dialog && typeof dialog.showErrorBox === 'function') {
+  dialog.showErrorBox = (title, content) => {
+    console.warn('[Main] Suppressed native error box:', title, content);
+  };
+}
+
+process.on('uncaughtException', (err) => {
+  console.warn('[Main] Caught uncaughtException:', err?.stack || err?.message || err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Main] Caught unhandledRejection:', reason?.stack || reason?.message || reason);
+});
+
 const driveSync = require('./driveSync');
 const githubUpdater = require('./githubUpdater');
 
@@ -33,20 +48,6 @@ const ICON_PNG_PATH = path.join(__dirname, '../../assets/icon.png');
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.boss.bossfreeform');
 }
-
-// Prevent Electron's intrusive native modal dialog on transient FSWatcher / Google Drive virtual mount errors
-process.on('uncaughtException', (err) => {
-  console.warn('[Main] Caught uncaughtException:', err?.stack || err?.message || err);
-  if (err && /watch|FSWatcher|UNKNOWN|ENOENT|EPERM|EACCES|EBUSY/i.test(String(err.message || err.stack || ''))) {
-    try {
-      driveSync.startWatching();
-    } catch (_) {}
-  }
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.warn('[Main] Caught unhandledRejection:', reason?.stack || reason?.message || reason);
-});
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -184,8 +185,8 @@ function getValidatedWindowBounds(saved) {
   if (!saved || typeof saved.width !== 'number' || typeof saved.height !== 'number') {
     return fallback;
   }
-  const width = Math.max(960, Math.round(saved.width));
-  const height = Math.max(620, Math.round(saved.height));
+  const width = Math.max(420, Math.round(saved.width));
+  const height = Math.max(360, Math.round(saved.height));
   const x = typeof saved.x === 'number' ? Math.round(saved.x) : fallback.x;
   const y = typeof saved.y === 'number' ? Math.round(saved.y) : fallback.y;
 
@@ -263,8 +264,8 @@ function createMainWindow() {
     y: initial.y,
     width: initial.width,
     height: initial.height,
-    minWidth: 960,
-    minHeight: 620,
+    minWidth: 420,
+    minHeight: 360,
     frame: false,
     backgroundColor: '#121214',
     title: 'BossFreeForm — Infinite Canvas x Google Drive',

@@ -631,67 +631,83 @@ class DriveSyncManager {
     }
     if (this.watcher) {
       try {
-        this.watcher.removeAllListeners();
-        this.watcher.close();
+        if (typeof this.watcher.on === 'function') {
+          this.watcher.on('error', () => {});
+        }
+        if (typeof this.watcher.close === 'function') {
+          this.watcher.close();
+        }
       } catch (_) {}
       this.watcher = null;
     }
-    const scheduleReconnect = (delayMs = 3000) => {
-      if (this.watchRetryTimer) clearTimeout(this.watchRetryTimer);
-      this.watchRetryTimer = setTimeout(() => {
-        this.watchRetryTimer = null;
-        this.startWatching();
-      }, delayMs);
-      if (typeof this.watchRetryTimer.unref === 'function') {
-        this.watchRetryTimer.unref();
-      }
-    };
-    try {
-      const boardsDir = this.getBoardsDir();
-      if (!boardsDir || !fs.existsSync(boardsDir)) {
-        scheduleReconnect(5000);
-        return;
-      }
-      let debounceTimer = null;
-      const watcher = fs.watch(boardsDir, (eventType, filename) => {
-        if (filename && filename.endsWith('.json')) {
+    if (this.watchPollTimer) {
+      clearInterval(this.watchPollTimer);
+      this.watchPollTimer = null;
+    }
+
+    // Google Drive 가상 드라이브(G:\)는 절전 복귀·재마운트·동기화 중 Win32 ReadDirectoryChangesW(FSWatcher)에서
+    // native UNKNOWN watch 예외를 유발할 수 있으므로, 핸들을 점유하지 않는 안전한 비동기 mtime 폴링 방식을 사용합니다.
+    this.knownBoardMtimes = new Map();
+    this._isPollingBoards = false;
+
+    const scanBoardsOnce = async (isInitial = false) => {
+      if (this._isPollingBoards) return;
+      this._isPollingBoards = true;
+      try {
+        const boardsDir = this.getBoardsDir();
+        if (!boardsDir || !fs.existsSync(boardsDir)) return;
+        const files = await fs.promises.readdir(boardsDir);
+        const seenIds = new Set();
+
+        for (const filename of files) {
+          if (!filename || !filename.endsWith('.json')) continue;
           const boardId = filename.replace(/\.json$/, '');
-          const lastSelfWrite = this.selfWriteTimestamps?.get(boardId) || 0;
-          if (Date.now() - lastSelfWrite < 3000) {
-            return;
+          seenIds.add(boardId);
+          const fullPath = path.join(boardsDir, filename);
+          let stat;
+          try {
+            stat = await fs.promises.stat(fullPath);
+          } catch (_) {
+            continue;
           }
-          if (debounceTimer) clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(() => {
-            const recentSelfWrite = this.selfWriteTimestamps?.get(boardId) || 0;
-            if (Date.now() - recentSelfWrite < 3000) {
-              return;
-            }
-            if (this.onExternalChange) {
+          const mtimeMs = Number(stat.mtimeMs) || 0;
+          const prevMtime = this.knownBoardMtimes.get(boardId);
+          this.knownBoardMtimes.set(boardId, mtimeMs);
+
+          if (!isInitial && prevMtime !== undefined && Math.abs(mtimeMs - prevMtime) > 50) {
+            const lastSelfWrite = this.selfWriteTimestamps?.get(boardId) || 0;
+            if (Date.now() - lastSelfWrite >= 3000 && this.onExternalChange) {
               this.onExternalChange(boardId);
             }
-          }, 350);
+          } else if (!isInitial && prevMtime === undefined) {
+            const lastSelfWrite = this.selfWriteTimestamps?.get(boardId) || 0;
+            if (Date.now() - lastSelfWrite >= 3000 && this.onExternalChange) {
+              this.onExternalChange(boardId);
+            }
+          }
         }
-      });
-      // Google Drive 가상 드라이브(G:\) 절전 복귀·재마운트 시 FSWatcher가 발생시키는 'error' 이벤트 처리
-      watcher.on('error', (err) => {
-        console.warn('[DriveSync] FSWatcher transient error (will auto-recover):', err?.message || err);
-        if (debounceTimer) {
-          clearTimeout(debounceTimer);
-          debounceTimer = null;
+
+        for (const existingId of Array.from(this.knownBoardMtimes.keys())) {
+          if (!seenIds.has(existingId)) {
+            this.knownBoardMtimes.delete(existingId);
+            if (!isInitial && this.onExternalChange) {
+              this.onExternalChange(existingId);
+            }
+          }
         }
-        try {
-          watcher.removeAllListeners();
-          watcher.close();
-        } catch (_) {}
-        if (this.watcher === watcher) {
-          this.watcher = null;
-        }
-        scheduleReconnect(3000);
-      });
-      this.watcher = watcher;
-    } catch (err) {
-      console.warn('[DriveSync] startWatching error (will retry):', err?.message || err);
-      scheduleReconnect(5000);
+      } catch (_) {
+        // Ignore transient Google Drive mount/network hiccups silently
+      } finally {
+        this._isPollingBoards = false;
+      }
+    };
+
+    scanBoardsOnce(true);
+    this.watchPollTimer = setInterval(() => {
+      scanBoardsOnce(false);
+    }, 2500);
+    if (typeof this.watchPollTimer.unref === 'function') {
+      this.watchPollTimer.unref();
     }
   }
 

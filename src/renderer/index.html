@@ -163,7 +163,17 @@
           </svg>
           <span>파일 첨부 (E)</span>
         </button>
+
+        <button class="tool-btn toolbar-more-btn hidden" id="toolbarOverflowMoreBtn" aria-label="숨겨진 도구 더보기">
+          <svg class="ui-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>도구 더보기 (+)</span>
+        </button>
       </div>
+
+      <div class="toolbar-overflow-popover hidden" id="toolbarOverflowPopover"></div>
 
       <!-- Right Cloud Sync & Utility Controls -->
       <div class="titlebar-right">
@@ -221,13 +231,21 @@
       <!-- Left Boards Sidebar -->
       <aside class="boards-sidebar" id="boardsSidebar">
         <div class="sidebar-top">
-          <button class="new-board-btn" id="createNewBoardBtn">
-            <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-            <span>새 프리폼 보드</span>
-          </button>
+          <div class="sidebar-top-row">
+            <button class="new-board-btn" id="createNewBoardBtn" title="새 프리폼 보드 추가">
+              <svg class="ui-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>새 프리폼 보드</span>
+            </button>
+            <button class="sidebar-mini-toggle-btn" id="toggleSidebarMiniBtn" title="사이드바 아이콘만 작게 표시 / 넓게 펼치기">
+              <svg class="ui-icon sidebar-mini-icon-collapse" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="11 17 6 12 11 7"></polyline>
+                <polyline points="18 17 13 12 18 7"></polyline>
+              </svg>
+            </button>
+          </div>
           <div class="sidebar-search-wrap">
             <input type="text" id="boardSearchInput" placeholder="보드 또는 객체 텍스트 검색..." spellcheck="false" />
           </div>
@@ -243,7 +261,7 @@
                 <svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
                 </svg>
-                저장 경로
+                <span class="drive-path-label-text">저장 경로</span>
               </span>
               <span class="drive-open-link">폴더 열기 ↗</span>
             </div>
