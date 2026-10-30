@@ -1,14 +1,18 @@
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const os = require('os');
+const { exec, execSync } = require('child_process');
 const { app, dialog } = require('electron');
 
 const REPO_OWNER = 'cirross2';
 const REPO_NAME = 'BossFreeForm-';
+const FALLBACK_REPO_NAME = 'FreeformDrive';
 const BRANCH = 'main';
 const APP_DISPLAY_NAME = 'BossFreeForm';
 
+const LOCAL_APP_DATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+const INSTALLED_APP_ROOT = path.join(LOCAL_APP_DATA, 'Programs', 'BossFreeForm', 'resources', 'app');
 const APP_ROOT = path.resolve(__dirname, '../..'); // resources/app (packaged) or e:\코딩\BossFreeForm (dev)
 const META_FILE = path.join(APP_ROOT, '.github_update_meta.json');
 
@@ -18,8 +22,35 @@ class GitHubUpdater {
     this.isUpdating = false;
     this.updateAvailable = false;
     this.latestCommit = null;
+    this.cachedToken = undefined;
     this.localSha = this.getLocalSha();
     this.onStatusChange = null;
+  }
+
+  getGitHubToken() {
+    if (this.cachedToken !== undefined) return this.cachedToken;
+    if (process.env.GITHUB_TOKEN || process.env.GH_TOKEN) {
+      this.cachedToken = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN).trim();
+      return this.cachedToken;
+    }
+    try {
+      const credOut = execSync('git credential fill', {
+        input: 'protocol=https\nhost=github.com\n\n',
+        encoding: 'utf-8',
+        timeout: 2500,
+        windowsHide: true
+      });
+      const passLine = credOut.split(/\r?\n/).find((l) => l.startsWith('password='));
+      if (passLine) {
+        const tok = passLine.replace(/^password=/, '').trim();
+        if (tok) {
+          this.cachedToken = tok;
+          return this.cachedToken;
+        }
+      }
+    } catch (_) {}
+    this.cachedToken = null;
+    return null;
   }
 
   findGitRepoRoot() {
@@ -83,26 +114,41 @@ class GitHubUpdater {
         }
       } catch (_) {}
     }
+    try {
+      if (fs.existsSync(INSTALLED_APP_ROOT)) {
+        fs.writeFileSync(path.join(INSTALLED_APP_ROOT, '.github_update_meta.json'), payload, 'utf-8');
+      }
+    } catch (_) {}
   }
 
-  fetchJson(urlStr) {
+  fetchJson(urlStr, useAuth = true) {
     return new Promise((resolve, reject) => {
+      const headers = {
+        'User-Agent': 'BossFreeForm-GitHubUpdater/1.3',
+        Accept: 'application/vnd.github.v3+json'
+      };
+      const token = useAuth ? this.getGitHubToken() : null;
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
       const req = https.get(
         urlStr,
         {
-          headers: {
-            'User-Agent': 'BossFreeForm-GitHubUpdater/1.0',
-            Accept: 'application/vnd.github.v3+json'
-          },
+          headers,
           timeout: 8000
         },
         (res) => {
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            return this.fetchJson(res.headers.location).then(resolve).catch(reject);
+            return this.fetchJson(res.headers.location, useAuth).then(resolve).catch(reject);
           }
           let raw = '';
           res.on('data', (c) => (raw += c));
           res.on('end', () => {
+            if ((res.statusCode === 401 || res.statusCode === 403) && useAuth && token) {
+              this.cachedToken = null;
+              return this.fetchJson(urlStr, false).then(resolve).catch(reject);
+            }
             if (res.statusCode !== 200) {
               return reject(new Error(`GitHub API HTTP ${res.statusCode}`));
             }
@@ -122,17 +168,76 @@ class GitHubUpdater {
     });
   }
 
-  fetchBuffer(urlStr) {
+  fetchLatestCommitViaGit() {
     return new Promise((resolve, reject) => {
+      const gitRoot = this.findGitRepoRoot();
+      if (gitRoot) {
+        exec(
+          `git -C "${gitRoot}" fetch origin ${BRANCH} && git -C "${gitRoot}" log -1 --format="%H%n%s%n%ct" origin/${BRANCH}`,
+          { timeout: 10000, windowsHide: true },
+          (err, stdout) => {
+            if (!err && stdout) {
+              const lines = stdout.trim().split(/\r?\n/);
+              if (lines[0] && /^[0-9a-f]{40}$/i.test(lines[0].trim())) {
+                return resolve({
+                  sha: lines[0].trim(),
+                  commit: {
+                    message: lines[1] || 'GitHub 최신 업데이트',
+                    committer: {
+                      date: lines[2] ? new Date(parseInt(lines[2], 10) * 1000).toISOString() : new Date().toISOString()
+                    }
+                  }
+                });
+              }
+            }
+            this.fetchLsRemoteFallback().then(resolve).catch(reject);
+          }
+        );
+      } else {
+        this.fetchLsRemoteFallback().then(resolve).catch(reject);
+      }
+    });
+  }
+
+  fetchLsRemoteFallback() {
+    return new Promise((resolve, reject) => {
+      exec(
+        `git ls-remote https://github.com/${REPO_OWNER}/${REPO_NAME}.git refs/heads/${BRANCH}`,
+        { timeout: 8000, windowsHide: true },
+        (err, stdout) => {
+          if (err || !stdout) return reject(err || new Error('Git 원격 조회 실패'));
+          const sha = stdout.trim().split(/\s+/)[0];
+          if (sha && /^[0-9a-f]{40}$/i.test(sha)) {
+            return resolve({
+              sha,
+              commit: {
+                message: 'GitHub 원격 저장소 최신 커밋',
+                committer: { date: new Date().toISOString() }
+              }
+            });
+          }
+          reject(new Error('유효한 커밋 해시를 찾을 수 없습니다.'));
+        }
+      );
+    });
+  }
+
+  fetchBuffer(urlStr, useAuth = true) {
+    return new Promise((resolve, reject) => {
+      const headers = { 'User-Agent': 'BossFreeForm-GitHubUpdater/1.3' };
+      const token = useAuth ? this.getGitHubToken() : null;
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
       const req = https.get(
         urlStr,
         {
-          headers: { 'User-Agent': 'BossFreeForm-GitHubUpdater/1.0' },
+          headers,
           timeout: 12000
         },
         (res) => {
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            return this.fetchBuffer(res.headers.location).then(resolve).catch(reject);
+            return this.fetchBuffer(res.headers.location, false).then(resolve).catch(reject);
           }
           if (res.statusCode !== 200) {
             res.resume();
@@ -177,7 +282,11 @@ class GitHubUpdater {
     try {
       const commitData = await this.fetchJson(
         `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${BRANCH}`
-      );
+      )
+        .catch(() =>
+          this.fetchJson(`https://api.github.com/repos/${REPO_OWNER}/${FALLBACK_REPO_NAME}/commits/${BRANCH}`)
+        )
+        .catch(() => this.fetchLatestCommitViaGit());
       const remoteSha = commitData?.sha;
       const commitMsg = (commitData?.commit?.message || '').split('\n')[0];
       const commitDateMs = commitData?.commit?.committer?.date
@@ -292,6 +401,15 @@ class GitHubUpdater {
                   this.copyRecursiveSync(path.join(gitRoot, 'src'), path.join(APP_ROOT, 'src'));
                   this.copyRecursiveSync(path.join(gitRoot, 'assets'), path.join(APP_ROOT, 'assets'));
                   fs.copyFileSync(path.join(gitRoot, 'package.json'), path.join(APP_ROOT, 'package.json'));
+                }
+                if (
+                  fs.existsSync(INSTALLED_APP_ROOT) &&
+                  path.resolve(INSTALLED_APP_ROOT) !== path.resolve(gitRoot) &&
+                  path.resolve(INSTALLED_APP_ROOT) !== path.resolve(APP_ROOT)
+                ) {
+                  this.copyRecursiveSync(path.join(gitRoot, 'src'), path.join(INSTALLED_APP_ROOT, 'src'));
+                  this.copyRecursiveSync(path.join(gitRoot, 'assets'), path.join(INSTALLED_APP_ROOT, 'assets'));
+                  fs.copyFileSync(path.join(gitRoot, 'package.json'), path.join(INSTALLED_APP_ROOT, 'package.json'));
                 }
                 resolve(true);
               } catch (_) {
